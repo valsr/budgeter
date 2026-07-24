@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import accounts, ai, budgets, categories, health, imports, rules, transactions
+from app.routers import accounts, ai, backup, budgets, categories, health, imports, rules, transactions
 
 app = FastAPI(title="Budgeter API")
 
@@ -21,3 +21,4 @@ app.include_router(imports.router)
 app.include_router(rules.router)
 app.include_router(ai.router)
 app.include_router(budgets.router)
+app.include_router(backup.router)
