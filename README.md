@@ -52,6 +52,12 @@ npm run build
 
 Output goes to `frontend/dist/` — kept as a conventional Vite build path so a later step (FastAPI serving the built static assets from a single Docker container) can pick it up without restructuring.
 
+Run frontend smoke/interaction tests (Vitest + React Testing Library):
+
+```bash
+npm test
+```
+
 ## Deployment
 
 Out of scope for the current phase. The eventual plan (see `docs/requirements.md` §8) is a single Docker container running FastAPI, serving both the API and the built `frontend/dist/` static assets, backed by a SQLite file on a mounted volume. For now, run the backend and frontend dev servers side by side as described above.
