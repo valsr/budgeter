@@ -6,15 +6,15 @@ from app.db import get_db
 from app.errors import NotFoundError
 from app.schemas.account import AccountCreate, AccountRead, AccountUpdate
 from app.services import accounts as accounts_service
+from app.services.balances import compute_balance
 
 router = APIRouter(
     prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(require_api_key)]
 )
 
 
-def _to_read(account) -> AccountRead:
-    # Running balance = opening balance + transaction activity. No Transaction
-    # model exists yet (milestone 3), so balance currently mirrors opening_balance.
+def _to_read(db: Session, account) -> AccountRead:
+    balance = compute_balance(db, account.id, float(account.opening_balance))
     return AccountRead(
         id=account.id,
         name=account.name,
@@ -22,13 +22,13 @@ def _to_read(account) -> AccountRead:
         type=account.type,
         opening_balance=float(account.opening_balance),
         color=account.color,
-        balance=float(account.opening_balance),
+        balance=balance,
     )
 
 
 @router.get("", response_model=list[AccountRead])
 def list_accounts(db: Session = Depends(get_db)):
-    return [_to_read(a) for a in accounts_service.list_accounts(db)]
+    return [_to_read(db, a) for a in accounts_service.list_accounts(db)]
 
 
 @router.post("", response_model=AccountRead, status_code=201)
@@ -41,13 +41,13 @@ def create_account(payload: AccountCreate, db: Session = Depends(get_db)):
         opening_balance=payload.opening_balance,
         color=payload.color,
     )
-    return _to_read(account)
+    return _to_read(db, account)
 
 
 @router.get("/{account_id}", response_model=AccountRead)
 def get_account(account_id: int, db: Session = Depends(get_db)):
     try:
-        return _to_read(accounts_service.get_account(db, account_id))
+        return _to_read(db, accounts_service.get_account(db, account_id))
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -64,6 +64,6 @@ def update_account(account_id: int, payload: AccountUpdate, db: Session = Depend
             opening_balance=payload.opening_balance,
             color=payload.color,
         )
-        return _to_read(account)
+        return _to_read(db, account)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
