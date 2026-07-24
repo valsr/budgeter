@@ -14,6 +14,17 @@ def _categories_as_tuples(categories):
     return [(c.category_id, c.monthly_amounts) for c in categories]
 
 
+def row_to_read(row) -> ReportRowRead:
+    return ReportRowRead(
+        category_id=row.category_id,
+        name=row.name,
+        is_parent=row.is_parent,
+        monthly={m: MonthCell(budgeted=float(b), actual=float(a)) for m, (b, a) in row.monthly.items()},
+        ytd_diff=float(row.ytd_diff),
+        has_budget=row.has_budget,
+    )
+
+
 @router.get("", response_model=list[BudgetRead])
 def list_budgets(db: Session = Depends(get_db)):
     return budgets_service.list_budgets(db)
@@ -72,13 +83,4 @@ def get_report(budget_id: int, year: int, through_month: int, db: Session = Depe
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
-    return [
-        ReportRowRead(
-            category_id=row.category_id,
-            name=row.name,
-            is_parent=row.is_parent,
-            monthly={m: MonthCell(budgeted=float(b), actual=float(a)) for m, (b, a) in row.monthly.items()},
-            ytd_diff=float(row.ytd_diff),
-        )
-        for row in rows
-    ]
+    return [row_to_read(row) for row in rows]

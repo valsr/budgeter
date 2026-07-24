@@ -33,6 +33,10 @@ class ReportRow:
     is_parent: bool
     monthly: dict[int, tuple[Decimal, Decimal]] = field(default_factory=dict)  # month -> (budgeted, actual)
     ytd_diff: Decimal = Decimal(0)
+    has_budget: bool = True
+    """False when this category has no budgeted amount anywhere (e.g. an
+    income category on the Overview screen) — the diff/balance is then
+    meaningless and should render as "—" rather than a number."""
 
 
 def build_row(
@@ -43,7 +47,15 @@ def build_row(
     actual: MonthlyAmounts,
     months: list[int],
     through_month: int,
+    has_budget: bool = True,
 ) -> ReportRow:
     monthly = {m: (budgeted.get(m, Decimal(0)), actual.get(m, Decimal(0))) for m in months}
     ytd_diff = cumulative_balance(budgeted, actual, through_month)
-    return ReportRow(category_id=category_id, name=name, is_parent=is_parent, monthly=monthly, ytd_diff=ytd_diff)
+    return ReportRow(
+        category_id=category_id,
+        name=name,
+        is_parent=is_parent,
+        monthly=monthly,
+        ytd_diff=ytd_diff,
+        has_budget=has_budget,
+    )

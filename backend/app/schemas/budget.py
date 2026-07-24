@@ -52,3 +52,4 @@ class ReportRowRead(BaseModel):
     is_parent: bool
     monthly: dict[int, MonthCell]
     ytd_diff: float
+    has_budget: bool = True

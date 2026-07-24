@@ -120,11 +120,15 @@ def _actuals_for_category(
     return {m: v for m, v in actuals.items() if m <= through_month}
 
 
-def get_report(db: Session, budget_id: int, year: int, through_month: int) -> list[ReportRow]:
-    budget = get_budget(db, budget_id)
+def _assemble_rows(
+    db: Session,
+    leaf_ids: list[int],
+    budgeted_by_category: dict[int, dict[int, Decimal]],
+    has_budget_by_category: dict[int, bool],
+    year: int,
+    through_month: int,
+) -> list[ReportRow]:
     months = list(range(1, through_month + 1))
-
-    leaf_ids = [bc.category_id for bc in budget.budget_categories]
     if not leaf_ids:
         return []
 
@@ -136,12 +140,6 @@ def get_report(db: Session, budget_id: int, year: int, through_month: int) -> li
     if parent_ids:
         for parent in db.execute(select(Category).where(Category.id.in_(parent_ids))).scalars().all():
             categories_by_id[parent.id] = parent
-
-    budgeted_by_category: dict[int, dict[int, Decimal]] = {}
-    for bc in budget.budget_categories:
-        budgeted_by_category[bc.category_id] = {
-            a.month: Decimal(str(a.amount)) for a in bc.amounts if a.year == year
-        }
 
     actual_by_category = {
         cat_id: _actuals_for_category(db, cat_id, year, through_month) for cat_id in leaf_ids
@@ -182,6 +180,7 @@ def get_report(db: Session, budget_id: int, year: int, through_month: int) -> li
                     actual_by_category[standalone_leaf.id],
                     months,
                     through_month,
+                    has_budget=has_budget_by_category.get(standalone_leaf.id, True),
                 )
             )
             continue
@@ -189,9 +188,17 @@ def get_report(db: Session, budget_id: int, year: int, through_month: int) -> li
         children = leaves_by_parent[parent_id]
         parent_budgeted = sum_monthly([budgeted_by_category[c.id] for c in children])
         parent_actual = sum_monthly([actual_by_category[c.id] for c in children])
+        parent_has_budget = any(has_budget_by_category.get(c.id, True) for c in children)
         rows.append(
             build_row(
-                parent_id, categories_by_id[parent_id].name, True, parent_budgeted, parent_actual, months, through_month
+                parent_id,
+                categories_by_id[parent_id].name,
+                True,
+                parent_budgeted,
+                parent_actual,
+                months,
+                through_month,
+                has_budget=parent_has_budget,
             )
         )
         for child in children:
@@ -204,7 +211,62 @@ def get_report(db: Session, budget_id: int, year: int, through_month: int) -> li
                     actual_by_category[child.id],
                     months,
                     through_month,
+                    has_budget=has_budget_by_category.get(child.id, True),
                 )
             )
 
     return rows
+
+
+def get_report(db: Session, budget_id: int, year: int, through_month: int) -> list[ReportRow]:
+    budget = get_budget(db, budget_id)
+    leaf_ids = [bc.category_id for bc in budget.budget_categories]
+
+    budgeted_by_category: dict[int, dict[int, Decimal]] = {}
+    for bc in budget.budget_categories:
+        budgeted_by_category[bc.category_id] = {
+            a.month: Decimal(str(a.amount)) for a in bc.amounts if a.year == year
+        }
+
+    return _assemble_rows(db, leaf_ids, budgeted_by_category, {}, year, through_month)
+
+
+def get_overview(db: Session, year: int, through_month: int) -> list[ReportRow]:
+    """The Overview screen's category table: every non-archived leaf
+    category, regardless of which (if any) saved budget it belongs to —
+    unlike get_report, this isn't scoped to one named report.
+    """
+    leaves = list(
+        db.execute(
+            select(Category)
+            .where(Category.archived_at.is_(None))
+            .where(~Category.id.in_(select(Category.parent_id).where(Category.parent_id.is_not(None))))
+        )
+        .scalars()
+        .all()
+    )
+    leaf_ids = [c.id for c in leaves]
+    if not leaf_ids:
+        return []
+
+    amount_rows = db.execute(
+        select(BudgetCategory.category_id, BudgetAmount.month, func.sum(BudgetAmount.amount))
+        .join(BudgetAmount, BudgetAmount.budget_category_id == BudgetCategory.id)
+        .where(BudgetCategory.category_id.in_(leaf_ids))
+        .where(BudgetAmount.year == year)
+        .group_by(BudgetCategory.category_id, BudgetAmount.month)
+    ).all()
+    budgeted_by_category: dict[int, dict[int, Decimal]] = {cid: {} for cid in leaf_ids}
+    for category_id, month, total in amount_rows:
+        budgeted_by_category[category_id][month] = Decimal(str(total))
+
+    has_budget_ids = set(
+        db.execute(
+            select(BudgetCategory.category_id).where(BudgetCategory.category_id.in_(leaf_ids)).distinct()
+        )
+        .scalars()
+        .all()
+    )
+    has_budget_by_category = {cid: cid in has_budget_ids for cid in leaf_ids}
+
+    return _assemble_rows(db, leaf_ids, budgeted_by_category, has_budget_by_category, year, through_month)
