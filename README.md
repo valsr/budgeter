@@ -58,6 +58,10 @@ Run frontend smoke/interaction tests (Vitest + React Testing Library):
 npm test
 ```
 
+## MCP adapter (optional)
+
+A thin MCP server wrapping the REST API — lets Claude/skills browse accounts, transactions, and categories, and submit on-demand AI category suggestions. See [mcp_adapter/README.md](mcp_adapter/README.md) for setup and the list of tools. Runs as its own process (its own venv, no code shared with `backend/`); the core app doesn't speak MCP natively.
+
 ## Deployment
 
 Out of scope for the current phase. The eventual plan (see `docs/requirements.md` §8) is a single Docker container running FastAPI, serving both the API and the built `frontend/dist/` static assets, backed by a SQLite file on a mounted volume. For now, run the backend and frontend dev servers side by side as described above.
