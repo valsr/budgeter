@@ -1,6 +1,6 @@
 import datetime as dt
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import NotFoundError, ValidationError
@@ -132,6 +132,37 @@ def create_transfer(
 
 def get_transaction(db: Session, transaction_id: int) -> Transaction:
     return _get_transaction_or_404(db, transaction_id)
+
+
+def _get_split_or_404(db: Session, transaction_id: int, split_id: int) -> Split:
+    txn = _get_transaction_or_404(db, transaction_id)
+    split = next((s for s in txn.splits if s.id == split_id), None)
+    if split is None:
+        raise NotFoundError(f"Split {split_id} not found on transaction {transaction_id}")
+    return split
+
+
+def accept_suggestion(db: Session, transaction_id: int, split_id: int) -> Split:
+    split = _get_split_or_404(db, transaction_id, split_id)
+    if split.suggested_category_id is None:
+        raise ValidationError("This split has no pending suggestion to accept")
+    split.category_id = split.suggested_category_id
+    split.suggested_category_id = None
+    split.suggestion_source = None
+    db.commit()
+    db.refresh(split)
+    return split
+
+
+def reject_suggestion(db: Session, transaction_id: int, split_id: int) -> Split:
+    split = _get_split_or_404(db, transaction_id, split_id)
+    if split.suggested_category_id is None:
+        raise ValidationError("This split has no pending suggestion to reject")
+    split.suggested_category_id = None
+    split.suggestion_source = None
+    db.commit()
+    db.refresh(split)
+    return split
 
 
 def _descendant_category_ids(db: Session, category_id: int) -> list[int]:

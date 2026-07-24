@@ -2,6 +2,7 @@ import datetime as dt
 
 from pydantic import BaseModel, ConfigDict
 
+from app.models.split import SuggestionSource
 from app.models.transaction import TransactionType
 
 
@@ -16,6 +17,8 @@ class SplitRead(BaseModel):
     id: int
     category_id: int | None
     amount: float
+    suggested_category_id: int | None = None
+    suggestion_source: SuggestionSource | None = None
 
 
 class TransactionCreate(BaseModel):

@@ -7,6 +7,7 @@ from app.auth import require_api_key
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
 from app.schemas.transaction import (
+    SplitRead,
     SplitsUpdate,
     TransactionCreate,
     TransactionPage,
@@ -127,3 +128,23 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
         txn_service.delete_transaction(db, transaction_id)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/{transaction_id}/splits/{split_id}/accept-suggestion", response_model=SplitRead)
+def accept_suggestion(transaction_id: int, split_id: int, db: Session = Depends(get_db)):
+    try:
+        return txn_service.accept_suggestion(db, transaction_id, split_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.post("/{transaction_id}/splits/{split_id}/reject-suggestion", response_model=SplitRead)
+def reject_suggestion(transaction_id: int, split_id: int, db: Session = Depends(get_db)):
+    try:
+        return txn_service.reject_suggestion(db, transaction_id, split_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
