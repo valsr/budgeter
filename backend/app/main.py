@@ -1,8 +1,7 @@
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.auth import require_api_key
-from app.routers import health
+from app.routers import accounts, categories, health
 
 app = FastAPI(title="Budgeter API")
 
@@ -15,5 +14,5 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
-
-api_router_dependencies = [Depends(require_api_key)]
+app.include_router(accounts.router)
+app.include_router(categories.router)
