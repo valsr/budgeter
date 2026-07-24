@@ -1,0 +1,2 @@
+# budgeter
+Simple budgeting app
