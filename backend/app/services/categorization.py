@@ -7,7 +7,13 @@ from app.services.rule_engine import TransactionContext, find_matching_rule
 from app.services.rules import list_rules, rules_to_specs
 
 
-def _uncategorized_transactions_query(transaction_ids: list[int] | None):
+def list_eligible_for_suggestion(db: Session, transaction_ids: list[int] | None = None) -> list[Transaction]:
+    """Transactions eligible for a rule/AI category suggestion: normal
+    (non-transfer) transactions with a single split that has no confirmed
+    category yet. A suggestion proposes one category for the transaction
+    as a whole, and a transaction someone has already (fully or partially)
+    split is left alone — only manual/AI-assisted editing touches those.
+    """
     stmt = (
         select(Transaction)
         .options(selectinload(Transaction.splits))
@@ -15,7 +21,9 @@ def _uncategorized_transactions_query(transaction_ids: list[int] | None):
     )
     if transaction_ids is not None:
         stmt = stmt.where(Transaction.id.in_(transaction_ids))
-    return stmt
+
+    transactions = db.execute(stmt).scalars().unique().all()
+    return [t for t in transactions if len(t.splits) == 1 and t.splits[0].category_id is None]
 
 
 def run_categorization(db: Session, transaction_ids: list[int] | None = None) -> int:
@@ -35,12 +43,10 @@ def run_categorization(db: Session, transaction_ids: list[int] | None = None) ->
     if not rules:
         return 0
 
-    transactions = db.execute(_uncategorized_transactions_query(transaction_ids)).scalars().unique().all()
+    transactions = list_eligible_for_suggestion(db, transaction_ids)
 
     suggested_count = 0
     for txn in transactions:
-        if len(txn.splits) != 1 or txn.splits[0].category_id is not None:
-            continue
         split = txn.splits[0]
 
         ctx = TransactionContext(
