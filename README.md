@@ -8,8 +8,10 @@ Single-user, local-only personal finance tracker (Python/FastAPI + SQLite backen
 cd backend
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # includes requirements.txt + pytest/httpx
 ```
+
+(`requirements.txt` alone has just the runtime deps — that's what the container image installs.)
 
 Run the dev server:
 
@@ -62,6 +64,13 @@ npm test
 
 A thin MCP server wrapping the REST API — lets Claude/skills browse accounts, transactions, and categories, and submit on-demand AI category suggestions. See [mcp_adapter/README.md](mcp_adapter/README.md) for setup and the list of tools. Runs as its own process (its own venv, no code shared with `backend/`); the core app doesn't speak MCP natively.
 
-## Deployment
+## Container (Podman)
 
-Out of scope for the current phase. The eventual plan (see `docs/requirements.md` §8) is a single Docker container running FastAPI, serving both the API and the built `frontend/dist/` static assets, backed by a SQLite file on a mounted volume. For now, run the backend and frontend dev servers side by side as described above.
+A single container runs FastAPI, serving both the API and the built frontend static assets, per `docs/requirements.md` §8. See [docs/container.md](docs/container.md) for build/run instructions — short version:
+
+```bash
+scripts/podman-build.sh
+scripts/podman-run.sh
+```
+
+The SQLite database lives on a named volume (`budgeter-data`) mounted at `/data`, so it survives container restarts/rebuilds.
