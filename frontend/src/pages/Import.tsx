@@ -2,7 +2,8 @@ import type { DragEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { accountsApi } from "../api/accounts";
 import { importsApi } from "../api/imports";
-import type { Account, ImportBatch, ReviewQueueItem } from "../api/types";
+import type { Account, DetectAccountsResponse, ImportBatch, ImportResolutionInput, ReviewQueueItem } from "../api/types";
+import { DetectedAccountsModal } from "../components/DetectedAccountsModal";
 
 export function Import() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -12,6 +13,10 @@ export function Import() {
   const [reviewItems, setReviewItems] = useState<ReviewQueueItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [detection, setDetection] = useState<DetectAccountsResponse | null>(null);
+  const [showAccountsModal, setShowAccountsModal] = useState(false);
+  const [committing, setCommitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function load() {
@@ -19,24 +24,63 @@ export function Import() {
     importsApi.reviewItems().then(setReviewItems);
   }
 
-  useEffect(() => {
+  function loadAccounts() {
     accountsApi.list().then((list) => {
       setAccounts(list);
-      if (list.length > 0) setAccountId(list[0].id);
+      if (accountId === null && list.length > 0) setAccountId(list[0].id);
     });
+  }
+
+  useEffect(() => {
+    loadAccounts();
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function resetFile() {
+    setFile(null);
+    setDetection(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleFileSelected(selected: File) {
+    setFile(selected);
+    setDetection(null);
+    setDetecting(true);
+    try {
+      const result = await importsApi.detectAccounts(selected);
+      setDetection(result);
+      if (result.has_account_sections) setShowAccountsModal(true);
+    } catch {
+      resetFile();
+    } finally {
+      setDetecting(false);
+    }
+  }
 
   async function doImport() {
     if (!file || accountId === null) return;
     setUploading(true);
     try {
       await importsApi.upload(accountId, file);
-      setFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      resetFile();
       load();
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function commitDetected(resolutions: ImportResolutionInput[]) {
+    if (!file) return;
+    setCommitting(true);
+    try {
+      await importsApi.commit(file, resolutions);
+      setShowAccountsModal(false);
+      resetFile();
+      load();
+      loadAccounts(); // any accounts created via "new_account" resolutions
+    } finally {
+      setCommitting(false);
     }
   }
 
@@ -59,7 +103,7 @@ export function Import() {
     e.preventDefault();
     setDragActive(false);
     const dropped = e.dataTransfer.files?.[0];
-    if (dropped) setFile(dropped);
+    if (dropped) handleFileSelected(dropped);
   }
 
   const accountName = (id: number) => accounts.find((a) => a.id === id)?.name ?? `#${id}`;
@@ -67,7 +111,10 @@ export function Import() {
   return (
     <div>
       <h1>Import</h1>
-      <p className="sub">Import a QIF statement export. Duplicates are skipped automatically; near-matches are flagged for review.</p>
+      <p className="sub">
+        Import a QIF, QFX, or OFX statement export. Duplicates are skipped automatically; near-matches are
+        flagged for review; new accounts referenced in the file are detected and prompted for before import.
+      </p>
 
       <div
         className={"dropzone" + (dragActive ? " drag-active" : "")}
@@ -76,31 +123,60 @@ export function Import() {
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
       >
-        <strong>{file ? file.name : "Drop a .qif file here, or browse"}</strong>
+        <strong>{file ? file.name : "Drop a .qif, .qfx, or .ofx file here, or browse"}</strong>
         {!file && "No file selected"}
       </div>
       <div style={{ marginBottom: 24, display: "flex", gap: 8, alignItems: "center" }}>
-        <select value={accountId ?? ""} onChange={(e) => setAccountId(Number(e.target.value))}>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".qif"
+          accept=".qif,.qfx,.ofx"
           style={{ display: "none" }}
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => {
+            const selected = e.target.files?.[0];
+            if (selected) handleFileSelected(selected);
+          }}
         />
         <button className="btn ghost" onClick={() => fileInputRef.current?.click()}>
           Choose file
         </button>
-        <button className="btn" onClick={doImport} disabled={!file || accountId === null || uploading}>
-          Import
-        </button>
+
+        {detecting && <span className="sub">Scanning file for accounts…</span>}
+
+        {!detecting && detection?.has_account_sections && (
+          <span className="sub">
+            {detection.accounts.length} account{detection.accounts.length === 1 ? "" : "s"} detected —{" "}
+            <span className="toast-link" onClick={() => setShowAccountsModal(true)}>
+              review before importing
+            </span>
+          </span>
+        )}
+
+        {!detecting && (!detection || !detection.has_account_sections) && (
+          <>
+            <select value={accountId ?? ""} onChange={(e) => setAccountId(Number(e.target.value))}>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            <button className="btn" onClick={doImport} disabled={!file || accountId === null || uploading}>
+              {uploading ? "Importing…" : "Import"}
+            </button>
+          </>
+        )}
       </div>
+
+      {showAccountsModal && detection && (
+        <DetectedAccountsModal
+          accounts={detection.accounts}
+          existingAccounts={accounts}
+          submitting={committing}
+          onClose={() => setShowAccountsModal(false)}
+          onConfirm={commitDetected}
+        />
+      )}
 
       {reviewItems.length > 0 && (
         <>

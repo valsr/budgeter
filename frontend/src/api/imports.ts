@@ -1,5 +1,5 @@
 import { apiFetch, apiUpload } from "./client";
-import type { ImportBatch, ReviewQueueItem } from "./types";
+import type { DetectAccountsResponse, ImportBatch, ImportResolutionInput, ReviewQueueItem } from "./types";
 
 export const importsApi = {
   list: () => apiFetch<ImportBatch[]>("/api/import"),
@@ -8,6 +8,17 @@ export const importsApi = {
     form.append("account_id", String(accountId));
     form.append("file", file);
     return apiUpload<ImportBatch>("/api/import", form);
+  },
+  detectAccounts: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiUpload<DetectAccountsResponse>("/api/import/detect-accounts", form);
+  },
+  commit: (file: File, resolutions: ImportResolutionInput[]) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("resolutions", JSON.stringify({ resolutions }));
+    return apiUpload<ImportBatch[]>("/api/import/commit", form);
   },
   reviewItems: (batchId?: number, pendingOnly = true) => {
     const params = new URLSearchParams({ pending_only: String(pendingOnly) });

@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.errors import ValidationError
-from app.services.qif_parser import parse_qif
+from app.services.qif_parser import parse_qif, parse_qif_accounts
 
 
 def test_parses_single_record():
@@ -163,3 +163,98 @@ def test_empty_content_returns_no_transactions():
     assert parse_qif("") == []
 
     assert parse_qif("!Type:Bank\n") == []
+
+
+def test_single_account_file_has_no_account_sections():
+    content = """!Type:Bank
+D07/19/2026
+T-88.40
+PCostco
+^
+"""
+    blocks = parse_qif_accounts(content)
+    assert len(blocks) == 1
+    assert blocks[0].name is None
+    assert blocks[0].account_type_hint is None
+    assert len(blocks[0].transactions) == 1
+
+
+def test_multi_account_file_groups_by_account():
+    content = """!Account
+NChecking
+TBank
+^
+!Type:Bank
+D07/19/2026
+T-88.40
+PCostco
+^
+D07/20/2026
+T-10.00
+PSpotify
+^
+!Account
+NCredit Card
+TCCard
+^
+!Type:CCard
+D07/21/2026
+T-55.00
+PAmazon
+^
+"""
+    blocks = parse_qif_accounts(content)
+    assert len(blocks) == 2
+
+    assert blocks[0].name == "Checking"
+    assert blocks[0].account_type_hint == "asset"
+    assert [t.payee for t in blocks[0].transactions] == ["Costco", "Spotify"]
+
+    assert blocks[1].name == "Credit Card"
+    assert blocks[1].account_type_hint == "liability"
+    assert [t.payee for t in blocks[1].transactions] == ["Amazon"]
+
+
+def test_multi_account_file_flattens_via_parse_qif():
+    content = """!Account
+NChecking
+TBank
+^
+!Type:Bank
+D07/19/2026
+T-88.40
+PCostco
+^
+!Account
+NSavings
+TBank
+^
+!Type:Bank
+D07/20/2026
+T500.00
+PTransfer
+^
+"""
+    txns = parse_qif(content)
+    assert [t.payee for t in txns] == ["Costco", "Transfer"]
+
+
+def test_account_section_with_no_transactions_is_dropped():
+    content = """!Account
+NEmpty Account
+TBank
+^
+!Type:Bank
+!Account
+NChecking
+TBank
+^
+!Type:Bank
+D07/19/2026
+T-1.00
+PX
+^
+"""
+    blocks = parse_qif_accounts(content)
+    assert len(blocks) == 1
+    assert blocks[0].name == "Checking"

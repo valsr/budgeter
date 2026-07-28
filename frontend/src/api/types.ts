@@ -132,6 +132,32 @@ export interface ReviewQueueItem {
   status: ReviewItemStatus;
 }
 
+export interface DetectedAccount {
+  parsed_name: string | null;
+  transaction_count: number;
+  matched_account_id: number | null;
+  suggested_type: AccountType | null;
+}
+
+export interface DetectAccountsResponse {
+  has_account_sections: boolean;
+  accounts: DetectedAccount[];
+}
+
+export interface NewAccountInput {
+  name: string;
+  type: AccountType;
+  account_number?: string | null;
+  opening_balance?: number;
+  color?: string | null;
+}
+
+export interface ImportResolutionInput {
+  parsed_name: string | null;
+  account_id?: number;
+  new_account?: NewAccountInput;
+}
+
 export interface BudgetAmount {
   year: number;
   month: number;

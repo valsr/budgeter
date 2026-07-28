@@ -1,4 +1,5 @@
 import io
+import json
 
 import pytest
 
@@ -6,6 +7,26 @@ QIF_BASIC = b"""!Type:Bank
 D07/19/2026
 T-88.40
 PCostco
+^
+"""
+
+QIF_MULTI_ACCOUNT = b"""!Account
+NChecking
+TBank
+^
+!Type:Bank
+D07/19/2026
+T-88.40
+PCostco
+^
+!Account
+NCredit Card
+TCCard
+^
+!Type:CCard
+D07/20/2026
+T-55.00
+PAmazon
 ^
 """
 
@@ -181,6 +202,186 @@ def test_resolve_missing_review_item_404(client, auth_headers):
         "/api/import/review-queue/999/resolve", json={"action": "skip"}, headers=auth_headers
     )
     assert resp.status_code == 404
+
+
+def test_detect_accounts_single_account_file_has_no_sections(client, auth_headers):
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        files={"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_account_sections"] is False
+    assert body["accounts"] == []
+
+
+def test_detect_accounts_multi_account_file(client, auth_headers, account_id):
+    # account_id fixture creates an account named "Main checking" — distinct
+    # from both parsed names, so both come back unmatched (new).
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        files={"file": ("test.qif", io.BytesIO(QIF_MULTI_ACCOUNT), "application/octet-stream")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_account_sections"] is True
+    assert [a["parsed_name"] for a in body["accounts"]] == ["Checking", "Credit Card"]
+    assert [a["transaction_count"] for a in body["accounts"]] == [1, 1]
+    assert [a["matched_account_id"] for a in body["accounts"]] == [None, None]
+    assert [a["suggested_type"] for a in body["accounts"]] == ["asset", "liability"]
+
+
+def test_detect_accounts_matches_existing_account_by_name(client, auth_headers):
+    client.post("/api/accounts", json={"name": "Checking", "type": "asset"}, headers=auth_headers)
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        files={"file": ("test.qif", io.BytesIO(QIF_MULTI_ACCOUNT), "application/octet-stream")},
+    )
+    body = resp.json()
+    checking = next(a for a in body["accounts"] if a["parsed_name"] == "Checking")
+    assert checking["matched_account_id"] is not None
+
+
+def test_commit_import_creates_new_accounts_and_imports(client, auth_headers):
+    resp = client.post(
+        "/api/import/commit",
+        headers=auth_headers,
+        data={
+            "resolutions": json.dumps(
+                {
+                    "resolutions": [
+                        {
+                            "parsed_name": "Checking",
+                            "new_account": {"name": "My Checking", "type": "asset", "opening_balance": 500},
+                        },
+                        {
+                            "parsed_name": "Credit Card",
+                            "new_account": {"name": "My Credit Card", "type": "liability"},
+                        },
+                    ]
+                }
+            )
+        },
+        files={"file": ("test.qif", io.BytesIO(QIF_MULTI_ACCOUNT), "application/octet-stream")},
+    )
+    assert resp.status_code == 201
+    batches = resp.json()
+    assert len(batches) == 2
+    assert {b["imported_count"] for b in batches} == {1}
+
+    accounts = client.get("/api/accounts", headers=auth_headers).json()
+    names = {a["name"] for a in accounts}
+    assert {"My Checking", "My Credit Card"} <= names
+
+
+def test_commit_import_maps_to_existing_account(client, auth_headers, account_id):
+    resp = client.post(
+        "/api/import/commit",
+        headers=auth_headers,
+        data={
+            "resolutions": json.dumps(
+                {
+                    "resolutions": [
+                        {"parsed_name": "Checking", "account_id": account_id},
+                        {
+                            "parsed_name": "Credit Card",
+                            "new_account": {"name": "New CC", "type": "liability"},
+                        },
+                    ]
+                }
+            )
+        },
+        files={"file": ("test.qif", io.BytesIO(QIF_MULTI_ACCOUNT), "application/octet-stream")},
+    )
+    assert resp.status_code == 201
+    batches = {b["account_id"]: b for b in resp.json()}
+    assert account_id in batches
+
+    txns = client.get(f"/api/transactions?account_id={account_id}", headers=auth_headers).json()["items"]
+    assert len(txns) == 1
+    assert txns[0]["name"] == "Costco"
+
+
+def test_commit_import_missing_resolution_422(client, auth_headers):
+    resp = client.post(
+        "/api/import/commit",
+        headers=auth_headers,
+        data={"resolutions": json.dumps({"resolutions": [{"parsed_name": "Checking", "account_id": 999}]})},
+        files={"file": ("test.qif", io.BytesIO(QIF_MULTI_ACCOUNT), "application/octet-stream")},
+    )
+    # "Credit Card" block has no resolution entry at all.
+    assert resp.status_code == 422
+
+
+def test_commit_import_unresolvable_account_404(client, auth_headers):
+    resp = client.post(
+        "/api/import/commit",
+        headers=auth_headers,
+        data={
+            "resolutions": json.dumps(
+                {
+                    "resolutions": [
+                        {"parsed_name": "Checking", "account_id": 999},
+                        {"parsed_name": "Credit Card", "account_id": 999},
+                    ]
+                }
+            )
+        },
+        files={"file": ("test.qif", io.BytesIO(QIF_MULTI_ACCOUNT), "application/octet-stream")},
+    )
+    assert resp.status_code == 404
+
+
+def test_commit_import_resolution_missing_target_422(client, auth_headers):
+    resp = client.post(
+        "/api/import/commit",
+        headers=auth_headers,
+        data={"resolutions": json.dumps({"resolutions": [{"parsed_name": None}]})},
+        files={"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")},
+    )
+    assert resp.status_code == 422
+
+
+def test_detect_accounts_qfx_file(client, auth_headers):
+    qfx = b"""<OFX>
+<BANKMSGSRSV1>
+<STMTTRNRS>
+<STMTRS>
+<BANKACCTFROM>
+<ACCTID>1234567890
+<ACCTTYPE>CHECKING
+</BANKACCTFROM>
+<BANKTRANLIST>
+<STMTTRN>
+<DTPOSTED>20260719
+<TRNAMT>-88.40
+<NAME>COSTCO
+</STMTTRN>
+</BANKTRANLIST>
+</STMTRS>
+</STMTTRNRS>
+</BANKMSGSRSV1>
+</OFX>
+"""
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        files={"file": ("test.qfx", io.BytesIO(qfx), "application/octet-stream")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_account_sections"] is True
+    assert body["accounts"] == [
+        {
+            "parsed_name": "1234567890",
+            "transaction_count": 1,
+            "matched_account_id": None,
+            "suggested_type": "asset",
+        }
+    ]
 
 
 def test_resolve_already_resolved_422(client, auth_headers, account_id):

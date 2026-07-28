@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { categoriesApi } from "../api/categories";
+import { setErrorListener } from "../api/client";
 import { rulesApi } from "../api/rules";
 import type { Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
 import { RuleModal } from "./RuleModal";
@@ -21,17 +22,24 @@ interface SuggestionToast {
   targetCategoryId: number;
 }
 
-type ToastItem = ConflictToast | SuggestionToast;
+interface ErrorToast {
+  id: string;
+  kind: "error";
+  message: string;
+}
+
+type ToastItem = ConflictToast | SuggestionToast | ErrorToast;
 
 type ModalState = null | { kind: "edit-rule" } | { kind: "learned-rule"; toast: SuggestionToast };
 
 interface ToastContextValue {
-  push: (item: Omit<ConflictToast, "id"> | Omit<SuggestionToast, "id">) => void;
+  push: (item: Omit<ConflictToast, "id"> | Omit<SuggestionToast, "id"> | Omit<ErrorToast, "id">) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 let nextToastId = 0;
+const ERROR_TOAST_LIFETIME_MS = 8000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -43,9 +51,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }
 
-  function push(item: Omit<ConflictToast, "id"> | Omit<SuggestionToast, "id">) {
-    setToasts((prev) => [...prev, { ...item, id: String(nextToastId++) } as ToastItem]);
+  function push(item: Omit<ConflictToast, "id"> | Omit<SuggestionToast, "id"> | Omit<ErrorToast, "id">) {
+    const id = String(nextToastId++);
+    setToasts((prev) => [...prev, { ...item, id } as ToastItem]);
+    if (item.kind === "error") {
+      setTimeout(() => dismiss(id), ERROR_TOAST_LIFETIME_MS);
+    }
   }
+
+  // Every failed API call (across the whole app, see api/client.ts) lands
+  // here as a generic "Operation failed" toast, so individual pages don't
+  // each need their own error handling for the common case.
+  useEffect(() => {
+    setErrorListener((message) => push({ kind: "error", message }));
+    return () => setErrorListener(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function ensureCategories(): Promise<Category[]> {
     if (categories) return categories;
@@ -76,33 +97,46 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ push }}>
       {children}
       <div className="toast-stack">
-        {toasts.map((t) =>
-          t.kind === "conflict" ? (
-            <div className="toast" key={t.id}>
-              <span>
-                Rule already categorizes matching transactions as something else ({t.ruleSummary}).{" "}
-                <span className="toast-link" onClick={() => openConflictRule(t)}>
-                  View rule
+        {toasts.map((t) => {
+          if (t.kind === "conflict") {
+            return (
+              <div className="toast" key={t.id}>
+                <span>
+                  Rule already categorizes matching transactions as something else ({t.ruleSummary}).{" "}
+                  <span className="toast-link" onClick={() => openConflictRule(t)}>
+                    View rule
+                  </span>
                 </span>
-              </span>
+                <span className="toast-close" onClick={() => dismiss(t.id)}>
+                  ✕
+                </span>
+              </div>
+            );
+          }
+          if (t.kind === "suggestion") {
+            return (
+              <div className="toast" key={t.id}>
+                <span>
+                  Possible rule found: {t.conditions.map((c) => `${c.field} ${c.operator} "${c.value}"`).join(" and ")}
+                </span>
+                <span className="toast-action" onClick={() => openLearnedRule(t)}>
+                  Add
+                </span>
+                <span className="toast-close" onClick={() => dismiss(t.id)}>
+                  ✕
+                </span>
+              </div>
+            );
+          }
+          return (
+            <div className="toast toast-error" key={t.id}>
+              <span>Operation failed: {t.message}</span>
               <span className="toast-close" onClick={() => dismiss(t.id)}>
                 ✕
               </span>
             </div>
-          ) : (
-            <div className="toast" key={t.id}>
-              <span>
-                Possible rule found: {t.conditions.map((c) => `${c.field} ${c.operator} "${c.value}"`).join(" and ")}
-              </span>
-              <span className="toast-action" onClick={() => openLearnedRule(t)}>
-                Add
-              </span>
-              <span className="toast-close" onClick={() => dismiss(t.id)}>
-                ✕
-              </span>
-            </div>
-          ),
-        )}
+          );
+        })}
       </div>
 
       {modalState?.kind === "edit-rule" && editingRule && categories && (

@@ -34,3 +34,33 @@ class ReviewQueueItemRead(BaseModel):
 
 class ReviewResolveRequest(BaseModel):
     action: Literal["new", "merge", "skip"]
+
+
+class DetectedAccount(BaseModel):
+    parsed_name: str | None
+    transaction_count: int
+    matched_account_id: int | None
+    suggested_type: Literal["asset", "liability"] | None = None
+
+
+class DetectAccountsResponse(BaseModel):
+    has_account_sections: bool
+    accounts: list[DetectedAccount]
+
+
+class NewAccountInput(BaseModel):
+    name: str
+    type: Literal["asset", "liability"]
+    account_number: str | None = None
+    opening_balance: float = 0
+    color: str | None = None
+
+
+class ImportResolution(BaseModel):
+    parsed_name: str | None
+    account_id: int | None = None
+    new_account: NewAccountInput | None = None
+
+
+class ImportCommitRequest(BaseModel):
+    resolutions: list[ImportResolution]

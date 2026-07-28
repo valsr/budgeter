@@ -9,7 +9,8 @@ from app.models.import_batch import ImportBatch, ReviewItemStatus, ReviewQueueIt
 from app.models.split import Split
 from app.models.transaction import Transaction, TransactionType
 from app.services.dedupe import ExistingTransaction, MatchType, classify_match
-from app.services.qif_parser import parse_qif
+from app.services.qfx_parser import looks_like_qfx, parse_qfx_accounts
+from app.services.qif_parser import QifAccountBlock, QifTransaction, parse_qif_accounts
 
 
 def _get_account_or_404(db: Session, account_id: int) -> Account:
@@ -32,12 +33,19 @@ def _load_existing(db: Session, account_id: int) -> list[ExistingTransaction]:
     ]
 
 
-def import_qif(
-    db: Session, account_id: int, filename: str, content: str
+def _parse_account_blocks(filename: str, content: str) -> list[QifAccountBlock]:
+    """Format-dispatching parse: QFX/OFX by extension or content sniffing,
+    QIF otherwise. Both return the same QifAccountBlock shape so the rest of
+    the import pipeline doesn't care which format a file was."""
+    if looks_like_qfx(filename, content):
+        return parse_qfx_accounts(content)
+    return parse_qif_accounts(content)
+
+
+def _import_rows(
+    db: Session, account_id: int, filename: str, rows: list[QifTransaction]
 ) -> tuple[ImportBatch, list[int]]:
     _get_account_or_404(db, account_id)
-    rows = parse_qif(content)
-
     existing = _load_existing(db, account_id)
     batch = ImportBatch(filename=filename, account_id=account_id, row_count=len(rows))
     db.add(batch)
@@ -86,6 +94,92 @@ def import_qif(
     db.commit()
     db.refresh(batch)
     return batch, imported_transaction_ids
+
+
+def import_qif(
+    db: Session, account_id: int, filename: str, content: str
+) -> tuple[ImportBatch, list[int]]:
+    blocks = _parse_account_blocks(filename, content)
+    rows = [txn for block in blocks for txn in block.transactions]
+    return _import_rows(db, account_id, filename, rows)
+
+
+def detect_accounts(db: Session, filename: str, content: str) -> tuple[bool, list[dict]]:
+    """Preview which accounts a file references before importing: which
+    match an existing account (by name or account number) and which are
+    new. `has_account_sections` is False for a classic single-account QIF
+    file (no `!Account` header) — the caller should fall back to letting
+    the user pick the target account manually rather than prompting for a
+    single unnamed "new account".
+    """
+    blocks = _parse_account_blocks(filename, content)
+    has_sections = any(block.name is not None for block in blocks)
+
+    merged: dict[str | None, dict] = {}
+    order: list[str | None] = []
+    for block in blocks:
+        if block.name not in merged:
+            merged[block.name] = {"count": 0, "type_hint": block.account_type_hint}
+            order.append(block.name)
+        merged[block.name]["count"] += len(block.transactions)
+
+    accounts = db.execute(select(Account)).scalars().all()
+    by_name = {a.name.strip().lower(): a.id for a in accounts}
+    by_number = {a.account_number.strip().lower(): a.id for a in accounts if a.account_number}
+
+    def _match(name: str | None) -> int | None:
+        if name is None:
+            return None
+        key = name.strip().lower()
+        return by_name.get(key) or by_number.get(key)
+
+    # A single-account file's one implicit (name=None) block isn't
+    # something to prompt about — the caller falls back to a manual account
+    # picker for it entirely, keyed off `has_account_sections` being False.
+    results = [
+        {
+            "parsed_name": name,
+            "transaction_count": merged[name]["count"],
+            "matched_account_id": _match(name),
+            "suggested_type": merged[name]["type_hint"],
+        }
+        for name in order
+        if name is not None
+    ]
+    return has_sections, results
+
+
+def import_multi(
+    db: Session, filename: str, content: str, resolutions: dict[str | None, int]
+) -> tuple[list[ImportBatch], list[int]]:
+    """Import every account block in a file, each into the account_id given
+    for its parsed name in `resolutions` (built from detect_accounts'
+    output, after the caller has resolved/created any new accounts)."""
+    blocks = _parse_account_blocks(filename, content)
+
+    merged_rows: dict[str | None, list[QifTransaction]] = {}
+    order: list[str | None] = []
+    for block in blocks:
+        if block.name not in merged_rows:
+            merged_rows[block.name] = []
+            order.append(block.name)
+        merged_rows[block.name].extend(block.transactions)
+
+    # Validate every block has a resolution before importing anything, so a
+    # missing one can't leave a partial commit (some accounts imported,
+    # others silently skipped).
+    missing = [name for name in order if resolutions.get(name) is None]
+    if missing:
+        labels = ", ".join(repr(name or "this file") for name in missing)
+        raise ValidationError(f"No account mapping was provided for: {labels}")
+
+    batches: list[ImportBatch] = []
+    all_imported_ids: list[int] = []
+    for name in order:
+        batch, ids = _import_rows(db, resolutions[name], filename, merged_rows[name])
+        batches.append(batch)
+        all_imported_ids.extend(ids)
+    return batches, all_imported_ids
 
 
 def get_import_batch(db: Session, batch_id: int) -> ImportBatch:

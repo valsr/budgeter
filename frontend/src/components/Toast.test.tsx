@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { apiFetch } from "../api/client";
 import type { Category, LearnCheckResponse, Rule } from "../api/types";
 import { ToastProvider, useLearnCheck } from "./Toast";
 
@@ -158,5 +159,41 @@ describe("Toast", () => {
     await screen.findByText(/merchant-1/);
     await screen.findByText(/merchant-2/);
     expect(screen.getAllByText("Add")).toHaveLength(2);
+  });
+
+  describe("global error toast", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("shows 'Operation failed: <detail>' for any failed API call anywhere in the app, dismissible", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Account 5 not found" }), { status: 404 })),
+      );
+      renderWithTriggers([]);
+
+      await expect(apiFetch("/api/whatever")).rejects.toThrow("Account 5 not found");
+
+      const closeBtn = await screen.findByText("✕");
+      expect(screen.getByText("Operation failed: Account 5 not found")).toBeInTheDocument();
+
+      fireEvent.click(closeBtn);
+      expect(screen.queryByText(/Operation failed/)).not.toBeInTheDocument();
+    });
+
+    it("does not toast for calls made with { silent: true }", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "nope" }), { status: 422 })),
+      );
+      renderWithTriggers([]);
+
+      await expect(apiFetch("/api/whatever", {}, { silent: true })).rejects.toThrow("nope");
+
+      // give any (incorrect) toast a chance to appear before asserting absence
+      await new Promise((r) => setTimeout(r, 0));
+      expect(screen.queryByText(/Operation failed/)).not.toBeInTheDocument();
+    });
   });
 });

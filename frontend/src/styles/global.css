@@ -150,3 +150,5 @@ th.month-label{text-align:center}
 .toast-link{color:var(--accent);font-weight:600;cursor:pointer;border-bottom:1px dashed var(--accent)}
 .toast-action{color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap}
 .toast-close{color:var(--ink-3);cursor:pointer;font-size:11px;line-height:1.6}
+.toast-error{border-color:var(--c5);background:var(--c5bg)}
+.toast-error>span:first-child{color:var(--c5)}

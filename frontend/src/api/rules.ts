@@ -42,10 +42,13 @@ export const rulesApi = {
       body: JSON.stringify({ transaction_id: transactionId }),
     }),
   previewMatches: (input: RuleInput) =>
-    apiFetch<PreviewMatchesResponse>("/api/rules/preview-matches", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }),
+    // silent: fires on every debounced keystroke while editing a rule, so a
+    // transient 422 (mid-typing, incomplete condition) shouldn't toast.
+    apiFetch<PreviewMatchesResponse>(
+      "/api/rules/preview-matches",
+      { method: "POST", body: JSON.stringify(input) },
+      { silent: true },
+    ),
   learn: (input: RuleInput) =>
     apiFetch<LearnRuleResponse>("/api/rules/learn", { method: "POST", body: JSON.stringify(input) }),
 };
