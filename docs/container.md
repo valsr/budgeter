@@ -11,7 +11,7 @@ scripts/podman-build.sh
 Equivalent to:
 
 ```bash
-podman build --file Containerfile --build-arg API_KEY=dev-local-api-key --tag budgeter:latest .
+podman build --file Containerfile --build-arg API_KEY=dev-local-api-key --tag com.valsr.budgeter:latest .
 ```
 
 ### About the API key
@@ -41,7 +41,7 @@ podman run --rm --name budgeter \
   --publish 8000:8000 \
   --env BUDGETER_API_KEY=dev-local-api-key \
   --volume budgeter-data:/data \
-  budgeter:latest
+  com.valsr.budgeter:latest
 ```
 
 Then open http://localhost:8000 — the API and frontend are both served from that same port.
@@ -50,7 +50,7 @@ Useful overrides (env vars on the scripts, not container env vars): `IMAGE_NAME`
 
 ## What happens at container start
 
-`backend/entrypoint.sh` runs `alembic upgrade head` against `/data/budgeter.db` (via `BUDGETER_DATABASE_URL=sqlite:////data/budgeter.db`, baked into the image) before starting `uvicorn`, so schema migrations apply automatically on every container start — including the first one, which creates the database file on the volume.
+The app migrates its own schema to head on startup (`upgrade_to_head()` in `backend/app/db.py`, run from `main.py`'s FastAPI lifespan hook, against `/data/budgeter.db` via `BUDGETER_DATABASE_URL=sqlite:////data/budgeter.db`) — no separate migration step runs in `entrypoint.sh`. This applies on every container start, including the first one, which creates the database file on the volume. See [CLAUDE.md](../CLAUDE.md) for the policy this follows.
 
 ## Backup/restore with the container
 

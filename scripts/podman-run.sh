@@ -9,7 +9,7 @@
 #                                                    # into the frontend
 set -euo pipefail
 
-IMAGE_NAME="${IMAGE_NAME:-budgeter}"
+IMAGE_NAME="${IMAGE_NAME:-com.valsr.budgeter}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 CONTAINER_NAME="${CONTAINER_NAME:-budgeter}"
 HOST_PORT="${HOST_PORT:-8000}"

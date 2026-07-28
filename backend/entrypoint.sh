@@ -1,9 +1,9 @@
 #!/bin/sh
 set -e
 
-# BUDGETER_DATABASE_URL defaults to a file under /data (see Containerfile),
-# which is where the named volume is mounted — migrations must run against
-# that same path before the server starts.
-alembic upgrade head
-
+# Schema migrations run inside the app itself on startup (see
+# upgrade_to_head() in app/db.py, called from main.py's lifespan hook) —
+# don't also run `alembic upgrade head` here as a separate process. Doing
+# both back-to-back against the same SQLite file was observed to deadlock
+# on this volume's locking behavior.
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

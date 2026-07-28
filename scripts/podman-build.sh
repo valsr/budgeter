@@ -11,7 +11,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-IMAGE_NAME="${IMAGE_NAME:-budgeter}"
+IMAGE_NAME="${IMAGE_NAME:-com.valsr.budgeter}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 API_KEY="${API_KEY:-dev-local-api-key}"
 
