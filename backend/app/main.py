@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -5,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.db import upgrade_to_head
 from app.routers import (
     accounts,
     ai,
@@ -19,7 +21,14 @@ from app.routers import (
     transactions,
 )
 
-app = FastAPI(title="Budgeter API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    upgrade_to_head()
+    yield
+
+
+app = FastAPI(title="Budgeter API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
