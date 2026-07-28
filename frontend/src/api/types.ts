@@ -187,4 +187,5 @@ export interface ReportRow {
   monthly: Record<number, MonthCell>;
   ytd_diff: number;
   has_budget: boolean;
+  depth: number;
 }

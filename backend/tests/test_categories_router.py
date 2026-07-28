@@ -26,7 +26,7 @@ def test_create_and_list_categories(client, auth_headers):
     assert tree[0]["children"][0]["name"] == "groceries"
 
 
-def test_create_child_of_child_rejected(client, auth_headers):
+def test_create_supports_arbitrary_depth(client, auth_headers):
     parent = client.post("/api/categories", json={"name": "shared"}, headers=auth_headers).json()
     child = client.post(
         "/api/categories", json={"name": "groceries", "parent_id": parent["id"]}, headers=auth_headers
@@ -34,7 +34,41 @@ def test_create_child_of_child_rejected(client, auth_headers):
     resp = client.post(
         "/api/categories", json={"name": "alcohol", "parent_id": child["id"]}, headers=auth_headers
     )
+    assert resp.status_code == 201
+    grandchild = resp.json()
+    assert grandchild["parent_id"] == child["id"]
+
+    tree = client.get("/api/categories", headers=auth_headers).json()
+    assert tree[0]["children"][0]["children"][0]["name"] == "alcohol"
+
+
+def test_resolve_path_creates_missing_segments_and_reuses_existing(client, auth_headers):
+    shared = client.post("/api/categories", json={"name": "shared"}, headers=auth_headers).json()
+
+    resp = client.post("/api/categories/resolve", json={"path": "shared:groceries:alcohol"}, headers=auth_headers)
+    assert resp.status_code == 200
+    leaf = resp.json()
+    assert leaf["name"] == "alcohol"
+
+    tree = client.get("/api/categories", headers=auth_headers).json()
+    assert len(tree) == 1
+    assert tree[0]["id"] == shared["id"]
+    assert tree[0]["children"][0]["name"] == "groceries"
+    assert tree[0]["children"][0]["children"][0]["name"] == "alcohol"
+
+    # resolving again returns the same leaf, no duplicates created
+    resp2 = client.post("/api/categories/resolve", json={"path": "shared:groceries:alcohol"}, headers=auth_headers)
+    assert resp2.json()["id"] == leaf["id"]
+
+
+def test_resolve_path_rejects_empty_segments_422(client, auth_headers):
+    resp = client.post("/api/categories/resolve", json={"path": "shared::groceries"}, headers=auth_headers)
     assert resp.status_code == 422
+
+
+def test_resolve_path_requires_auth(client):
+    resp = client.post("/api/categories/resolve", json={"path": "shared"})
+    assert resp.status_code == 401
 
 
 def test_create_with_unknown_parent_404(client, auth_headers):

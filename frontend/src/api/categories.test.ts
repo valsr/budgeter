@@ -36,4 +36,23 @@ describe("flattenLeafCategories", () => {
   it("returns an empty list for an empty tree", () => {
     expect(flattenLeafCategories([])).toEqual([]);
   });
+
+  it("recurses to arbitrary depth", () => {
+    const tree = [
+      cat({
+        id: 1,
+        name: "shared",
+        children: [
+          cat({
+            id: 2,
+            name: "groceries",
+            parent_id: 1,
+            children: [cat({ id: 3, name: "alcohol", parent_id: 2, color: "#222" })],
+          }),
+        ],
+      }),
+    ];
+    const result = flattenLeafCategories(tree);
+    expect(result).toEqual([{ id: 3, path: "shared:groceries:alcohol", color: "#222" }]);
+  });
 });

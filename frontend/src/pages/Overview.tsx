@@ -66,7 +66,7 @@ export function Overview() {
             const balance = row.has_budget ? row.ytd_diff : null;
             return (
               <tr key={row.category_id} style={row.is_parent ? { fontWeight: 600 } : undefined}>
-                <td style={row.is_parent ? undefined : { paddingLeft: 26 }}>{row.name}</td>
+                <td style={row.depth > 0 ? { paddingLeft: 26 * row.depth } : undefined}>{row.name}</td>
                 <td className="right">{row.has_budget ? fmtMoney(budgeted) : "—"}</td>
                 <td className="right">{fmtMoney(actual)}</td>
                 <td className={"right" + (balance !== null && balance < 0 ? " neg" : "")}>

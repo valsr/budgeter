@@ -166,10 +166,16 @@ def reject_suggestion(db: Session, transaction_id: int, split_id: int) -> Split:
 
 
 def _descendant_category_ids(db: Session, category_id: int) -> list[int]:
-    children = db.execute(
-        select(Category.id).where(Category.parent_id == category_id)
-    ).scalars().all()
-    return [category_id, *children]
+    """category_id plus every descendant at any depth — categories can be
+    nested arbitrarily deep, so filtering by a parent must include the
+    whole subtree, not just direct children."""
+    ids = [category_id]
+    frontier = [category_id]
+    while frontier:
+        children = db.execute(select(Category.id).where(Category.parent_id == frontier.pop())).scalars().all()
+        ids.extend(children)
+        frontier.extend(children)
+    return ids
 
 
 def _is_uncategorized_clause():

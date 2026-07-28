@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { budgetsApi, overviewApi } from "../api/budgets";
 import { categoriesApi } from "../api/categories";
 import type { Budget, Category, ReportRow } from "../api/types";
@@ -125,7 +126,9 @@ export function Budgets() {
             <tbody>
               {report.map((row) => (
                 <tr key={row.category_id} style={row.is_parent ? { fontWeight: 600 } : undefined}>
-                  <td style={row.is_parent ? undefined : { paddingLeft: 22, color: "var(--ink-2)" }}>{row.name}</td>
+                  <td style={row.depth > 0 ? { paddingLeft: 22 * row.depth, color: "var(--ink-2)" } : undefined}>
+                    {row.name}
+                  </td>
                   {months.map((m, i) => {
                     const cell = row.monthly[m] ?? { budgeted: 0, actual: 0 };
                     const over = cell.actual > cell.budgeted;
@@ -207,6 +210,55 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
     }));
   }
 
+  // Only leaves can be directly budgeted (parent totals are always derived
+  // from children); non-leaf categories at any depth render as a plain
+  // section header instead of a selectable/amount-entry row.
+  function renderCategoryRows(nodes: Category[], depth: number): ReactNode[] {
+    const rows: ReactNode[] = [];
+    for (const node of nodes) {
+      if (node.children.length === 0) {
+        rows.push(
+          <tr key={node.id}>
+            <td style={{ paddingLeft: 14 + depth * 14, color: "var(--ink-2)" }}>
+              <div>{node.name}</div>
+              {avgByCategory[node.id] !== undefined && (
+                <div className="avg-hint">avg ${Math.round(Math.abs(avgByCategory[node.id]))}</div>
+              )}
+            </td>
+            <td style={{ textAlign: "center" }}>
+              <input type="checkbox" checked={selected.has(node.id)} onChange={() => toggle(node.id)} />
+            </td>
+            {MONTH_LABELS.map((_, i) => {
+              const m = i + 1;
+              return (
+                <td key={m} className={i % 2 === 1 ? "month-alt" : undefined}>
+                  <input
+                    className="month-input"
+                    value={amounts[node.id]?.[m] ?? ""}
+                    onChange={(e) => setAmount(node.id, m, e.target.value)}
+                  />
+                </td>
+              );
+            })}
+          </tr>,
+        );
+      } else {
+        rows.push(
+          <tr key={node.id}>
+            <td
+              colSpan={14}
+              style={{ fontWeight: 600, paddingTop: 12, paddingLeft: depth * 14, borderBottom: "none" }}
+            >
+              {node.name}
+            </td>
+          </tr>,
+        );
+        rows.push(...renderCategoryRows(node.children, depth + 1));
+      }
+    }
+    return rows;
+  }
+
   async function save() {
     const categoryPayload = Array.from(selected).map((categoryId) => {
       const monthly: Record<number, number> = {};
@@ -253,42 +305,7 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {categories.map((parent) => (
-                <Fragment key={parent.id}>
-                  <tr>
-                    <td colSpan={14} style={{ fontWeight: 600, paddingTop: 12, borderBottom: "none" }}>
-                      {parent.name}
-                    </td>
-                  </tr>
-                  {parent.children.map((c) => (
-                    <tr key={c.id}>
-                      <td style={{ paddingLeft: 14, color: "var(--ink-2)" }}>
-                        <div>{c.name}</div>
-                        {avgByCategory[c.id] !== undefined && (
-                          <div className="avg-hint">avg ${Math.round(Math.abs(avgByCategory[c.id]))}</div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} />
-                      </td>
-                      {MONTH_LABELS.map((_, i) => {
-                        const m = i + 1;
-                        return (
-                          <td key={m} className={i % 2 === 1 ? "month-alt" : undefined}>
-                            <input
-                              className="month-input"
-                              value={amounts[c.id]?.[m] ?? ""}
-                              onChange={(e) => setAmount(c.id, m, e.target.value)}
-                            />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </Fragment>
-              ))}
-            </tbody>
+            <tbody>{renderCategoryRows(categories, 0)}</tbody>
           </table>
         </div>
       </div>

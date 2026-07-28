@@ -53,3 +53,4 @@ class ReportRowRead(BaseModel):
     monthly: dict[int, MonthCell]
     ytd_diff: float
     has_budget: bool = True
+    depth: int = 0

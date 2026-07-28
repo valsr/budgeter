@@ -84,3 +84,17 @@ def test_overview_excludes_archived_categories(db_session, groceries):
 
 def test_overview_no_categories_returns_empty(db_session):
     assert budgets_svc.get_overview(db_session, year=2026, through_month=1) == []
+
+
+def test_overview_rolls_up_three_levels_deep(db_session, account, shared, groceries):
+    alcohol = categories_svc.create_category(db_session, "alcohol", parent_id=groceries.id)
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 5), "Beer", [(alcohol.id, -40.0)])
+
+    rows = budgets_svc.get_overview(db_session, year=2026, through_month=1)
+    by_name = {r.name: r for r in rows}
+
+    assert set(by_name) == {"shared", "groceries", "alcohol"}
+    assert (by_name["shared"].depth, by_name["groceries"].depth, by_name["alcohol"].depth) == (0, 1, 2)
+    assert by_name["shared"].monthly[1][1] == Decimal("40")
+    assert by_name["groceries"].monthly[1][1] == Decimal("40")
+    assert by_name["alcohol"].monthly[1][1] == Decimal("40")

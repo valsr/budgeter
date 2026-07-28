@@ -18,11 +18,13 @@ def test_create_child_category(db_session):
     assert child.sort_order == 0
 
 
-def test_cannot_nest_more_than_one_level(db_session):
-    parent = svc.create_category(db_session, "shared")
-    child = svc.create_category(db_session, "groceries", parent_id=parent.id)
-    with pytest.raises(ValidationError):
-        svc.create_category(db_session, "alcohol", parent_id=child.id)
+def test_supports_arbitrary_depth(db_session):
+    shared = svc.create_category(db_session, "shared")
+    groceries = svc.create_category(db_session, "groceries", parent_id=shared.id)
+    alcohol = svc.create_category(db_session, "alcohol", parent_id=groceries.id)
+    craft_beer = svc.create_category(db_session, "craft beer", parent_id=alcohol.id)
+    assert alcohol.parent_id == groceries.id
+    assert craft_beer.parent_id == alcohol.id
 
 
 def test_create_with_missing_parent_raises_not_found(db_session):
@@ -65,6 +67,22 @@ def test_update_cannot_become_child_of_own_child(db_session):
         svc.update_category(db_session, parent.id, parent_id=child.id)
 
 
+def test_update_cannot_become_child_of_deeper_descendant(db_session):
+    shared = svc.create_category(db_session, "shared")
+    groceries = svc.create_category(db_session, "groceries", parent_id=shared.id)
+    alcohol = svc.create_category(db_session, "alcohol", parent_id=groceries.id)
+    with pytest.raises(ValidationError):
+        svc.update_category(db_session, shared.id, parent_id=alcohol.id)
+
+
+def test_update_can_reparent_to_unrelated_deep_category(db_session):
+    shared = svc.create_category(db_session, "shared")
+    groceries = svc.create_category(db_session, "groceries", parent_id=shared.id)
+    personal = svc.create_category(db_session, "personal")
+    moved = svc.update_category(db_session, groceries.id, parent_id=personal.id)
+    assert moved.parent_id == personal.id
+
+
 def test_update_reparent_assigns_new_sort_order(db_session):
     p1 = svc.create_category(db_session, "shared")
     p2 = svc.create_category(db_session, "personal")
@@ -90,6 +108,19 @@ def test_archive_soft_deletes_and_cascades_to_children(db_session):
 
     db_session.refresh(child)
     assert child.archived_at is not None
+
+
+def test_archive_cascades_through_the_whole_subtree(db_session):
+    shared = svc.create_category(db_session, "shared")
+    groceries = svc.create_category(db_session, "groceries", parent_id=shared.id)
+    alcohol = svc.create_category(db_session, "alcohol", parent_id=groceries.id)
+    craft_beer = svc.create_category(db_session, "craft beer", parent_id=alcohol.id)
+
+    svc.archive_category(db_session, shared.id)
+
+    for cat in (groceries, alcohol, craft_beer):
+        db_session.refresh(cat)
+        assert cat.archived_at is not None
 
 
 def test_archive_missing_category_raises_not_found(db_session):
@@ -140,3 +171,58 @@ def test_reorder_top_level_categories(db_session):
 def test_get_category_not_found(db_session):
     with pytest.raises(NotFoundError):
         svc.get_category(db_session, 999)
+
+
+def test_resolve_path_creates_the_full_chain_when_nothing_exists(db_session):
+    leaf = svc.resolve_category_path(db_session, "shared:groceries:alcohol")
+    assert leaf.name == "alcohol"
+
+    groceries = svc.get_category(db_session, leaf.parent_id)
+    assert groceries.name == "groceries"
+    shared = svc.get_category(db_session, groceries.parent_id)
+    assert shared.name == "shared"
+    assert shared.parent_id is None
+
+
+def test_resolve_path_reuses_existing_categories_case_insensitively(db_session):
+    shared = svc.create_category(db_session, "Shared")
+    groceries = svc.create_category(db_session, "Groceries", parent_id=shared.id)
+
+    leaf = svc.resolve_category_path(db_session, "shared:groceries:alcohol")
+
+    assert leaf.parent_id == groceries.id
+    # no duplicate "shared"/"groceries" categories were created
+    assert len(svc.list_categories(db_session)) == 1
+    assert len(svc.get_category(db_session, shared.id).children) == 1
+
+
+def test_resolve_path_trims_whitespace_around_segments(db_session):
+    leaf = svc.resolve_category_path(db_session, "  shared : groceries  ")
+    assert leaf.name == "groceries"
+    assert svc.get_category(db_session, leaf.parent_id).name == "shared"
+
+
+def test_resolve_path_rejects_empty_segments(db_session):
+    for bad in ("", "shared::groceries", ":shared", "shared:"):
+        with pytest.raises(ValidationError):
+            svc.resolve_category_path(db_session, bad)
+
+
+def test_resolve_path_ignores_archived_siblings_and_creates_a_fresh_one(db_session):
+    shared = svc.create_category(db_session, "shared")
+    svc.archive_category(db_session, shared.id)
+
+    leaf = svc.resolve_category_path(db_session, "shared")
+
+    assert leaf.id != shared.id
+    assert leaf.archived_at is None
+
+
+def test_resolve_path_partial_match_creates_only_the_missing_tail(db_session):
+    shared = svc.create_category(db_session, "shared")
+
+    leaf = svc.resolve_category_path(db_session, "shared:groceries:alcohol")
+
+    assert leaf.parent_id is not None
+    groceries = svc.get_category(db_session, leaf.parent_id)
+    assert groceries.parent_id == shared.id

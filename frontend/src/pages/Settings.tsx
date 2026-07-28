@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { backupApi } from "../api/backup";
-import { categoriesApi } from "../api/categories";
+import { categoriesApi, flattenAllCategories } from "../api/categories";
 import { setApiKey } from "../api/client";
 import { rulesApi } from "../api/rules";
 import { settingsApi } from "../api/settings";
@@ -88,12 +88,24 @@ function ApiKeyTab() {
   );
 }
 
+function findCategoryById(tree: Category[], id: number): Category | null {
+  for (const node of tree) {
+    if (node.id === id) return node;
+    const found = findCategoryById(node.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+interface DragState {
+  id: number;
+  group: number | "root";
+}
+
 function CategoriesTab() {
   const [tree, setTree] = useState<Category[]>([]);
-  const [modal, setModal] = useState<null | { mode: "new" | "edit"; category?: Category; parentId?: number | null }>(
-    null,
-  );
-  const [dragState, setDragState] = useState<{ id: number; group: number | "root" } | null>(null);
+  const [modal, setModal] = useState<null | { mode: "new" | "edit"; category?: Category }>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
 
   function load() {
     categoriesApi.list().then(setTree);
@@ -102,7 +114,7 @@ function CategoriesTab() {
   useEffect(load, []);
 
   async function reorder(group: number | "root", draggedId: number, targetId: number) {
-    const siblings = group === "root" ? tree : tree.find((p) => p.id === group)?.children ?? [];
+    const siblings = group === "root" ? tree : findCategoryById(tree, group)?.children ?? [];
     const ids = siblings.map((c) => c.id);
     const from = ids.indexOf(draggedId);
     const to = ids.indexOf(targetId);
@@ -114,86 +126,34 @@ function CategoriesTab() {
     load();
   }
 
+  async function archive(id: number) {
+    await categoriesApi.archive(id);
+    load();
+  }
+
   return (
     <div>
       <div className="toolbar">
         <span className="sub" style={{ margin: 0 }}>
           Drag <span className="drag">⠿</span> to reorder within a group.
         </span>
-        <button className="btn sm" onClick={() => setModal({ mode: "new", parentId: null })}>
+        <button className="btn sm" onClick={() => setModal({ mode: "new" })}>
           + New category
         </button>
       </div>
       <div>
-        {tree.map((parent) => (
-          <div key={parent.id}>
-            <div
-              className="cat-row"
-              draggable
-              onDragStart={() => setDragState({ id: parent.id, group: "root" })}
-              onDragOver={(e) => dragState?.group === "root" && e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (dragState?.group === "root") reorder("root", dragState.id, parent.id);
-                setDragState(null);
-              }}
-            >
-              <span>
-                <span className="drag">⠿</span>
-                <span className="dot" style={{ background: parent.color }}></span>
-                <b>{parent.name}</b>
-              </span>
-              <div className="row-actions">
-                <span className="icon-btn split" onClick={() => setModal({ mode: "edit", category: parent })}>
-                  ✎
-                </span>
-                <span
-                  className="icon-btn remove"
-                  onClick={async () => {
-                    await categoriesApi.archive(parent.id);
-                    load();
-                  }}
-                >
-                  🗑
-                </span>
-              </div>
-            </div>
-            {parent.children.map((child) => (
-              <div
-                key={child.id}
-                className="cat-row"
-                draggable
-                style={{ marginLeft: 22 }}
-                onDragStart={() => setDragState({ id: child.id, group: parent.id })}
-                onDragOver={(e) => dragState?.group === parent.id && e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (dragState?.group === parent.id) reorder(parent.id, dragState.id, child.id);
-                  setDragState(null);
-                }}
-              >
-                <span>
-                  <span className="drag">⠿</span>
-                  <span className="dot" style={{ background: child.color }}></span>
-                  {child.name}
-                </span>
-                <div className="row-actions">
-                  <span className="icon-btn split" onClick={() => setModal({ mode: "edit", category: child })}>
-                    ✎
-                  </span>
-                  <span
-                    className="icon-btn remove"
-                    onClick={async () => {
-                      await categoriesApi.archive(child.id);
-                      load();
-                    }}
-                  >
-                    🗑
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+        {tree.map((cat) => (
+          <CategoryTreeRow
+            key={cat.id}
+            category={cat}
+            depth={0}
+            group="root"
+            dragState={dragState}
+            setDragState={setDragState}
+            reorder={reorder}
+            onEdit={(category) => setModal({ mode: "edit", category })}
+            onArchive={archive}
+          />
         ))}
       </div>
 
@@ -201,7 +161,7 @@ function CategoriesTab() {
         <CategoryModal
           mode={modal.mode}
           category={modal.category}
-          parentOptions={tree}
+          tree={tree}
           onClose={() => setModal(null)}
           onSaved={() => {
             setModal(null);
@@ -213,22 +173,88 @@ function CategoriesTab() {
   );
 }
 
+interface CategoryTreeRowProps {
+  category: Category;
+  depth: number;
+  group: number | "root";
+  dragState: DragState | null;
+  setDragState: (state: DragState | null) => void;
+  reorder: (group: number | "root", draggedId: number, targetId: number) => void;
+  onEdit: (category: Category) => void;
+  onArchive: (id: number) => void;
+}
+
+function CategoryTreeRow({ category, depth, group, dragState, setDragState, reorder, onEdit, onArchive }: CategoryTreeRowProps) {
+  return (
+    <div>
+      <div
+        className="cat-row"
+        draggable
+        style={depth > 0 ? { marginLeft: 22 * depth } : undefined}
+        onDragStart={() => setDragState({ id: category.id, group })}
+        onDragOver={(e) => dragState?.group === group && e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (dragState?.group === group) reorder(group, dragState.id, category.id);
+          setDragState(null);
+        }}
+      >
+        <span>
+          <span className="drag">⠿</span>
+          <span className="dot" style={{ background: category.color }}></span>
+          {depth === 0 ? <b>{category.name}</b> : category.name}
+        </span>
+        <div className="row-actions">
+          <span className="icon-btn split" onClick={() => onEdit(category)}>
+            ✎
+          </span>
+          <span className="icon-btn remove" onClick={() => onArchive(category.id)}>
+            🗑
+          </span>
+        </div>
+      </div>
+      {category.children.map((child) => (
+        <CategoryTreeRow
+          key={child.id}
+          category={child}
+          depth={depth + 1}
+          group={category.id}
+          dragState={dragState}
+          setDragState={setDragState}
+          reorder={reorder}
+          onEdit={onEdit}
+          onArchive={onArchive}
+        />
+      ))}
+    </div>
+  );
+}
+
+function collectSubtreeIds(category: Category): number[] {
+  return [category.id, ...category.children.flatMap(collectSubtreeIds)];
+}
+
 function CategoryModal({
   mode,
   category,
-  parentOptions,
+  tree,
   onClose,
   onSaved,
 }: {
   mode: "new" | "edit";
   category?: Category;
-  parentOptions: Category[];
+  tree: Category[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(category?.name ?? "");
   const [parentId, setParentId] = useState<number | "">(category?.parent_id ?? "");
   const [color, setColor] = useState(category?.color ?? "#6f8f6a");
+
+  // A category can be parented under anything at any depth, except itself
+  // or one of its own descendants (would create a cycle).
+  const excludedIds = new Set(category ? collectSubtreeIds(category) : []);
+  const parentOptions = flattenAllCategories(tree).filter((o) => !excludedIds.has(o.id));
 
   async function save() {
     if (mode === "new") {
@@ -259,13 +285,11 @@ function CategoryModal({
         <label>Parent category</label>
         <select value={parentId} onChange={(e) => setParentId(e.target.value === "" ? "" : Number(e.target.value))}>
           <option value="">None (top level)</option>
-          {parentOptions
-            .filter((p) => p.id !== category?.id)
-            .map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
+          {parentOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.path}
+            </option>
+          ))}
         </select>
       </div>
       <div className="field">

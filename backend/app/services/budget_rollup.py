@@ -37,6 +37,9 @@ class ReportRow:
     """False when this category has no budgeted amount anywhere (e.g. an
     income category on the Overview screen) — the diff/balance is then
     meaningless and should render as "—" rather than a number."""
+    depth: int = 0
+    """Distance from a top-level category (0 = top level), for indenting
+    arbitrarily-deep category trees in the report."""
 
 
 def build_row(
@@ -48,6 +51,7 @@ def build_row(
     months: list[int],
     through_month: int,
     has_budget: bool = True,
+    depth: int = 0,
 ) -> ReportRow:
     monthly = {m: (budgeted.get(m, Decimal(0)), actual.get(m, Decimal(0))) for m in months}
     ytd_diff = cumulative_balance(budgeted, actual, through_month)
@@ -58,4 +62,5 @@ def build_row(
         monthly=monthly,
         ytd_diff=ytd_diff,
         has_budget=has_budget,
+        depth=depth,
     )

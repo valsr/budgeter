@@ -230,6 +230,18 @@ def test_list_transactions_category_rollup_includes_children(db_session, account
     assert items[0].name == "Costco"
 
 
+def test_list_transactions_category_rollup_includes_deep_descendants(db_session, account):
+    shared = categories_svc.create_category(db_session, "shared")
+    groceries = categories_svc.create_category(db_session, "groceries", parent_id=shared.id)
+    alcohol = categories_svc.create_category(db_session, "alcohol", parent_id=groceries.id)
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "Beer run", [(alcohol.id, -20.0)])
+
+    for filter_category in (shared, groceries, alcohol):
+        items, total = txn_svc.list_transactions(db_session, category_id=filter_category.id)
+        assert total == 1, f"expected a match filtering by {filter_category.name!r}"
+        assert items[0].name == "Beer run"
+
+
 def test_list_transactions_uncategorized_only(db_session, account, category):
     txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -1.0)])
     txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 2), "cat", [(category.id, -2.0)])

@@ -33,3 +33,8 @@ class CategoryRead(BaseModel):
 class CategoryReorderRequest(BaseModel):
     parent_id: int | None = None
     ordered_ids: list[int]
+
+
+class CategoryResolvePathRequest(BaseModel):
+    path: str
+    """Colon-delimited category path, e.g. "shared:groceries:alcohol"."""

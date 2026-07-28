@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { flattenLeafCategories } from "../api/categories";
 import { rulesApi } from "../api/rules";
 import type { Category, ConditionField, ConditionOperator, MatchType, PreviewMatchSample, Rule } from "../api/types";
 import { Modal } from "./Modal";
@@ -47,9 +48,7 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
     rule?.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value })) ??
       initial?.conditions ?? [{ field: "name", operator: "contains", value: "" }],
   );
-  const leafOptions: { id: number; path: string }[] = [];
-  for (const p of categories) for (const c of p.children) leafOptions.push({ id: c.id, path: `${p.name}:${c.name}` });
-  for (const p of categories) if (p.children.length === 0) leafOptions.push({ id: p.id, path: p.name });
+  const leafOptions = flattenLeafCategories(categories);
   const [targetCategoryId, setTargetCategoryId] = useState<number | "">(
     rule?.target_category_id ?? initial?.targetCategoryId ?? leafOptions[0]?.id ?? "",
   );

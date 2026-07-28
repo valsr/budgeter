@@ -202,3 +202,45 @@ class TestGetReport:
         rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=1)
         names = [r.name for r in rows]
         assert names.index("shared") < names.index("misc")
+
+    def test_report_rolls_up_three_levels_deep(self, db_session, account, shared, groceries):
+        alcohol = categories_svc.create_category(db_session, "alcohol", parent_id=groceries.id)
+        budget = budgets_svc.create_budget(db_session, "Household", [(alcohol.id, {1: 100})], year=2026)
+        txn_svc.create_transaction(
+            db_session, account.id, dt.date(2026, 1, 5), "Beer", [(alcohol.id, -40.0)]
+        )
+
+        rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=1)
+        by_name = {r.name: r for r in rows}
+
+        assert set(by_name) == {"shared", "groceries", "alcohol"}
+        assert by_name["shared"].depth == 0
+        assert by_name["groceries"].depth == 1
+        assert by_name["alcohol"].depth == 2
+        assert by_name["shared"].is_parent is True
+        assert by_name["groceries"].is_parent is True
+        assert by_name["alcohol"].is_parent is False
+
+        # every level's totals derive from the single leaf transaction
+        for name in ("shared", "groceries", "alcohol"):
+            assert by_name[name].monthly[1] == (Decimal("100"), Decimal("40"))
+
+        names = [r.name for r in rows]
+        assert names == ["shared", "groceries", "alcohol"]
+
+    def test_report_three_levels_sums_multiple_leaves_at_each_ancestor(self, db_session, account, shared, groceries):
+        alcohol = categories_svc.create_category(db_session, "alcohol", parent_id=groceries.id)
+        produce = categories_svc.create_category(db_session, "produce", parent_id=groceries.id)
+        budget = budgets_svc.create_budget(
+            db_session, "Household", [(alcohol.id, {1: 30}), (produce.id, {1: 70})], year=2026
+        )
+        txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 5), "Beer", [(alcohol.id, -20.0)])
+        txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 6), "Veg", [(produce.id, -60.0)])
+
+        rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=1)
+        by_name = {r.name: r for r in rows}
+
+        assert by_name["groceries"].monthly[1] == (Decimal("100"), Decimal("80"))  # 30+70 / 20+60
+        assert by_name["shared"].monthly[1] == (Decimal("100"), Decimal("80"))  # only child is groceries
+        assert by_name["alcohol"].monthly[1] == (Decimal("30"), Decimal("20"))
+        assert by_name["produce"].monthly[1] == (Decimal("70"), Decimal("60"))

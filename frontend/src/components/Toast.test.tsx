@@ -23,7 +23,8 @@ vi.mock("../api/rules", () => ({
   },
 }));
 
-vi.mock("../api/categories", () => ({
+vi.mock("../api/categories", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/categories")>()),
   categoriesApi: {
     list: (...args: unknown[]) => listCategories(...args),
   },

@@ -9,6 +9,7 @@ from app.schemas.category import (
     CategoryCreate,
     CategoryRead,
     CategoryReorderRequest,
+    CategoryResolvePathRequest,
     CategoryUpdate,
 )
 from app.services import categories as categories_service
@@ -49,6 +50,15 @@ def create_category(payload: CategoryCreate, db: Session = Depends(get_db)):
         return _to_read(category)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.post("/resolve", response_model=CategoryRead)
+def resolve_category_path(payload: CategoryResolvePathRequest, db: Session = Depends(get_db)):
+    try:
+        category = categories_service.resolve_category_path(db, payload.path)
+        return _to_read(category)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 

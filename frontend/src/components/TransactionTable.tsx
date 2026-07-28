@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { transactionsApi } from "../api/transactions";
-import { activeCategories, flattenLeafCategories } from "../api/categories";
+import { activeCategories } from "../api/categories";
 import type { Account, Category, Split, Transaction } from "../api/types";
+import { CategoryCombobox } from "./CategoryCombobox";
 import { CategoryTag, hexToRgba } from "./CategoryTag";
 import { NewTransactionModal } from "./NewTransactionModal";
 import { useLearnCheck } from "./Toast";
@@ -15,6 +16,9 @@ interface TransactionTableProps {
   onSplitTransaction?: (transaction: Transaction) => void;
   refreshKey?: number;
   onDataChanged?: () => void;
+  /** Called after a category is created on the fly via the assign/filter
+   * combobox, so the caller can refetch its category tree. */
+  onCategoriesChanged?: () => void;
   initialFilters?: Partial<Filters>;
 }
 
@@ -52,6 +56,7 @@ export function TransactionTable({
   onSplitTransaction,
   refreshKey,
   onDataChanged,
+  onCategoriesChanged,
   initialFilters,
 }: TransactionTableProps) {
   const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS, ...initialFilters });
@@ -62,15 +67,15 @@ export function TransactionTable({
   const runLearnCheck = useLearnCheck();
 
   const activeTree = useMemo(() => activeCategories(categories), [categories]);
-  const leafCategories = useMemo(() => flattenLeafCategories(activeTree), [activeTree]);
   const categoryById = useMemo(() => {
     const map = new Map<number, { name: string; color: string }>();
-    for (const parent of categories) {
-      map.set(parent.id, { name: parent.name, color: parent.color });
-      for (const child of parent.children) {
-        map.set(child.id, { name: child.name, color: child.color });
+    function walk(nodes: Category[]) {
+      for (const node of nodes) {
+        map.set(node.id, { name: node.name, color: node.color });
+        walk(node.children);
       }
     }
+    walk(categories);
     return map;
   }, [categories]);
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
@@ -159,24 +164,25 @@ export function TransactionTable({
     const isEditing = editingSplit?.txnId === txn.id && editingSplit?.splitId === split.id;
     if (isEditing) {
       return (
-        <td>
-          <select
-            className="cat-edit-input"
+        <td
+          onBlur={(e) => {
+            // Only cancel editing once focus has genuinely left the cell —
+            // clicking a dropdown row keeps the combobox's input focused
+            // (see CategoryCombobox's mousedown/preventDefault), so this
+            // won't fire for a real selection, only for a click-away.
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              setEditingSplit(null);
+            }
+          }}
+        >
+          <CategoryCombobox
+            categories={activeTree}
+            value={split.category_id}
+            onChange={(categoryId) => assignCategory(txn.id, split.id, categoryId)}
+            clearLabel="Unassigned"
+            onCreated={onCategoriesChanged}
             autoFocus
-            defaultValue={split.category_id ?? ""}
-            onBlur={() => setEditingSplit(null)}
-            onChange={(e) => {
-              const value = e.target.value;
-              assignCategory(txn.id, split.id, value === "" ? null : Number(value));
-            }}
-          >
-            <option value="">Unassigned</option>
-            {leafCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.path}
-              </option>
-            ))}
-          </select>
+          />
         </td>
       );
     }
@@ -288,22 +294,16 @@ export function TransactionTable({
           />
         </div>
         <div className="filters-row">
-          <select
-            value={filters.category_id}
-            onChange={(e) => setFilters((f) => ({ ...f, category_id: e.target.value }))}
-          >
-            <option value="">All categories</option>
-            {activeTree.map((parent) => (
-              <optgroup key={parent.id} label={parent.name}>
-                <option value={parent.id}>{parent.name} (all)</option>
-                {parent.children.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          <CategoryCombobox
+            categories={activeTree}
+            value={filters.category_id ? Number(filters.category_id) : null}
+            onChange={(categoryId) =>
+              setFilters((f) => ({ ...f, category_id: categoryId === null ? "" : String(categoryId) }))
+            }
+            mode="filter"
+            clearLabel="All categories"
+            placeholder="All categories"
+          />
           {showAccountColumn && (
             <select
               value={filters.account_id}

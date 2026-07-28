@@ -22,6 +22,7 @@ def row_to_read(row) -> ReportRowRead:
         monthly={m: MonthCell(budgeted=float(b), actual=float(a)) for m, (b, a) in row.monthly.items()},
         ytd_diff=float(row.ytd_diff),
         has_budget=row.has_budget,
+        depth=row.depth,
     )
 
 

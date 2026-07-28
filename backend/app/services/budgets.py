@@ -8,7 +8,7 @@ from app.models.budget import Budget, BudgetAmount, BudgetCategory
 from app.models.category import Category
 from app.models.split import Split
 from app.models.transaction import Transaction, TransactionType
-from app.services.budget_rollup import ReportRow, build_row, sum_monthly
+from app.services.budget_rollup import MonthlyAmounts, ReportRow, build_row, sum_monthly
 
 CategoryInput = tuple[int, dict[int, float]]  # (category_id, {month: amount})
 
@@ -128,92 +128,91 @@ def _assemble_rows(
     year: int,
     through_month: int,
 ) -> list[ReportRow]:
+    """Build report rows for a set of budgeted leaves plus every one of
+    their ancestors, at any depth — an ancestor's budgeted/actual amounts
+    are always the sum of its children (docs/requirements.md §2.2: "Parent
+    category values ... are always derived"), recursively.
+    """
     months = list(range(1, through_month + 1))
     if not leaf_ids:
         return []
 
-    categories_by_id = {
-        c.id: c
-        for c in db.execute(select(Category).where(Category.id.in_(leaf_ids))).scalars().all()
-    }
-    parent_ids = {c.parent_id for c in categories_by_id.values() if c.parent_id is not None}
-    if parent_ids:
-        for parent in db.execute(select(Category).where(Category.id.in_(parent_ids))).scalars().all():
-            categories_by_id[parent.id] = parent
+    # Load every leaf plus every ancestor above it, however deep.
+    categories_by_id: dict[int, Category] = {}
+    to_load = set(leaf_ids)
+    while to_load:
+        batch = db.execute(select(Category).where(Category.id.in_(to_load))).scalars().all()
+        to_load = set()
+        for cat in batch:
+            categories_by_id[cat.id] = cat
+            if cat.parent_id is not None and cat.parent_id not in categories_by_id:
+                to_load.add(cat.parent_id)
 
     actual_by_category = {
         cat_id: _actuals_for_category(db, cat_id, year, through_month) for cat_id in leaf_ids
     }
 
-    # Group leaves by parent, preserving each group's global display order
-    # (Category.sort_order is the single source of truth for category
-    # ordering everywhere in the app, per docs/requirements.md §2.2).
-    leaves_by_parent: dict[int | None, list[Category]] = {}
-    for cat_id in leaf_ids:
-        leaf = categories_by_id[cat_id]
-        leaves_by_parent.setdefault(leaf.parent_id, []).append(leaf)
-    for group in leaves_by_parent.values():
-        group.sort(key=lambda c: c.sort_order)
+    # Children, keyed by parent_id (None for top-level), restricted to
+    # categories actually involved here (a leaf or an ancestor of one) —
+    # sibling branches with no budgeted leaf underneath them are excluded.
+    # Category.sort_order is the single source of truth for display order
+    # everywhere in the app (docs/requirements.md §2.2).
+    children_of: dict[int | None, list[int]] = {}
+    for cat_id, cat in categories_by_id.items():
+        children_of.setdefault(cat.parent_id, []).append(cat_id)
+    for group in children_of.values():
+        group.sort(key=lambda cid: categories_by_id[cid].sort_order)
 
-    # Top-level entries are either a parent-with-included-children group, or
-    # a standalone top-level category that's itself a leaf; both are
-    # siblings at the top level and must interleave by global sort_order.
-    top_level_entries: list[tuple[int, int | None, Category | None]] = []
-    for parent_id in leaves_by_parent:
-        if parent_id is None:
-            for leaf in leaves_by_parent[None]:
-                top_level_entries.append((leaf.sort_order, None, leaf))
+    # Bottom-up rollup: a leaf's own budgeted/actual/has_budget, or a
+    # parent's summed-from-children values, memoized since the same
+    # ancestor is reached once per child but should only be computed once.
+    monthly_cache: dict[int, tuple[MonthlyAmounts, MonthlyAmounts]] = {}
+    has_budget_cache: dict[int, bool] = {}
+
+    def rollup(cat_id: int) -> tuple[MonthlyAmounts, MonthlyAmounts, bool]:
+        if cat_id in monthly_cache:
+            budgeted, actual = monthly_cache[cat_id]
+            return budgeted, actual, has_budget_cache[cat_id]
+
+        kids = children_of.get(cat_id, [])
+        if not kids:
+            budgeted = budgeted_by_category.get(cat_id, {})
+            actual = actual_by_category.get(cat_id, {})
+            has_budget = has_budget_by_category.get(cat_id, True)
         else:
-            parent = categories_by_id[parent_id]
-            top_level_entries.append((parent.sort_order, parent_id, None))
-    top_level_entries.sort(key=lambda e: e[0])
+            child_results = [rollup(kid) for kid in kids]
+            budgeted = sum_monthly([r[0] for r in child_results])
+            actual = sum_monthly([r[1] for r in child_results])
+            has_budget = any(r[2] for r in child_results)
+
+        monthly_cache[cat_id] = (budgeted, actual)
+        has_budget_cache[cat_id] = has_budget
+        return budgeted, actual, has_budget
 
     rows: list[ReportRow] = []
-    for _sort_order, parent_id, standalone_leaf in top_level_entries:
-        if standalone_leaf is not None:
-            rows.append(
-                build_row(
-                    standalone_leaf.id,
-                    standalone_leaf.name,
-                    False,
-                    budgeted_by_category[standalone_leaf.id],
-                    actual_by_category[standalone_leaf.id],
-                    months,
-                    through_month,
-                    has_budget=has_budget_by_category.get(standalone_leaf.id, True),
-                )
-            )
-            continue
 
-        children = leaves_by_parent[parent_id]
-        parent_budgeted = sum_monthly([budgeted_by_category[c.id] for c in children])
-        parent_actual = sum_monthly([actual_by_category[c.id] for c in children])
-        parent_has_budget = any(has_budget_by_category.get(c.id, True) for c in children)
+    def walk(cat_id: int, depth: int) -> None:
+        cat = categories_by_id[cat_id]
+        kids = children_of.get(cat_id, [])
+        budgeted, actual, has_budget = rollup(cat_id)
         rows.append(
             build_row(
-                parent_id,
-                categories_by_id[parent_id].name,
-                True,
-                parent_budgeted,
-                parent_actual,
+                cat_id,
+                cat.name,
+                len(kids) > 0,
+                budgeted,
+                actual,
                 months,
                 through_month,
-                has_budget=parent_has_budget,
+                has_budget=has_budget,
+                depth=depth,
             )
         )
-        for child in children:
-            rows.append(
-                build_row(
-                    child.id,
-                    child.name,
-                    False,
-                    budgeted_by_category[child.id],
-                    actual_by_category[child.id],
-                    months,
-                    through_month,
-                    has_budget=has_budget_by_category.get(child.id, True),
-                )
-            )
+        for kid in kids:
+            walk(kid, depth + 1)
+
+    for root_id in children_of.get(None, []):
+        walk(root_id, 0)
 
     return rows
 

@@ -50,11 +50,15 @@ export function Accounts() {
     });
   }
 
-  useEffect(() => {
-    loadAccounts();
+  function loadCategories() {
     // include_archived so historical transactions keep rendering their
     // (possibly archived) category; pickers filter to active internally.
     categoriesApi.list(true).then(setCategories);
+  }
+
+  useEffect(() => {
+    loadAccounts();
+    loadCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -178,6 +182,7 @@ export function Accounts() {
           onSplitTransaction={setSplitTxn}
           refreshKey={refreshKey}
           onDataChanged={loadAccounts}
+          onCategoriesChanged={loadCategories}
           initialFilters={{ date_from: ACCOUNTING_PERIOD_START }}
         />
       )}

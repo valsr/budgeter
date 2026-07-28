@@ -13,11 +13,15 @@ export function Transactions() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchParams] = useSearchParams();
 
-  useEffect(() => {
-    accountsApi.list().then(setAccounts);
+  function loadCategories() {
     // include_archived so historical transactions keep rendering their
     // (possibly archived) category; pickers filter to active internally.
     categoriesApi.list(true).then(setCategories);
+  }
+
+  useEffect(() => {
+    accountsApi.list().then(setAccounts);
+    loadCategories();
   }, []);
 
   // The Overview banner links here as /transactions?uncategorized=1 —
@@ -34,6 +38,7 @@ export function Transactions() {
         accounts={accounts}
         onSplitTransaction={setSplitTxn}
         refreshKey={refreshKey}
+        onCategoriesChanged={loadCategories}
         initialFilters={uncategorizedOnly ? { show_categorized: false } : undefined}
       />
 
