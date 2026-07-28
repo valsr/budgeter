@@ -28,7 +28,9 @@ async def import_qif(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
     # Categorization must not block the import response (docs/requirements.md §2.4).
-    background_tasks.add_task(categorization.run_categorization, db, imported_ids)
+    # Runs in its own DB session — the request's `db` is closed by the time
+    # background tasks run (see run_categorization_in_background docstring).
+    background_tasks.add_task(categorization.run_categorization_in_background, imported_ids)
     return batch
 
 
@@ -67,5 +69,5 @@ def resolve_review_item(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
     if payload.action == "new":
-        background_tasks.add_task(categorization.run_categorization, db, [])
+        background_tasks.add_task(categorization.run_categorization_in_background, [])
     return item

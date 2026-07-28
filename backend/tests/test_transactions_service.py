@@ -230,6 +230,44 @@ def test_list_transactions_category_rollup_includes_children(db_session, account
     assert items[0].name == "Costco"
 
 
+def test_list_transactions_uncategorized_only(db_session, account, category):
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -1.0)])
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 2), "cat", [(category.id, -2.0)])
+
+    items, total = txn_svc.list_transactions(db_session, show_categorized=False)
+    assert total == 1
+    assert items[0].name == "uncat"
+
+
+def test_list_transactions_categorized_only_includes_transfers(db_session, account, other_account, category):
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -1.0)])
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 2), "cat", [(category.id, -2.0)])
+    txn_svc.create_transfer(db_session, account.id, other_account.id, dt.date(2026, 1, 3), "Payment", 10.0)
+
+    items, total = txn_svc.list_transactions(db_session, show_uncategorized=False)
+    # transfers count as categorized (wireframe: isCat includes status==='transfer')
+    assert total == 3  # "cat" + the transfer's two legs
+    assert all(t.name != "uncat" for t in items)
+
+
+def test_list_transactions_partially_categorized_split_counts_as_uncategorized(db_session, account, category):
+    txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 1), "partial", [(category.id, -5.0), (None, -5.0)]
+    )
+    items, total = txn_svc.list_transactions(db_session, show_categorized=False)
+    assert total == 1
+    assert items[0].name == "partial"
+
+
+def test_list_transactions_neither_toggle_returns_empty(db_session, account):
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "x", [(None, -1.0)])
+    items, total = txn_svc.list_transactions(
+        db_session, show_categorized=False, show_uncategorized=False
+    )
+    assert total == 0
+    assert items == []
+
+
 def test_list_transactions_pagination(db_session, account):
     for i in range(5):
         txn_svc.create_transaction(

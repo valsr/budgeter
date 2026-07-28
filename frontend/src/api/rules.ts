@@ -1,5 +1,13 @@
 import { apiFetch } from "./client";
-import type { ConditionField, ConditionOperator, MatchType, Rule, RuleSuggestion } from "./types";
+import type {
+  ConditionField,
+  ConditionOperator,
+  LearnCheckResponse,
+  LearnRuleResponse,
+  MatchType,
+  PreviewMatchesResponse,
+  Rule,
+} from "./types";
 
 export interface ConditionInput {
   field: ConditionField;
@@ -15,6 +23,7 @@ export interface RuleInput {
 
 export const rulesApi = {
   list: () => apiFetch<Rule[]>("/api/rules"),
+  get: (id: number) => apiFetch<Rule>(`/api/rules/${id}`),
   create: (input: RuleInput) =>
     apiFetch<Rule>("/api/rules", { method: "POST", body: JSON.stringify(input) }),
   update: (id: number, input: Partial<RuleInput>) =>
@@ -22,11 +31,21 @@ export const rulesApi = {
   remove: (id: number) => apiFetch<void>(`/api/rules/${id}`, { method: "DELETE" }),
   reorder: (ordered_ids: number[]) =>
     apiFetch<Rule[]>("/api/rules/reorder", { method: "POST", body: JSON.stringify({ ordered_ids }) }),
-  suggestions: (threshold?: number) =>
-    apiFetch<RuleSuggestion[]>(`/api/rules/suggestions${threshold ? `?threshold=${threshold}` : ""}`),
   recategorize: (transactionIds: number[] | null = null) =>
     apiFetch<{ suggested_count: number }>("/api/rules/recategorize", {
       method: "POST",
       body: JSON.stringify({ transaction_ids: transactionIds }),
     }),
+  learnCheck: (transactionId: number) =>
+    apiFetch<LearnCheckResponse>("/api/rules/learn-check", {
+      method: "POST",
+      body: JSON.stringify({ transaction_id: transactionId }),
+    }),
+  previewMatches: (input: RuleInput) =>
+    apiFetch<PreviewMatchesResponse>("/api/rules/preview-matches", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  learn: (input: RuleInput) =>
+    apiFetch<LearnRuleResponse>("/api/rules/learn", { method: "POST", body: JSON.stringify(input) }),
 };

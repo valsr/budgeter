@@ -1,3 +1,4 @@
+import type { DragEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { accountsApi } from "../api/accounts";
 import { importsApi } from "../api/imports";
@@ -10,6 +11,7 @@ export function Import() {
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [reviewItems, setReviewItems] = useState<ReviewQueueItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function load() {
@@ -43,6 +45,23 @@ export function Import() {
     load();
   }
 
+  function handleDragOver(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragActive(false);
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragActive(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (dropped) setFile(dropped);
+  }
+
   const accountName = (id: number) => accounts.find((a) => a.id === id)?.name ?? `#${id}`;
 
   return (
@@ -50,7 +69,13 @@ export function Import() {
       <h1>Import</h1>
       <p className="sub">Import a QIF statement export. Duplicates are skipped automatically; near-matches are flagged for review.</p>
 
-      <div className="dropzone">
+      <div
+        className={"dropzone" + (dragActive ? " drag-active" : "")}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+      >
         <strong>{file ? file.name : "Drop a .qif file here, or browse"}</strong>
         {!file && "No file selected"}
       </div>

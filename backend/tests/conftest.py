@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import db as db_module
 from app.db import Base, get_db
 from app.main import app
 
@@ -32,7 +33,7 @@ def db_session():
 
 
 @pytest.fixture()
-def client(db_session):
+def client(db_session, monkeypatch):
     def override_get_db():
         try:
             yield db_session
@@ -40,6 +41,10 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    # Background tasks (see services/categorization.py) open their own
+    # session via app.db.SessionLocal rather than reusing the request's —
+    # point that at the same test engine/pool so they see the same data.
+    monkeypatch.setattr(db_module, "SessionLocal", TestingSessionLocal)
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

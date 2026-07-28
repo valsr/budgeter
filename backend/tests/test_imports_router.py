@@ -20,6 +20,11 @@ def account_id(client, auth_headers):
     return resp.json()["id"]
 
 
+@pytest.fixture()
+def category_id(client, auth_headers):
+    return client.post("/api/categories", json={"name": "groceries"}, headers=auth_headers).json()["id"]
+
+
 def test_requires_auth(client):
     resp = client.get("/api/import")
     assert resp.status_code == 401
@@ -36,6 +41,39 @@ def test_import_qif_file(client, auth_headers, account_id):
     body = resp.json()
     assert body["filename"] == "test.qif"
     assert body["imported_count"] == 1
+
+
+def test_import_runs_background_categorization_in_its_own_session(
+    client, auth_headers, account_id, category_id
+):
+    """Regression test for the background task's DB session handling
+    (docs/requirements.md §2.4): run_categorization_in_background opens its
+    own session rather than reusing the request's closed one. This asserts
+    on the actual side effect — a persisted suggestion — not just that the
+    request succeeds, so it would fail if that session were silently a
+    no-op (e.g. pointed at an empty/uninitialized database).
+    """
+    client.post(
+        "/api/rules",
+        json={
+            "match_type": "all",
+            "conditions": [{"field": "name", "operator": "contains", "value": "costco"}],
+            "target_category_id": category_id,
+        },
+        headers=auth_headers,
+    )
+
+    resp = client.post(
+        "/api/import",
+        headers=auth_headers,
+        data={"account_id": account_id},
+        files={"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")},
+    )
+    assert resp.status_code == 201
+
+    txns = client.get("/api/transactions", headers=auth_headers).json()["items"]
+    assert len(txns) == 1
+    assert txns[0]["splits"][0]["suggested_category_id"] == category_id
 
 
 def test_import_unknown_account_404(client, auth_headers):

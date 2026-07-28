@@ -1,19 +1,12 @@
-from collections import Counter
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import NotFoundError, ValidationError
 from app.models.category import Category
 from app.models.rule import ConditionField, ConditionOperator, MatchType, Rule, RuleCondition
-from app.models.split import Split
-from app.models.transaction import Transaction, TransactionType
-from app.services.dedupe import normalize_name
 from app.services.rule_engine import Condition, RuleSpec, coerce_condition_value
 
 ConditionInput = tuple[ConditionField, ConditionOperator, str]
-
-DEFAULT_SUGGESTION_THRESHOLD = 3
 
 
 def _get_rule_or_404(db: Session, rule_id: int) -> Rule:
@@ -136,60 +129,3 @@ def rules_to_specs(rules: list[Rule]) -> list[RuleSpec]:
         )
         for r in rules
     ]
-
-
-def suggest_new_rules(
-    db: Session, threshold: int = DEFAULT_SUGGESTION_THRESHOLD
-) -> list[dict]:
-    """Mine confirmed categorizations for repeating (merchant, category)
-    patterns and propose new rules once a repetition threshold is met.
-    """
-    rows = db.execute(
-        select(Transaction.name, Split.category_id)
-        .join(Split, Split.transaction_id == Transaction.id)
-        .where(Transaction.type == TransactionType.NORMAL)
-        .where(Split.category_id.is_not(None))
-    ).all()
-
-    counts: Counter[tuple[str, int]] = Counter()
-    samples: dict[tuple[str, int], str] = {}
-    for name, category_id in rows:
-        key = (normalize_name(name), category_id)
-        counts[key] += 1
-        samples.setdefault(key, name)
-
-    existing_rules = list_rules(db)
-    existing_signatures = {
-        (r.match_type, tuple(sorted((c.field, c.operator, c.value) for c in r.conditions)), r.target_category_id)
-        for r in existing_rules
-    }
-
-    suggestions = []
-    for (normalized_name, category_id), count in counts.items():
-        if count < threshold:
-            continue
-        signature = (
-            MatchType.ALL,
-            ((ConditionField.NAME, ConditionOperator.CONTAINS, normalized_name),),
-            category_id,
-        )
-        if signature in existing_signatures:
-            continue
-        suggestions.append(
-            {
-                "match_type": MatchType.ALL,
-                "conditions": [
-                    {
-                        "field": ConditionField.NAME,
-                        "operator": ConditionOperator.CONTAINS,
-                        "value": normalized_name,
-                    }
-                ],
-                "target_category_id": category_id,
-                "occurrence_count": count,
-                "sample_name": samples[(normalized_name, category_id)],
-            }
-        )
-
-    suggestions.sort(key=lambda s: s["occurrence_count"], reverse=True)
-    return suggestions

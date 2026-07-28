@@ -68,12 +68,44 @@ export interface Rule {
   conditions: RuleCondition[];
 }
 
-export interface RuleSuggestion {
+export interface RuleConflictInfo {
+  rule_id: number;
+  rule_summary: string;
+  matched_category_id: number;
+  assigned_category_id: number;
+}
+
+export interface LearnedRuleSuggestion {
+  tier: number;
   match_type: MatchType;
   conditions: { field: ConditionField; operator: ConditionOperator; value: string }[];
   target_category_id: number;
-  occurrence_count: number;
-  sample_name: string;
+}
+
+export type LearnCheckStatus = "covered" | "conflict" | "suggestion" | "none";
+
+export interface LearnCheckResponse {
+  status: LearnCheckStatus;
+  conflict: RuleConflictInfo | null;
+  suggestion: LearnedRuleSuggestion | null;
+}
+
+export interface PreviewMatchSample {
+  id: number;
+  date: string;
+  name: string;
+  amount: number;
+}
+
+export interface PreviewMatchesResponse {
+  count: number;
+  sample: PreviewMatchSample[];
+}
+
+export interface LearnRuleResponse {
+  rule: Rule;
+  confirmed_count: number;
+  confirmed_transaction_ids: number[];
 }
 
 export interface ImportBatch {

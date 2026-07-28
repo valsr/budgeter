@@ -1,6 +1,6 @@
 import datetime as dt
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, and_, false, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import NotFoundError, ValidationError
@@ -172,6 +172,20 @@ def _descendant_category_ids(db: Session, category_id: int) -> list[int]:
     return [category_id, *children]
 
 
+def _is_uncategorized_clause():
+    """A transaction is "uncategorized" when it's a normal (non-transfer)
+    transaction with at least one split lacking a confirmed category. The
+    wireframe's Categorized/Uncategorized filter toggles treat transfers as
+    categorized, matching this."""
+    uncat_split_exists = (
+        select(Split.id)
+        .where(Split.transaction_id == Transaction.id)
+        .where(Split.category_id.is_(None))
+        .exists()
+    )
+    return and_(Transaction.type == TransactionType.NORMAL, uncat_split_exists)
+
+
 def _base_query(
     account_id: int | None = None,
     date_from: dt.date | None = None,
@@ -180,6 +194,8 @@ def _base_query(
     amount_max: float | None = None,
     name_contains: str | None = None,
     category_ids: list[int] | None = None,
+    show_categorized: bool = True,
+    show_uncategorized: bool = True,
 ) -> Select:
     stmt = select(Transaction).options(selectinload(Transaction.splits))
     if account_id is not None:
@@ -190,6 +206,12 @@ def _base_query(
         stmt = stmt.where(Transaction.date <= date_to)
     if name_contains:
         stmt = stmt.where(Transaction.name.ilike(f"%{name_contains}%"))
+    if not show_categorized and not show_uncategorized:
+        stmt = stmt.where(false())
+    elif not show_categorized:
+        stmt = stmt.where(_is_uncategorized_clause())
+    elif not show_uncategorized:
+        stmt = stmt.where(~_is_uncategorized_clause())
     if amount_min is not None or amount_max is not None or category_ids is not None:
         stmt = stmt.join(Split, Split.transaction_id == Transaction.id)
         if amount_min is not None:
@@ -212,11 +234,21 @@ def list_transactions(
     category_id: int | None = None,
     page: int = 1,
     page_size: int = 100,
+    show_categorized: bool = True,
+    show_uncategorized: bool = True,
 ) -> tuple[list[Transaction], int]:
     category_ids = _descendant_category_ids(db, category_id) if category_id is not None else None
 
     stmt = _base_query(
-        account_id, date_from, date_to, amount_min, amount_max, name_contains, category_ids
+        account_id,
+        date_from,
+        date_to,
+        amount_min,
+        amount_max,
+        name_contains,
+        category_ids,
+        show_categorized,
+        show_uncategorized,
     )
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
 

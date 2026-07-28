@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
+import { ToastProvider } from "./components/Toast";
 import { Overview } from "./pages/Overview";
 import { Accounts } from "./pages/Accounts";
 import { Transactions } from "./pages/Transactions";
@@ -9,18 +10,20 @@ import { Settings } from "./pages/Settings";
 
 export function App() {
   return (
-    <div className="app">
-      <Sidebar />
-      <div className="main">
-        <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/accounts" element={<Accounts />} />
-          <Route path="/transactions" element={<Transactions />} />
-          <Route path="/budgets" element={<Budgets />} />
-          <Route path="/import" element={<Import />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
+    <ToastProvider>
+      <div className="app">
+        <Sidebar />
+        <div className="main">
+          <Routes>
+            <Route path="/" element={<Overview />} />
+            <Route path="/accounts" element={<Accounts />} />
+            <Route path="/transactions" element={<Transactions />} />
+            <Route path="/budgets" element={<Budgets />} />
+            <Route path="/import" element={<Import />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </div>
       </div>
-    </div>
+    </ToastProvider>
   );
 }

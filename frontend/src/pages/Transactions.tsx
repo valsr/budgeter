@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
 import type { Account, Category, Transaction } from "../api/types";
@@ -10,11 +11,18 @@ export function Transactions() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     accountsApi.list().then(setAccounts);
-    categoriesApi.list().then(setCategories);
+    // include_archived so historical transactions keep rendering their
+    // (possibly archived) category; pickers filter to active internally.
+    categoriesApi.list(true).then(setCategories);
   }, []);
+
+  // The Overview banner links here as /transactions?uncategorized=1 —
+  // start with the Categorized toggle off so only uncategorized rows show.
+  const uncategorizedOnly = searchParams.get("uncategorized") === "1";
 
   return (
     <div>
@@ -26,6 +34,7 @@ export function Transactions() {
         accounts={accounts}
         onSplitTransaction={setSplitTxn}
         refreshKey={refreshKey}
+        initialFilters={uncategorizedOnly ? { show_categorized: false } : undefined}
       />
 
       {splitTxn && (

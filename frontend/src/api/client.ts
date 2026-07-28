@@ -1,5 +1,20 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-const API_KEY = import.meta.env.VITE_API_KEY ?? "dev-local-api-key";
+
+// The key is stored server-side (see routers/settings.py) and can be
+// regenerated from Settings → API key. VITE_API_KEY only seeds the very
+// first request of a fresh browser profile — once regenerated, the new
+// value lives in localStorage so this tab (and future loads) keep working.
+const API_KEY_STORAGE_KEY = "budgeter.apiKey";
+let apiKey = localStorage.getItem(API_KEY_STORAGE_KEY) ?? import.meta.env.VITE_API_KEY ?? "dev-local-api-key";
+
+export function getApiKey(): string {
+  return apiKey;
+}
+
+export function setApiKey(key: string): void {
+  apiKey = key;
+  localStorage.setItem(API_KEY_STORAGE_KEY, key);
+}
 
 export class ApiError extends Error {
   status: number;
@@ -14,7 +29,7 @@ async function rawFetch(path: string, init: RequestInit = {}): Promise<Response>
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       ...init.headers,
     },
   });

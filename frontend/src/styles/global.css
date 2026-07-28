@@ -96,8 +96,9 @@ th.month-label{text-align:center}
 #budget-report-table th.month-current, #budget-report-table td.month-current{background-image:linear-gradient(rgba(37,99,235,.26),rgba(37,99,235,.26))}
 .month-input{width:100px;padding:4px 6px;font-size:11.5px;text-align:right;border:1px solid var(--line);border-radius:5px}
 #budget-edit-table th.month-alt, #budget-edit-table td.month-alt{background-image:linear-gradient(rgba(37,99,235,.07),rgba(37,99,235,.07))}
-.dropzone{border:2px dashed var(--line-strong);border-radius:10px;padding:38px;text-align:center;color:var(--ink-2);margin-bottom:20px}
+.dropzone{border:2px dashed var(--line-strong);border-radius:10px;padding:38px;text-align:center;color:var(--ink-2);margin-bottom:20px;cursor:pointer}
 .dropzone strong{color:var(--ink);display:block;margin-bottom:4px;font-size:14px}
+.dropzone.drag-active{border-color:var(--accent);background:var(--accent-bg)}
 .btn{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer}
 .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
 .btn.sm{padding:6px 12px;font-size:12.5px}
@@ -141,3 +142,11 @@ th.month-label{text-align:center}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 .cond-row{display:flex;gap:6px;margin-bottom:8px;align-items:center}
 .cond-row select,.cond-row input{border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12.5px}
+
+/* toast */
+.toast-stack{position:fixed;top:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px;max-width:360px}
+.toast{display:flex;align-items:flex-start;gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:11px 14px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+.toast>span:first-child{flex:1;color:var(--ink)}
+.toast-link{color:var(--accent);font-weight:600;cursor:pointer;border-bottom:1px dashed var(--accent)}
+.toast-action{color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap}
+.toast-close{color:var(--ink-3);cursor:pointer;font-size:11px;line-height:1.6}

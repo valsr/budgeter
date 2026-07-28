@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { budgetsApi } from "../api/budgets";
+import { budgetsApi, overviewApi } from "../api/budgets";
 import { categoriesApi } from "../api/categories";
 import type { Budget, Category, ReportRow } from "../api/types";
 import { Modal } from "../components/Modal";
@@ -15,12 +15,20 @@ const now = new Date();
 const CURRENT_YEAR = now.getFullYear();
 const CURRENT_MONTH = now.getMonth() + 1;
 
+/** Wireframe's monthClass(): odd columns get a light tint, the last (current)
+ * month gets a stronger one — matches docs/wireframes.html's renderBudgetReport. */
+function monthClass(i: number, total: number): string {
+  if (i === total - 1) return "month-current";
+  return i % 2 === 1 ? "month-alt" : "";
+}
+
 export function Budgets() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [currentBudgetId, setCurrentBudgetId] = useState<number | null>(null);
   const [report, setReport] = useState<ReportRow[]>([]);
   const [modalMode, setModalMode] = useState<null | "new" | "edit">(null);
+  const [avgByCategory, setAvgByCategory] = useState<Record<number, number>>({});
 
   function loadBudgets() {
     budgetsApi.list().then((list) => {
@@ -32,6 +40,17 @@ export function Budgets() {
   useEffect(() => {
     loadBudgets();
     categoriesApi.list().then(setCategories);
+    // Actuals across all categories (regardless of budget membership), used
+    // for the edit modal's per-category "avg $" hint (docs/wireframes.html AVERAGES).
+    overviewApi.get(CURRENT_YEAR, CURRENT_MONTH).then((rows) => {
+      const avgs: Record<number, number> = {};
+      for (const row of rows) {
+        if (row.is_parent) continue;
+        const total = Object.values(row.monthly).reduce((sum, m) => sum + m.actual, 0);
+        avgs[row.category_id] = total / CURRENT_MONTH;
+      }
+      setAvgByCategory(avgs);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -83,22 +102,22 @@ export function Budgets() {
           <div className="section-title">
             {currentBudget.name} · Jan → {MONTH_LABELS[CURRENT_MONTH - 1]}
           </div>
-          <table>
+          <table id="budget-report-table">
             <thead>
               <tr>
                 <th rowSpan={2}>Category</th>
-                {months.map((m) => (
-                  <th key={m} colSpan={2} className="month-label">
+                {months.map((m, i) => (
+                  <th key={m} colSpan={2} className={"month-label " + monthClass(i, months.length)}>
                     {MONTH_LABELS[m - 1]}
                   </th>
                 ))}
                 <th rowSpan={2}>YTD diff</th>
               </tr>
               <tr>
-                {months.map((m) => (
+                {months.map((m, i) => (
                   <Fragment key={m}>
-                    <th className="sub-col">Budgeted</th>
-                    <th className="sub-col">Actual</th>
+                    <th className={"sub-col " + monthClass(i, months.length)}>Budgeted</th>
+                    <th className={"sub-col " + monthClass(i, months.length)}>Actual</th>
                   </Fragment>
                 ))}
               </tr>
@@ -107,13 +126,14 @@ export function Budgets() {
               {report.map((row) => (
                 <tr key={row.category_id} style={row.is_parent ? { fontWeight: 600 } : undefined}>
                   <td style={row.is_parent ? undefined : { paddingLeft: 22, color: "var(--ink-2)" }}>{row.name}</td>
-                  {months.map((m) => {
+                  {months.map((m, i) => {
                     const cell = row.monthly[m] ?? { budgeted: 0, actual: 0 };
                     const over = cell.actual > cell.budgeted;
+                    const cls = monthClass(i, months.length);
                     return (
                       <Fragment key={m}>
-                        <td className="right muted-cell">{cell.budgeted}</td>
-                        <td className={"right" + (over ? " over" : "")}>{cell.actual}</td>
+                        <td className={"right muted-cell " + cls}>{cell.budgeted}</td>
+                        <td className={"right " + cls + (over ? " over" : "")}>{cell.actual}</td>
                       </Fragment>
                     );
                   })}
@@ -133,6 +153,7 @@ export function Budgets() {
           mode={modalMode}
           budget={modalMode === "edit" ? currentBudget ?? null : null}
           categories={categories}
+          avgByCategory={avgByCategory}
           onClose={() => setModalMode(null)}
           onSaved={(id) => {
             setModalMode(null);
@@ -149,11 +170,12 @@ interface BudgetModalProps {
   mode: "new" | "edit";
   budget: Budget | null;
   categories: Category[];
+  avgByCategory: Record<number, number>;
   onClose: () => void;
   onSaved: (budgetId: number) => void;
 }
 
-function BudgetModal({ mode, budget, categories, onClose, onSaved }: BudgetModalProps) {
+function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved }: BudgetModalProps) {
   const [name, setName] = useState(budget?.name ?? "");
   const [selected, setSelected] = useState<Set<number>>(
     new Set(budget?.budget_categories.map((bc) => bc.category_id) ?? []),
@@ -219,13 +241,13 @@ function BudgetModal({ mode, budget, categories, onClose, onSaved }: BudgetModal
       <div className="field">
         <label>Categories — show in this budget, and monthly amounts</label>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ minWidth: 1200 }}>
+          <table id="budget-edit-table" style={{ minWidth: 1200 }}>
             <thead>
               <tr>
                 <th style={{ textAlign: "left" }}>Category</th>
                 <th>Show</th>
-                {MONTH_LABELS.map((label) => (
-                  <th key={label} className="right">
+                {MONTH_LABELS.map((label, i) => (
+                  <th key={label} className={"right" + (i % 2 === 1 ? " month-alt" : "")}>
                     {label}
                   </th>
                 ))}
@@ -241,14 +263,19 @@ function BudgetModal({ mode, budget, categories, onClose, onSaved }: BudgetModal
                   </tr>
                   {parent.children.map((c) => (
                     <tr key={c.id}>
-                      <td style={{ paddingLeft: 14, color: "var(--ink-2)" }}>{c.name}</td>
+                      <td style={{ paddingLeft: 14, color: "var(--ink-2)" }}>
+                        <div>{c.name}</div>
+                        {avgByCategory[c.id] !== undefined && (
+                          <div className="avg-hint">avg ${Math.round(Math.abs(avgByCategory[c.id]))}</div>
+                        )}
+                      </td>
                       <td style={{ textAlign: "center" }}>
                         <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} />
                       </td>
                       {MONTH_LABELS.map((_, i) => {
                         const m = i + 1;
                         return (
-                          <td key={m}>
+                          <td key={m} className={i % 2 === 1 ? "month-alt" : undefined}>
                             <input
                               className="month-input"
                               value={amounts[c.id]?.[m] ?? ""}

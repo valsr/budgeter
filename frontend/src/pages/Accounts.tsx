@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
 import type { Account, Category, Transaction } from "../api/types";
+import { hexToRgba } from "../components/CategoryTag";
 import { Modal } from "../components/Modal";
 import { SplitModal } from "../components/SplitModal";
 import { TransactionTable } from "../components/TransactionTable";
@@ -10,6 +11,11 @@ function fmtBal(n: number): string {
   const sign = n < 0 ? "-" : "";
   return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+
+const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
+
+// §5: an account's transaction list starts "from start of accounting period" — the current calendar year.
+const ACCOUNTING_PERIOD_START = `${new Date().getFullYear()}-01-01`;
 
 interface AccountFormState {
   name: string;
@@ -46,7 +52,9 @@ export function Accounts() {
 
   useEffect(() => {
     loadAccounts();
-    categoriesApi.list().then(setCategories);
+    // include_archived so historical transactions keep rendering their
+    // (possibly archived) category; pickers filter to active internally.
+    categoriesApi.list(true).then(setCategories);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -99,7 +107,13 @@ export function Accounts() {
           <div className="acct-select-btn" onClick={() => setDropdownOpen((o) => !o)}>
             {currentAccount ? (
               <span>
-                <span className="tag" style={{ background: "#dfeef1", color: "#4f8a9c" }}>
+                <span
+                  className="tag"
+                  style={{
+                    background: hexToRgba(currentAccount.color ?? DEFAULT_ACCOUNT_COLOR, 0.15),
+                    color: currentAccount.color ?? DEFAULT_ACCOUNT_COLOR,
+                  }}
+                >
                   {currentAccount.name}
                 </span>
                 <span className={"badge " + (currentAccount.type === "asset" ? "asset" : "liab")}>
@@ -124,7 +138,13 @@ export function Accounts() {
                   }}
                 >
                   <span>
-                    <span className="tag" style={{ background: "#dfeef1", color: "#4f8a9c" }}>
+                    <span
+                      className="tag"
+                      style={{
+                        background: hexToRgba(a.color ?? DEFAULT_ACCOUNT_COLOR, 0.15),
+                        color: a.color ?? DEFAULT_ACCOUNT_COLOR,
+                      }}
+                    >
                       {a.name}
                     </span>
                     <span className={"badge " + (a.type === "asset" ? "asset" : "liab")}>{a.type}</span>{" "}
@@ -158,6 +178,7 @@ export function Accounts() {
           onSplitTransaction={setSplitTxn}
           refreshKey={refreshKey}
           onDataChanged={loadAccounts}
+          initialFilters={{ date_from: ACCOUNTING_PERIOD_START }}
         />
       )}
 

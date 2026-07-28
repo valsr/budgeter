@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Category, Transaction } from "../api/types";
 import { SplitModal } from "./SplitModal";
+import { ToastProvider } from "./Toast";
 
 const updateSplits = vi.fn();
 vi.mock("../api/transactions", () => ({
@@ -9,6 +10,30 @@ vi.mock("../api/transactions", () => ({
     updateSplits: (...args: unknown[]) => updateSplits(...args),
   },
 }));
+
+const learnCheck = vi.fn();
+vi.mock("../api/rules", () => ({
+  rulesApi: {
+    learnCheck: (...args: unknown[]) => learnCheck(...args),
+    get: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    learn: vi.fn(),
+    previewMatches: vi.fn(),
+  },
+}));
+vi.mock("../api/categories", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/categories")>()),
+  categoriesApi: { list: vi.fn() },
+}));
+
+function renderModal(props: Parameters<typeof SplitModal>[0]) {
+  return render(
+    <ToastProvider>
+      <SplitModal {...props} />
+    </ToastProvider>,
+  );
+}
 
 const categories: Category[] = [
   {
@@ -38,11 +63,12 @@ const transaction: Transaction = {
 describe("SplitModal", () => {
   beforeEach(() => {
     updateSplits.mockReset();
+    learnCheck.mockReset().mockResolvedValue({ status: "none", conflict: null, suggestion: null });
   });
 
   it("shows an error and does not save when split amounts don't sum to the total", () => {
     const onSaved = vi.fn();
-    render(<SplitModal transaction={transaction} categories={categories} onClose={() => {}} onSaved={onSaved} />);
+    renderModal({ transaction, categories, onClose: () => {}, onSaved });
 
     fireEvent.click(screen.getByText("+ Add split"));
     const amountInputs = screen.getAllByDisplayValue(/^(-88\.4|0\.00)$/);
@@ -59,7 +85,7 @@ describe("SplitModal", () => {
     updateSplits.mockResolvedValue(transaction);
     const onSaved = vi.fn();
     const onClose = vi.fn();
-    render(<SplitModal transaction={transaction} categories={categories} onClose={onClose} onSaved={onSaved} />);
+    renderModal({ transaction, categories, onClose, onSaved });
 
     fireEvent.click(screen.getByText("+ Add split"));
     const categorySelects = screen.getAllByRole("combobox");
@@ -81,11 +107,38 @@ describe("SplitModal", () => {
   });
 
   it("removes a split row and updates the running sum", () => {
-    render(<SplitModal transaction={transaction} categories={categories} onClose={() => {}} onSaved={() => {}} />);
+    renderModal({ transaction, categories, onClose: () => {}, onSaved: () => {} });
     fireEvent.click(screen.getByText("+ Add split"));
-    expect(screen.getAllByText("⌀")).toHaveLength(2);
+    expect(screen.getAllByText("🗑")).toHaveLength(2);
 
-    fireEvent.click(screen.getAllByText("⌀")[1]);
-    expect(screen.queryAllByText("⌀")).toHaveLength(0); // single row left, no remove button
+    fireEvent.click(screen.getAllByText("🗑")[1]);
+    expect(screen.queryAllByText("🗑")).toHaveLength(0); // single row left, no remove button
+  });
+
+  it("triggers the rule-learning check after a single-split save with a category", async () => {
+    updateSplits.mockResolvedValue(transaction);
+    renderModal({ transaction, categories, onClose: () => {}, onSaved: () => {} });
+
+    fireEvent.click(screen.getByText("Save splits")); // already 1 row, category_id=2 from fixture
+
+    await vi.waitFor(() => expect(updateSplits).toHaveBeenCalled());
+    await vi.waitFor(() => expect(learnCheck).toHaveBeenCalledWith(10));
+  });
+
+  it("does not trigger the rule-learning check on a multi-split save", async () => {
+    updateSplits.mockResolvedValue(transaction);
+    renderModal({ transaction, categories, onClose: () => {}, onSaved: () => {} });
+
+    fireEvent.click(screen.getByText("+ Add split"));
+    const categorySelects = screen.getAllByRole("combobox");
+    fireEvent.change(categorySelects[1], { target: { value: "3" } });
+    const amountInputs = screen.getAllByDisplayValue(/^(-88\.4|0\.00)$/);
+    fireEvent.change(amountInputs[0], { target: { value: "-60.00" } });
+    fireEvent.change(amountInputs[1], { target: { value: "-28.40" } });
+
+    fireEvent.click(screen.getByText("Save splits"));
+
+    await vi.waitFor(() => expect(updateSplits).toHaveBeenCalled());
+    expect(learnCheck).not.toHaveBeenCalled();
   });
 });

@@ -33,6 +33,8 @@ def list_transactions(
     category_id: int | None = None,
     page: int = 1,
     page_size: int = 100,
+    show_categorized: bool = True,
+    show_uncategorized: bool = True,
     db: Session = Depends(get_db),
 ):
     items, total = txn_service.list_transactions(
@@ -46,6 +48,8 @@ def list_transactions(
         category_id=category_id,
         page=page,
         page_size=page_size,
+        show_categorized=show_categorized,
+        show_uncategorized=show_uncategorized,
     )
     return TransactionPage(items=items, total=total, page=page, page_size=page_size)
 

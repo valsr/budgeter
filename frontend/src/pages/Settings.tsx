@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { backupApi } from "../api/backup";
 import { categoriesApi } from "../api/categories";
+import { setApiKey } from "../api/client";
 import { rulesApi } from "../api/rules";
-import type { Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
+import { settingsApi } from "../api/settings";
+import type { Category, Rule } from "../api/types";
 import { Modal } from "../components/Modal";
+import { RuleModal } from "../components/RuleModal";
 
 type Tab = "api" | "cats" | "rules" | "backup";
 
@@ -38,17 +41,49 @@ export function Settings() {
 }
 
 function ApiKeyTab() {
-  const apiKey = import.meta.env.VITE_API_KEY ?? "dev-local-api-key";
+  const [apiKey, setKey] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
+  useEffect(() => {
+    settingsApi.getApiKey().then((r) => setKey(r.api_key));
+  }, []);
+
+  async function regenerate() {
+    if (
+      !confirm(
+        "Regenerate the API key? The current key stops working immediately — any MCP adapter or " +
+          "skill using it will need the new value.",
+      )
+    ) {
+      return;
+    }
+    setRegenerating(true);
+    try {
+      const { api_key } = await settingsApi.regenerateApiKey();
+      setApiKey(api_key); // keep this browser session authenticated with the new key
+      setKey(api_key);
+      setRevealed(true); // surface it immediately since it can't be re-fetched in plaintext-friendly UX otherwise
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  const display = apiKey ?? "";
   return (
     <div>
       <div className="field" style={{ maxWidth: 420 }}>
         <label>API key — used by the MCP adapter / skill</label>
-        <input value={revealed ? apiKey : "•".repeat(Math.max(8, apiKey.length))} readOnly />
+        <input value={revealed ? display : "•".repeat(Math.max(8, display.length))} readOnly />
       </div>
-      <button className="btn ghost sm" onClick={() => setRevealed((r) => !r)}>
-        {revealed ? "Hide" : "Show"}
-      </button>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn ghost sm" onClick={() => setRevealed((r) => !r)} disabled={apiKey === null}>
+          {revealed ? "Hide" : "Show"}
+        </button>
+        <button className="btn sm" onClick={regenerate} disabled={regenerating || apiKey === null}>
+          {regenerating ? "Regenerating…" : "Regenerate"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -119,7 +154,7 @@ function CategoriesTab() {
                     load();
                   }}
                 >
-                  ⌀
+                  🗑
                 </span>
               </div>
             </div>
@@ -153,7 +188,7 @@ function CategoriesTab() {
                       load();
                     }}
                   >
-                    ⌀
+                    🗑
                   </span>
                 </div>
               </div>
@@ -241,21 +276,6 @@ function CategoryModal({
   );
 }
 
-const FIELD_OPTIONS: { value: ConditionField; label: string }[] = [
-  { value: "name", label: "Name" },
-  { value: "amount", label: "Amount" },
-  { value: "account", label: "Account" },
-  { value: "day_of_month", label: "Day of month" },
-  { value: "date", label: "Date" },
-];
-const OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
-  { value: "contains", label: "contains" },
-  { value: "not_contains", label: "does not contain" },
-  { value: "equals", label: "equals" },
-  { value: "less_than", label: "less than" },
-  { value: "greater_than", label: "greater than" },
-];
-
 function RulesTab() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -321,7 +341,7 @@ function RulesTab() {
                 load();
               }}
             >
-              ⌀
+              🗑
             </span>
           </div>
         </div>
@@ -340,117 +360,6 @@ function RulesTab() {
         />
       )}
     </div>
-  );
-}
-
-function RuleModal({
-  mode,
-  rule,
-  categories,
-  onClose,
-  onSaved,
-}: {
-  mode: "new" | "edit";
-  rule?: Rule;
-  categories: Category[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [matchType, setMatchType] = useState<MatchType>(rule?.match_type ?? "all");
-  const [conditions, setConditions] = useState(
-    rule?.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value })) ?? [
-      { field: "name" as ConditionField, operator: "contains" as ConditionOperator, value: "" },
-    ],
-  );
-  const leafOptions: { id: number; path: string }[] = [];
-  for (const p of categories) for (const c of p.children) leafOptions.push({ id: c.id, path: `${p.name}:${c.name}` });
-  for (const p of categories) if (p.children.length === 0) leafOptions.push({ id: p.id, path: p.name });
-  const [targetCategoryId, setTargetCategoryId] = useState<number | "">(
-    rule?.target_category_id ?? leafOptions[0]?.id ?? "",
-  );
-
-  function updateCondition(i: number, patch: Partial<(typeof conditions)[number]>) {
-    setConditions((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
-  }
-
-  async function save() {
-    if (targetCategoryId === "") return;
-    const payload = { match_type: matchType, conditions, target_category_id: targetCategoryId };
-    if (mode === "new") {
-      await rulesApi.create(payload);
-    } else if (rule) {
-      await rulesApi.update(rule.id, payload);
-    }
-    onSaved();
-  }
-
-  return (
-    <Modal
-      title={mode === "new" ? "New rule" : "Edit rule"}
-      onClose={onClose}
-      onSubmit={save}
-      submitLabel="Save rule"
-    >
-      <div className="field">
-        <label>Match</label>
-        <select value={matchType} onChange={(e) => setMatchType(e.target.value as MatchType)}>
-          <option value="all">ALL of the following</option>
-          <option value="any">ANY of the following</option>
-        </select>
-      </div>
-      {conditions.map((c, i) => (
-        <div className="cond-row" key={i}>
-          <select value={c.field} onChange={(e) => updateCondition(i, { field: e.target.value as ConditionField })}>
-            {FIELD_OPTIONS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={c.operator}
-            onChange={(e) => updateCondition(i, { operator: e.target.value as ConditionOperator })}
-          >
-            {OPERATOR_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <input
-            placeholder="value"
-            style={{ flex: 1 }}
-            value={c.value}
-            onChange={(e) => updateCondition(i, { value: e.target.value })}
-          />
-          {conditions.length > 1 && (
-            <span
-              className="icon-btn remove"
-              onClick={() => setConditions((prev) => prev.filter((_, idx) => idx !== i))}
-            >
-              ⌀
-            </span>
-          )}
-        </div>
-      ))}
-      <button
-        type="button"
-        className="btn ghost sm"
-        onClick={() => setConditions((prev) => [...prev, { field: "name", operator: "contains", value: "" }])}
-      >
-        + Add condition
-      </button>
-      <div className="field" style={{ marginTop: 14 }}>
-        <label>Assign category</label>
-        <select value={targetCategoryId} onChange={(e) => setTargetCategoryId(Number(e.target.value))}>
-          {leafOptions.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.path}
-            </option>
-          ))}
-        </select>
-      </div>
-    </Modal>
   );
 }
 

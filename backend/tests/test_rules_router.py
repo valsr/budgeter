@@ -123,23 +123,184 @@ def test_reorder_rejects_bad_id_set(client, auth_headers, category_id):
     assert resp.status_code == 422
 
 
-def test_suggestions_endpoint(client, auth_headers, category_id, account_id):
-    for i in range(3):
-        client.post(
-            "/api/transactions",
-            json={
-                "account_id": account_id,
-                "date": f"2026-01-0{i + 1}",
-                "name": "GitHub Inc.",
-                "splits": [{"category_id": category_id, "amount": -21.0}],
-            },
-            headers=auth_headers,
-        )
-    resp = client.get("/api/rules/suggestions", headers=auth_headers)
+def _categorized_txn(client, auth_headers, account_id, name, category_id, amount=-10.0, date="2026-01-01"):
+    return client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": date, "name": name, "splits": [{"category_id": category_id, "amount": amount}]},
+        headers=auth_headers,
+    ).json()
+
+
+def test_learn_check_covered_when_existing_rule_matches_same_category(client, auth_headers, category_id, account_id):
+    client.post("/api/rules", json=_rule_payload(category_id, "github"), headers=auth_headers)
+    txn = _categorized_txn(client, auth_headers, account_id, "GitHub Inc.", category_id)
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": txn["id"]}, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "covered", "conflict": None, "suggestion": None}
+
+
+def test_learn_check_conflict_when_existing_rule_matches_different_category(
+    client, auth_headers, category_id, account_id
+):
+    other = client.post("/api/categories", json={"name": "other"}, headers=auth_headers).json()["id"]
+    rule = client.post("/api/rules", json=_rule_payload(category_id, "github"), headers=auth_headers).json()
+    txn = _categorized_txn(client, auth_headers, account_id, "GitHub Inc.", other)
+
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": txn["id"]}, headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
-    assert len(body) == 1
-    assert body[0]["occurrence_count"] == 3
+    assert body["status"] == "conflict"
+    assert body["conflict"]["rule_id"] == rule["id"]
+    assert body["conflict"]["matched_category_id"] == category_id
+    assert body["conflict"]["assigned_category_id"] == other
+    # regression guard: str-mixin enums must render their plain value, not
+    # "ConditionField.NAME" (Python 3.11+ changed Enum.__format__ defaults)
+    assert body["conflict"]["rule_summary"] == "name contains 'github'"
+
+    # nothing auto-reverted
+    refreshed = client.get(f"/api/transactions/{txn['id']}", headers=auth_headers).json()
+    assert refreshed["splits"][0]["category_id"] == other
+
+
+def test_learn_check_suggestion_tier1_happy_path(client, auth_headers, category_id, account_id):
+    for i, suffix in enumerate(["775", "756", "123"]):
+        _categorized_txn(
+            client, auth_headers, account_id, f"McDonalds #{suffix}", category_id, date=f"2026-01-0{i + 1}"
+        )
+    newest = _categorized_txn(client, auth_headers, account_id, "McDonalds #999", category_id, date="2026-01-10")
+
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": newest["id"]}, headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "suggestion"
+    assert body["suggestion"]["tier"] == 1
+    assert body["suggestion"]["target_category_id"] == category_id
+    assert body["suggestion"]["conditions"] == [{"field": "name", "operator": "contains", "value": "mcdonalds"}]
+
+
+def test_learn_check_none_when_too_few_candidates(client, auth_headers, category_id, account_id):
+    txn = _categorized_txn(client, auth_headers, account_id, "McDonalds #1", category_id)
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": txn["id"]}, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "none"
+
+
+def test_learn_check_none_for_uncategorized_transaction(client, auth_headers, account_id):
+    txn = client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-01", "name": "x", "splits": [{"amount": -1.0}]},
+        headers=auth_headers,
+    ).json()
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": txn["id"]}, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "none"
+
+
+def test_learn_check_missing_transaction_404(client, auth_headers):
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": 999}, headers=auth_headers)
+    assert resp.status_code == 404
+
+
+def test_preview_matches_counts_uncategorized_and_excludes_categorized(client, auth_headers, category_id, account_id):
+    client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-01", "name": "McDonalds #1", "splits": [{"amount": -5.0}]},
+        headers=auth_headers,
+    )
+    client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-02", "name": "Starbucks", "splits": [{"amount": -5.0}]},
+        headers=auth_headers,
+    )
+    _categorized_txn(client, auth_headers, account_id, "McDonalds #2", category_id)  # already categorized, excluded
+
+    resp = client.post(
+        "/api/rules/preview-matches",
+        json={
+            "match_type": "all",
+            "conditions": [{"field": "name", "operator": "contains", "value": "mcdonalds"}],
+            "target_category_id": category_id,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == 1
+    assert body["sample"][0]["name"] == "McDonalds #1"
+
+
+def test_learn_endpoint_creates_rule_and_backfills_matches(client, auth_headers, category_id, account_id):
+    matching = client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-01", "name": "McDonalds #1", "splits": [{"amount": -5.0}]},
+        headers=auth_headers,
+    ).json()
+    non_matching = client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-02", "name": "Starbucks", "splits": [{"amount": -5.0}]},
+        headers=auth_headers,
+    ).json()
+
+    resp = client.post(
+        "/api/rules/learn",
+        json={
+            "match_type": "all",
+            "conditions": [{"field": "name", "operator": "contains", "value": "mcdonalds"}],
+            "target_category_id": category_id,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["rule"]["target_category_id"] == category_id
+    assert body["confirmed_count"] == 1
+    assert body["confirmed_transaction_ids"] == [matching["id"]]
+
+    # regression: appears in the rule list like any other rule
+    assert any(r["id"] == body["rule"]["id"] for r in client.get("/api/rules", headers=auth_headers).json())
+
+    refreshed_match = client.get(f"/api/transactions/{matching['id']}", headers=auth_headers).json()
+    assert refreshed_match["splits"][0]["category_id"] == category_id  # directly confirmed, not just suggested
+
+    refreshed_non_match = client.get(f"/api/transactions/{non_matching['id']}", headers=auth_headers).json()
+    assert refreshed_non_match["splits"][0]["category_id"] is None
+
+
+def test_learn_endpoint_unknown_category_404(client, auth_headers):
+    resp = client.post(
+        "/api/rules/learn",
+        json={
+            "match_type": "all",
+            "conditions": [{"field": "name", "operator": "contains", "value": "mcdonalds"}],
+            "target_category_id": 999,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_learn_endpoint_no_conditions_422(client, auth_headers, category_id):
+    resp = client.post(
+        "/api/rules/learn",
+        json={"match_type": "all", "conditions": [], "target_category_id": category_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+
+def test_plain_create_rule_never_sets_category_id_directly(client, auth_headers, category_id, account_id):
+    """Regression guard: plain POST /api/rules must stay suggest-only --
+    only POST /api/rules/learn does the one-time auto-confirm backfill."""
+    txn = client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-01", "name": "McDonalds #1", "splits": [{"amount": -5.0}]},
+        headers=auth_headers,
+    ).json()
+    client.post("/api/rules", json=_rule_payload(category_id, "mcdonalds"), headers=auth_headers)
+
+    refreshed = client.get(f"/api/transactions/{txn['id']}", headers=auth_headers).json()
+    assert refreshed["splits"][0]["category_id"] is None
+    assert refreshed["splits"][0]["suggested_category_id"] == category_id
 
 
 def test_recategorize_endpoint(client, auth_headers, category_id, account_id):

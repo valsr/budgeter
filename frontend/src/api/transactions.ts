@@ -11,6 +11,8 @@ export interface TransactionFilters {
   category_id?: number;
   page?: number;
   page_size?: number;
+  show_categorized?: boolean;
+  show_uncategorized?: boolean;
 }
 
 export interface SplitInput {

@@ -22,6 +22,15 @@ export const categoriesApi = {
     }),
 };
 
+/** Strip archived categories from a tree fetched with include_archived=true.
+ * Pages fetch the full tree so archived categories still render on historical
+ * transactions (§2.2), but pickers/filters must only offer active ones. */
+export function activeCategories(tree: Category[]): Category[] {
+  return tree
+    .filter((c) => c.archived_at === null)
+    .map((c) => ({ ...c, children: c.children.filter((child) => child.archived_at === null) }));
+}
+
 /** Flatten the category tree into leaf-path entries (e.g. "shared:groceries") for pickers. */
 export function flattenLeafCategories(tree: Category[]): { id: number; path: string; color: string }[] {
   const result: { id: number; path: string; color: string }[] = [];

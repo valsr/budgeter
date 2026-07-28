@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { transactionsApi } from "../api/transactions";
-import { flattenLeafCategories } from "../api/categories";
+import { activeCategories, flattenLeafCategories } from "../api/categories";
 import type { Account, Category, Split, Transaction } from "../api/types";
-import { CategoryTag } from "./CategoryTag";
+import { CategoryTag, hexToRgba } from "./CategoryTag";
+import { NewTransactionModal } from "./NewTransactionModal";
+import { useLearnCheck } from "./Toast";
 
 interface TransactionTableProps {
+  /** Full category tree including archived (so historical transactions still
+   * render their category); pickers/filters use only the active subset. */
   categories: Category[];
   accounts: Account[];
   lockAccountId?: number;
   onSplitTransaction?: (transaction: Transaction) => void;
   refreshKey?: number;
   onDataChanged?: () => void;
+  initialFilters?: Partial<Filters>;
 }
 
-interface Filters {
+export interface Filters {
   name_contains: string;
   date_from: string;
   date_to: string;
@@ -21,6 +26,8 @@ interface Filters {
   amount_max: string;
   category_id: string;
   account_id: string;
+  show_categorized: boolean;
+  show_uncategorized: boolean;
 }
 
 const EMPTY_FILTERS: Filters = {
@@ -31,9 +38,12 @@ const EMPTY_FILTERS: Filters = {
   amount_max: "",
   category_id: "",
   account_id: "",
+  show_categorized: true,
+  show_uncategorized: true,
 };
 
 const PAGE_SIZE = 100;
+const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
 
 export function TransactionTable({
   categories,
@@ -42,13 +52,17 @@ export function TransactionTable({
   onSplitTransaction,
   refreshKey,
   onDataChanged,
+  initialFilters,
 }: TransactionTableProps) {
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS, ...initialFilters });
   const [page, setPage] = useState(1);
   const [data, setData] = useState<{ items: Transaction[]; total: number } | null>(null);
   const [editingSplit, setEditingSplit] = useState<{ txnId: number; splitId: number } | null>(null);
+  const [showNewTxnModal, setShowNewTxnModal] = useState(false);
+  const runLearnCheck = useLearnCheck();
 
-  const leafCategories = useMemo(() => flattenLeafCategories(categories), [categories]);
+  const activeTree = useMemo(() => activeCategories(categories), [categories]);
+  const leafCategories = useMemo(() => flattenLeafCategories(activeTree), [activeTree]);
   const categoryById = useMemo(() => {
     const map = new Map<number, { name: string; color: string }>();
     for (const parent of categories) {
@@ -74,6 +88,8 @@ export function TransactionTable({
       category_id: filters.category_id ? Number(filters.category_id) : undefined,
       page,
       page_size: PAGE_SIZE,
+      show_categorized: filters.show_categorized ? undefined : false,
+      show_uncategorized: filters.show_uncategorized ? undefined : false,
     });
     setData({ items: res.items, total: res.total });
   }
@@ -92,6 +108,8 @@ export function TransactionTable({
     const split = txn?.splits.find((s) => s.id === splitId);
     if (!txn || !split) return;
     const otherSplits = txn.splits.filter((s) => s.id !== splitId);
+    const priorCategoryId = split.category_id;
+    const resultingSplitCount = otherSplits.length + 1;
     await transactionsApi.updateSplits(transactionId, [
       ...otherSplits.map((s) => ({ category_id: s.category_id, amount: s.amount })),
       { category_id: categoryId, amount: split.amount },
@@ -99,6 +117,9 @@ export function TransactionTable({
     setEditingSplit(null);
     load();
     onDataChanged?.();
+    if (resultingSplitCount === 1 && categoryId !== null && categoryId !== priorCategoryId) {
+      runLearnCheck(transactionId);
+    }
   }
 
   async function accept(transactionId: number, splitId: number) {
@@ -109,6 +130,17 @@ export function TransactionTable({
 
   async function reject(transactionId: number, splitId: number) {
     await transactionsApi.rejectSuggestion(transactionId, splitId);
+    load();
+    onDataChanged?.();
+  }
+
+  async function deleteTransaction(txn: Transaction) {
+    const total = txn.splits.reduce((sum, s) => sum + s.amount, 0);
+    const noun = txn.type === "transfer" ? "transfer (both legs)" : "transaction";
+    if (!confirm(`Delete this ${noun} — "${txn.name}", $${Math.abs(total).toFixed(2)}? This can't be undone.`)) {
+      return;
+    }
+    await transactionsApi.remove(txn.id);
     load();
     onDataChanged?.();
   }
@@ -151,9 +183,13 @@ export function TransactionTable({
 
     if (split.suggested_category_id !== null) {
       const cat = categoryById.get(split.suggested_category_id);
+      const tooltip =
+        split.suggestion_source === "ai"
+          ? "Suggested by AI — accept to confirm or reject to clear"
+          : "Suggested by a categorization rule — accept to confirm or reject to clear";
       return (
         <td>
-          <span className="cat-suggest">{cat?.name ?? "?"}?</span>
+          <span className="cat-suggest" title={tooltip}>{cat?.name ?? "?"}?</span>
           <span
             className="icon-btn accept"
             title="Accept"
@@ -211,6 +247,13 @@ export function TransactionTable({
 
   return (
     <div>
+      <div className="toolbar">
+        <span />
+        <button className="btn sm" onClick={() => setShowNewTxnModal(true)}>
+          + New transaction
+        </button>
+      </div>
+
       <div className="filters-2row">
         <div className="filters-row">
           <input
@@ -250,7 +293,7 @@ export function TransactionTable({
             onChange={(e) => setFilters((f) => ({ ...f, category_id: e.target.value }))}
           >
             <option value="">All categories</option>
-            {categories.map((parent) => (
+            {activeTree.map((parent) => (
               <optgroup key={parent.id} label={parent.name}>
                 <option value={parent.id}>{parent.name} (all)</option>
                 {parent.children.map((c) => (
@@ -274,6 +317,22 @@ export function TransactionTable({
               ))}
             </select>
           )}
+          <div className="toggle-group">
+            <button
+              type="button"
+              className={"toggle-btn" + (filters.show_categorized ? " on" : "")}
+              onClick={() => setFilters((f) => ({ ...f, show_categorized: !f.show_categorized }))}
+            >
+              Categorized
+            </button>
+            <button
+              type="button"
+              className={"toggle-btn" + (filters.show_uncategorized ? " on" : "")}
+              onClick={() => setFilters((f) => ({ ...f, show_uncategorized: !f.show_uncategorized }))}
+            >
+              Uncategorized
+            </button>
+          </div>
         </div>
       </div>
 
@@ -290,18 +349,28 @@ export function TransactionTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((txn) => {
+          {(() => {
+            // Wireframe alternates uncat-a/uncat-b backgrounds across
+            // consecutive uncategorized rows; track the count while rendering.
+            let uncatCounter = 0;
+            return items.map((txn) => {
             const account = accountById.get(txn.account_id);
+            const accountColor = account?.color ?? DEFAULT_ACCOUNT_COLOR;
             const accountTag = account ? (
-              <span className="tag" style={{ background: "#dfeef1", color: "#4f8a9c" }}>
+              <span className="tag" style={{ background: hexToRgba(accountColor, 0.15), color: accountColor }}>
                 {account.name}
               </span>
             ) : null;
 
             if (txn.splits.length === 1) {
               const split = txn.splits[0];
-              const isUncat = split.category_id === null;
-              const rowClass = isUncat ? "uncat-a" + (split.suggested_category_id !== null ? " suggest-row" : "") : "";
+              const isUncat = txn.type === "normal" && split.category_id === null;
+              let rowClass = "";
+              if (isUncat) {
+                uncatCounter += 1;
+                rowClass = (uncatCounter % 2 === 1 ? "uncat-a" : "uncat-b") +
+                  (split.suggested_category_id !== null ? " suggest-row" : "");
+              }
               return (
                 <tr key={txn.id} className={rowClass}>
                   <td>{txn.date}</td>
@@ -319,6 +388,9 @@ export function TransactionTable({
                         ✂
                       </span>
                     )}
+                    <span className="icon-btn remove" title="Delete transaction" onClick={() => deleteTransaction(txn)}>
+                      🗑
+                    </span>
                   </td>
                 </tr>
               );
@@ -339,11 +411,21 @@ export function TransactionTable({
                         ✎
                       </span>
                     )}
+                    {i === 0 && (
+                      <span
+                        className="icon-btn remove"
+                        title="Delete transaction"
+                        onClick={() => deleteTransaction(txn)}
+                      >
+                        🗑
+                      </span>
+                    )}
                   </td>
                 </tr>
               );
             });
-          })}
+            });
+          })()}
         </tbody>
       </table>
 
@@ -358,6 +440,19 @@ export function TransactionTable({
           <span onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>›</span>
         </div>
       </div>
+
+      {showNewTxnModal && (
+        <NewTransactionModal
+          accounts={accounts}
+          categories={categories}
+          defaultAccountId={lockAccountId}
+          onClose={() => setShowNewTxnModal(false)}
+          onSaved={() => {
+            load();
+            onDataChanged?.();
+          }}
+        />
+      )}
     </div>
   );
 }

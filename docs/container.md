@@ -16,14 +16,16 @@ podman build --file Containerfile --build-arg API_KEY=dev-local-api-key --tag bu
 
 ### About the API key
 
-The frontend is a static SPA — its API key is compiled into the JS bundle at `npm run build` time (via `VITE_API_KEY`), not read at container runtime. That means the build step and the run step both need to agree on the key:
+The key itself lives in the database (`api_key` table), not just in config — the backend checks incoming bearer tokens against that row, falling back to `BUDGETER_API_KEY` only when the row doesn't exist yet. The frontend is a static SPA, though, so its *first* request needs a key compiled in at `npm run build` time (via `VITE_API_KEY`); the build step and the run step need to agree on that initial value:
 
 ```bash
 API_KEY=my-secret scripts/podman-build.sh
 API_KEY=my-secret scripts/podman-run.sh
 ```
 
-If you don't pass one, both scripts default to `dev-local-api-key` (same default the dev servers use), so it works out of the box for local single-user use. Changing the key later means rebuilding the image, not just restarting the container.
+If you don't pass one, both scripts default to `dev-local-api-key` (same default the dev servers use), so it works out of the box for local single-user use.
+
+You can regenerate the key later from Settings → API key without rebuilding — the new value is stored server-side and the browser that clicked "Regenerate" keeps working automatically (it caches the new key in `localStorage`). Two things to update by hand afterwards: any other browser/device hitting this instance (it has no way to recover from a stale compiled-in key except being given the new one), and the MCP adapter's `BUDGETER_MCP_API_KEY` env var, which is a separate client and won't pick up the change on its own.
 
 ## Run
 

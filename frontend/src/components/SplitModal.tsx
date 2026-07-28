@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { flattenLeafCategories } from "../api/categories";
+import { activeCategories, flattenLeafCategories } from "../api/categories";
 import { transactionsApi } from "../api/transactions";
 import type { Category, Transaction } from "../api/types";
 import { Modal } from "./Modal";
+import { useLearnCheck } from "./Toast";
 
 interface SplitModalProps {
   transaction: Transaction;
@@ -12,12 +13,13 @@ interface SplitModalProps {
 }
 
 export function SplitModal({ transaction, categories, onClose, onSaved }: SplitModalProps) {
-  const leafCategories = flattenLeafCategories(categories);
+  const leafCategories = flattenLeafCategories(activeCategories(categories));
   const total = transaction.splits.reduce((sum, s) => sum + s.amount, 0);
   const [rows, setRows] = useState(
     transaction.splits.map((s) => ({ category_id: s.category_id, amount: String(s.amount) })),
   );
   const [error, setError] = useState<string | null>(null);
+  const runLearnCheck = useLearnCheck();
 
   const sum = rows.reduce((acc, r) => acc + (parseFloat(r.amount) || 0), 0);
   const matches = Math.abs(sum - total) < 0.005;
@@ -46,6 +48,9 @@ export function SplitModal({ transaction, categories, onClose, onSaved }: SplitM
       );
       onSaved();
       onClose();
+      if (rows.length === 1 && rows[0].category_id !== null) {
+        runLearnCheck(transaction.id);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save splits");
     }
@@ -76,7 +81,7 @@ export function SplitModal({ transaction, categories, onClose, onSaved }: SplitM
           />
           {rows.length > 1 && (
             <span className="icon-btn remove" onClick={() => removeRow(i)}>
-              ⌀
+              🗑
             </span>
           )}
         </div>

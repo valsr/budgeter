@@ -15,6 +15,7 @@ from app.routers import (
     imports,
     overview,
     rules,
+    settings,
     transactions,
 )
 
@@ -38,6 +39,7 @@ app.include_router(ai.router)
 app.include_router(budgets.router)
 app.include_router(backup.router)
 app.include_router(overview.router)
+app.include_router(settings.router)
 
 # In the packaged container, the frontend's `npm run build` output is copied
 # to app/static/ (see the root Containerfile). In local dev this directory

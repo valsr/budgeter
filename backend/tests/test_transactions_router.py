@@ -242,6 +242,29 @@ def test_list_transactions_pagination_shape(client, auth_headers, account_id):
     assert body["page_size"] == 2
 
 
+def test_list_transactions_uncategorized_filter_param(client, auth_headers, account_id, category_id):
+    client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-01", "name": "uncat", "splits": [{"amount": -1.0}]},
+        headers=auth_headers,
+    )
+    client.post(
+        "/api/transactions",
+        json={
+            "account_id": account_id,
+            "date": "2026-01-02",
+            "name": "cat",
+            "splits": [{"category_id": category_id, "amount": -2.0}],
+        },
+        headers=auth_headers,
+    )
+    resp = client.get("/api/transactions?show_categorized=false", headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["name"] == "uncat"
+
+
 def test_account_balance_reflects_transactions(client, auth_headers, account_id):
     client.post(
         "/api/transactions",
