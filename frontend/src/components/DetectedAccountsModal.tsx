@@ -4,6 +4,7 @@ import { Modal } from "./Modal";
 
 interface NewAccountForm {
   name: string;
+  account_number: string;
   type: AccountType;
   opening_balance: string;
   color: string;
@@ -14,6 +15,7 @@ const DEFAULT_COLOR = "#4f8a9c";
 function defaultForm(detected: DetectedAccount): NewAccountForm {
   return {
     name: detected.parsed_name ?? "",
+    account_number: "",
     type: detected.suggested_type ?? "asset",
     opening_balance: "0.00",
     color: DEFAULT_COLOR,
@@ -61,6 +63,7 @@ export function DetectedAccountsModal({
         parsed_name: a.parsed_name,
         new_account: {
           name: form.name.trim() || a.parsed_name || "Untitled account",
+          account_number: form.account_number.trim() || null,
           type: form.type,
           opening_balance: parseFloat(form.opening_balance) || 0,
           color: form.color,
@@ -124,6 +127,14 @@ export function DetectedAccountsModal({
                       value={forms[i]?.name ?? ""}
                       onChange={(e) => updateForm(i, { name: e.target.value })}
                       placeholder="e.g. Chase Checking"
+                    />
+                  </div>
+                  <div className="field" style={{ flex: 2, minWidth: 140, marginBottom: 0 }}>
+                    <label>Account ID</label>
+                    <input
+                      value={forms[i]?.account_number ?? ""}
+                      onChange={(e) => updateForm(i, { account_number: e.target.value })}
+                      placeholder="Bank account number / identifier"
                     />
                   </div>
                   <div className="field" style={{ flex: 1, minWidth: 120, marginBottom: 0 }}>

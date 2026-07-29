@@ -42,9 +42,27 @@ describe("DetectedAccountsModal", () => {
       { parsed_name: "Main checking", account_id: 1 },
       {
         parsed_name: "Credit Card",
-        new_account: { name: "My Credit Card", type: "liability", opening_balance: 0, color: "#4f8a9c" },
+        new_account: {
+          name: "My Credit Card",
+          account_number: null,
+          type: "liability",
+          opening_balance: 0,
+          color: "#4f8a9c",
+        },
       },
     ]);
+  });
+
+  it("includes an account number when the user fills it in", () => {
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+
+    fireEvent.change(screen.getByPlaceholderText("Bank account number / identifier"), {
+      target: { value: "1234567890" },
+    });
+    fireEvent.click(screen.getByText("Import"));
+
+    expect(onConfirm.mock.calls[0][0][1].new_account.account_number).toBe("1234567890");
   });
 
   it("falls back to the parsed name if the name field is cleared", () => {
