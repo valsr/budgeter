@@ -90,6 +90,27 @@ def test_get_missing_category_404(client, auth_headers):
     assert resp.status_code == 404
 
 
+def test_create_category_defaults_is_income_false(client, auth_headers):
+    resp = client.post("/api/categories", json={"name": "shared"}, headers=auth_headers)
+    assert resp.json()["is_income"] is False
+
+
+def test_create_category_marked_as_income(client, auth_headers):
+    resp = client.post("/api/categories", json={"name": "salary", "is_income": True}, headers=auth_headers)
+    assert resp.json()["is_income"] is True
+
+
+def test_update_category_income_flag(client, auth_headers):
+    created = client.post("/api/categories", json={"name": "salary"}, headers=auth_headers).json()
+    resp = client.patch(
+        f"/api/categories/{created['id']}",
+        json={"is_income": True},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_income"] is True
+
+
 def test_update_category_override_color(client, auth_headers):
     created = client.post("/api/categories", json={"name": "shared"}, headers=auth_headers).json()
     resp = client.patch(

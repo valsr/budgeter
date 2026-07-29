@@ -40,6 +40,12 @@ class ReportRow:
     depth: int = 0
     """Distance from a top-level category (0 = top level), for indenting
     arbitrarily-deep category trees in the report."""
+    is_income: bool = False
+    """Effective income flag for this category (its own Category.is_income,
+    or inherited from an ancestor) — the sign flip has already been baked
+    into `monthly`/`ytd_diff` above by the time this row is built; this is
+    exposed purely so callers (e.g. an expense-minus-income grand total) can
+    tell which rows were flipped."""
 
 
 def build_row(
@@ -52,6 +58,7 @@ def build_row(
     through_month: int,
     has_budget: bool = True,
     depth: int = 0,
+    is_income: bool = False,
 ) -> ReportRow:
     monthly = {m: (budgeted.get(m, Decimal(0)), actual.get(m, Decimal(0))) for m in months}
     ytd_diff = cumulative_balance(budgeted, actual, through_month)
@@ -63,4 +70,5 @@ def build_row(
         ytd_diff=ytd_diff,
         has_budget=has_budget,
         depth=depth,
+        is_income=is_income,
     )

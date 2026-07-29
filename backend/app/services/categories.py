@@ -42,6 +42,7 @@ def create_category(
     name: str,
     parent_id: int | None = None,
     color: str | None = None,
+    is_income: bool = False,
 ) -> Category:
     if parent_id is not None:
         _get_or_404(db, parent_id)
@@ -51,6 +52,7 @@ def create_category(
         parent_id=parent_id,
         color=color,
         sort_order=_next_sort_order(db, parent_id),
+        is_income=is_income,
     )
     db.add(category)
     db.commit()
@@ -76,6 +78,7 @@ def update_category(
     name: str | None = None,
     color: str | None = None,
     parent_id: int | None | object = ...,
+    is_income: bool | None = None,
 ) -> Category:
     category = _get_or_404(db, category_id)
     before = change_log.serialize_category(category)
@@ -84,6 +87,8 @@ def update_category(
         category.name = name
     if color is not None:
         category.color = color
+    if is_income is not None:
+        category.is_income = is_income
 
     if parent_id is not ...:
         if parent_id == category_id:
@@ -264,6 +269,7 @@ def apply_category_snapshot(db: Session, category_id: int, snapshot: dict) -> Ca
     category.archived_at = (
         datetime.fromisoformat(snapshot["archived_at"]) if snapshot["archived_at"] else None
     )
+    category.is_income = snapshot["is_income"]
 
     db.commit()
     db.refresh(category)
@@ -294,6 +300,7 @@ def restore_category(db: Session, snapshot: dict) -> Category:
         color=snapshot["color"],
         sort_order=snapshot["sort_order"],
         archived_at=datetime.fromisoformat(snapshot["archived_at"]) if snapshot["archived_at"] else None,
+        is_income=snapshot["is_income"],
     )
     db.add(category)
     db.commit()

@@ -86,6 +86,40 @@ def test_overview_no_categories_returns_empty(db_session):
     assert budgets_svc.get_overview(db_session, year=2026, through_month=1) == []
 
 
+def test_overview_income_category_actual_reads_as_positive_received(db_session, account):
+    salary = categories_svc.create_category(db_session, "salary", is_income=True)
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 5), "Payroll", [(salary.id, 2000.0)])
+
+    rows = budgets_svc.get_overview(db_session, year=2026, through_month=1)
+    salary_row = next(r for r in rows if r.name == "salary")
+    assert salary_row.is_income is True
+    assert salary_row.monthly[1][1] == Decimal("2000")
+
+
+def test_overview_non_income_category_actual_unaffected(db_session, account, groceries):
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 5), "Costco", [(groceries.id, -88.40)])
+    rows = budgets_svc.get_overview(db_session, year=2026, through_month=1)
+    groceries_row = next(r for r in rows if r.name == "groceries")
+    assert groceries_row.is_income is False
+    assert groceries_row.monthly[1][1] == Decimal("88.40")
+
+
+def test_overview_income_flag_inherits_from_ancestor(db_session, account):
+    income = categories_svc.create_category(db_session, "income", is_income=True)
+    salary = categories_svc.create_category(db_session, "salary", parent_id=income.id)
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 5), "Payroll", [(salary.id, 2000.0)])
+
+    rows = budgets_svc.get_overview(db_session, year=2026, through_month=1)
+    by_name = {r.name: r for r in rows}
+    assert by_name["salary"].is_income is True
+    assert by_name["salary"].monthly[1][1] == Decimal("2000")
+    # the parent rollup sums the already-flipped child, and is itself
+    # effectively income too (it inherits nothing to inherit from, but is
+    # marked directly)
+    assert by_name["income"].is_income is True
+    assert by_name["income"].monthly[1][1] == Decimal("2000")
+
+
 def test_overview_rolls_up_three_levels_deep(db_session, account, shared, groceries):
     alcohol = categories_svc.create_category(db_session, "alcohol", parent_id=groceries.id)
     txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 5), "Beer", [(alcohol.id, -40.0)])

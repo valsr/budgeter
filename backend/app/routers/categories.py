@@ -31,6 +31,7 @@ def _to_read(category: Category, include_archived: bool = False) -> CategoryRead
         color=category.color or hash_color(category.id),
         sort_order=category.sort_order,
         archived_at=category.archived_at,
+        is_income=category.is_income,
         children=[_to_read(c, include_archived) for c in children],
     )
 
@@ -45,7 +46,11 @@ def list_categories(include_archived: bool = False, db: Session = Depends(get_db
 def create_category(payload: CategoryCreate, db: Session = Depends(get_db)):
     try:
         category = categories_service.create_category(
-            db, name=payload.name, parent_id=payload.parent_id, color=payload.color
+            db,
+            name=payload.name,
+            parent_id=payload.parent_id,
+            color=payload.color,
+            is_income=payload.is_income,
         )
         return _to_read(category)
     except NotFoundError as e:
@@ -86,6 +91,7 @@ def update_category(category_id: int, payload: CategoryUpdate, db: Session = Dep
             name=payload.name,
             color=payload.color,
             parent_id=parent_id,
+            is_income=payload.is_income,
         )
         return _to_read(category)
     except NotFoundError as e:

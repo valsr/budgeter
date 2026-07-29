@@ -154,9 +154,28 @@ def _assemble_rows(
             if cat.parent_id is not None and cat.parent_id not in categories_by_id:
                 to_load.add(cat.parent_id)
 
+    def is_income_effective(cat_id: int) -> bool:
+        """A category counts as income if it or any ancestor is marked
+        is_income -- marking a top-level "Income" category flips its whole
+        subtree without having to tag every leaf underneath it."""
+        cat: Category | None = categories_by_id.get(cat_id)
+        while cat is not None:
+            if cat.is_income:
+                return True
+            cat = categories_by_id.get(cat.parent_id) if cat.parent_id is not None else None
+        return False
+
     actual_by_category = {
         cat_id: _actuals_for_category(db, cat_id, year, through_month) for cat_id in leaf_ids
     }
+    # Reporting-only sign flip: deposits into an income category are positive
+    # splits, which _actuals_for_category negates into a negative "actual"
+    # (the convention that makes expense spend read as a positive number).
+    # Negating again for income leaves undoes that, so income reads as a
+    # natural positive amount received. Doesn't touch the underlying splits.
+    for cat_id in leaf_ids:
+        if is_income_effective(cat_id):
+            actual_by_category[cat_id] = {m: -v for m, v in actual_by_category[cat_id].items()}
 
     # Children, keyed by parent_id (None for top-level), restricted to
     # categories actually involved here (a leaf or an ancestor of one) —
@@ -212,6 +231,7 @@ def _assemble_rows(
                 through_month,
                 has_budget=has_budget,
                 depth=depth,
+                is_income=is_income_effective(cat_id),
             )
         )
         for kid in kids:

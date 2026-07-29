@@ -16,10 +16,10 @@ const categories: Category[] = [
     parent_id: null,
     color: "#111",
     sort_order: 0,
-    archived_at: null,
+    archived_at: null, is_income: false,
     children: [
-      { id: 2, name: "groceries", parent_id: 1, color: "#222", sort_order: 0, archived_at: null, children: [] },
-      { id: 3, name: "utilities", parent_id: 1, color: "#333", sort_order: 1, archived_at: null, children: [] },
+      { id: 2, name: "groceries", parent_id: 1, color: "#222", sort_order: 0, archived_at: null, is_income: false, children: [] },
+      { id: 3, name: "utilities", parent_id: 1, color: "#333", sort_order: 1, archived_at: null, is_income: false, children: [] },
     ],
   },
 ];

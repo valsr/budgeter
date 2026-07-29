@@ -17,6 +17,7 @@ export interface Category {
   color: string;
   sort_order: number;
   archived_at: string | null;
+  is_income: boolean;
   children: Category[];
 }
 
@@ -201,6 +202,7 @@ export interface ReportRow {
   ytd_diff: number;
   has_budget: boolean;
   depth: number;
+  is_income: boolean;
 }
 
 export type ChangeOperation = "create" | "update" | "delete";

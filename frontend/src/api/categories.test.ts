@@ -3,7 +3,17 @@ import { flattenLeafCategories } from "./categories";
 import type { Category } from "./types";
 
 function cat(overrides: Partial<Category>): Category {
-  return { id: 1, name: "x", parent_id: null, color: "#000", sort_order: 0, archived_at: null, children: [], ...overrides };
+  return {
+    id: 1,
+    name: "x",
+    parent_id: null,
+    color: "#000",
+    sort_order: 0,
+    archived_at: null,
+    is_income: false,
+    children: [],
+    ...overrides,
+  };
 }
 
 describe("flattenLeafCategories", () => {

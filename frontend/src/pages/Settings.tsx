@@ -4,7 +4,7 @@ import { categoriesApi, flattenAllCategories } from "../api/categories";
 import { setApiKey } from "../api/client";
 import { rulesApi } from "../api/rules";
 import { settingsApi } from "../api/settings";
-import type { Category, Rule } from "../api/types";
+import type { Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
 import { Modal } from "../components/Modal";
 import { RuleModal } from "../components/RuleModal";
 import { RunRulesModal } from "../components/RunRulesModal";
@@ -255,6 +255,7 @@ function CategoryModal({
   const [name, setName] = useState(category?.name ?? "");
   const [parentId, setParentId] = useState<number | "">(category?.parent_id ?? "");
   const [color, setColor] = useState(category?.color ?? "#6f8f6a");
+  const [isIncome, setIsIncome] = useState(category?.is_income ?? false);
 
   // A category can be parented under anything at any depth, except itself
   // or one of its own descendants (would create a cycle).
@@ -263,13 +264,14 @@ function CategoryModal({
 
   async function save() {
     if (mode === "new") {
-      await categoriesApi.create({ name, parent_id: parentId === "" ? null : parentId, color });
+      await categoriesApi.create({ name, parent_id: parentId === "" ? null : parentId, color, is_income: isIncome });
     } else if (category) {
       await categoriesApi.update(category.id, {
         name,
         color,
         parent_id: parentId === "" ? null : parentId,
         move_to_root: parentId === "",
+        is_income: isIncome,
       });
     }
     onSaved();
@@ -301,8 +303,44 @@ function CategoryModal({
         <label>Colour</label>
         <input type="color" value={color} style={{ width: 60, padding: 2 }} onChange={(e) => setColor(e.target.value)} />
       </div>
+      <div className="field">
+        <label>
+          <input
+            type="checkbox"
+            checked={isIncome}
+            onChange={(e) => setIsIncome(e.target.checked)}
+            style={{ marginRight: 6 }}
+          />
+          Income category
+        </label>
+        <p className="sub" style={{ marginTop: 4, marginBottom: 0 }}>
+          Reporting only — flips this category's actual amounts to read as money received instead of spent.
+          Applies to all of its subcategories too. Doesn't change any transaction data.
+        </p>
+      </div>
     </Modal>
   );
+}
+
+/** Combines the conditions of the given rules (in list order) for the "Merge
+ * rules" flow, deduping exact field/operator/value repeats across rules, and
+ * defaulting the target category to the first selected rule's. */
+function buildMergeInitial(sourceRules: Rule[]) {
+  const seen = new Set<string>();
+  const conditions: { field: ConditionField; operator: ConditionOperator; value: string }[] = [];
+  for (const rule of sourceRules) {
+    for (const c of rule.conditions) {
+      const key = `${c.field}|${c.operator}|${c.value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      conditions.push({ field: c.field, operator: c.operator, value: c.value });
+    }
+  }
+  return {
+    matchType: "any" as MatchType,
+    conditions,
+    targetCategoryId: sourceRules[0].target_category_id,
+  };
 }
 
 function RulesTab() {
@@ -311,9 +349,26 @@ function RulesTab() {
   const [modal, setModal] = useState<null | { mode: "new" | "edit"; rule?: Rule }>(null);
   const [showRunModal, setShowRunModal] = useState(false);
   const [appliedCount, setAppliedCount] = useState<number | null>(null);
+  const [mergeMode, setMergeMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [mergeModalRules, setMergeModalRules] = useState<Rule[] | null>(null);
 
   function load() {
     rulesApi.list().then(setRules);
+  }
+
+  function exitMergeMode() {
+    setMergeMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function toggleSelected(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -341,56 +396,91 @@ function RulesTab() {
   return (
     <div>
       <div className="toolbar">
-        <span style={{ color: "var(--ink-2)", fontSize: 12.5 }}>Order matters — first match wins.</span>
+        <span style={{ color: "var(--ink-2)", fontSize: 12.5 }}>
+          {mergeMode ? `Select rules to merge — ${selectedIds.size} selected.` : "Order matters — first match wins."}
+        </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {appliedCount !== null && (
             <span className="sub">
               Applied {appliedCount} suggestion{appliedCount === 1 ? "" : "s"} — review in Transactions.
             </span>
           )}
-          <button
-            className="btn ghost sm"
-            onClick={() => {
-              setAppliedCount(null);
-              setShowRunModal(true);
-            }}
-          >
-            Run rules
-          </button>
-          <button className="btn sm" onClick={() => setModal({ mode: "new" })}>
-            + New rule
-          </button>
+          {mergeMode ? (
+            <>
+              <button className="btn ghost sm" onClick={exitMergeMode}>
+                Cancel
+              </button>
+              <button
+                className="btn sm"
+                disabled={selectedIds.size < 2}
+                onClick={() => setMergeModalRules(rules.filter((r) => selectedIds.has(r.id)))}
+              >
+                Merge {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn ghost sm" onClick={() => setMergeMode(true)}>
+                Merge rules
+              </button>
+              <button
+                className="btn ghost sm"
+                onClick={() => {
+                  setAppliedCount(null);
+                  setShowRunModal(true);
+                }}
+              >
+                Run rules
+              </button>
+              <button className="btn sm" onClick={() => setModal({ mode: "new" })}>
+                + New rule
+              </button>
+            </>
+          )}
         </div>
       </div>
       {rules.map((rule, i) => (
         <div className="rule-row" key={rule.id}>
           <div>
-            <span className="drag" style={{ cursor: "pointer" }} onClick={() => move(i, -1)}>
-              ▲
-            </span>
-            <span className="drag" style={{ cursor: "pointer" }} onClick={() => move(i, 1)}>
-              ▼
-            </span>
+            {mergeMode ? (
+              <input
+                type="checkbox"
+                style={{ marginRight: 10 }}
+                checked={selectedIds.has(rule.id)}
+                onChange={() => toggleSelected(rule.id)}
+              />
+            ) : (
+              <>
+                <span className="drag" style={{ cursor: "pointer" }} onClick={() => move(i, -1)}>
+                  ▲
+                </span>
+                <span className="drag" style={{ cursor: "pointer" }} onClick={() => move(i, 1)}>
+                  ▼
+                </span>
+              </>
+            )}
             <b>{i + 1}.</b> if {rule.match_type.toUpperCase()}:{" "}
             {rule.conditions.map((c) => `${c.field} ${c.operator} "${c.value}"`).join(" · ")} →{" "}
             <span className="tag" style={{ background: "#ece5f2", color: "#8a6aa0" }}>
               {categoryName(rule.target_category_id)}
             </span>
           </div>
-          <div className="row-actions">
-            <span className="icon-btn split" onClick={() => setModal({ mode: "edit", rule })}>
-              ✎
-            </span>
-            <span
-              className="icon-btn remove"
-              onClick={async () => {
-                await rulesApi.remove(rule.id);
-                load();
-              }}
-            >
-              🗑
-            </span>
-          </div>
+          {!mergeMode && (
+            <div className="row-actions">
+              <span className="icon-btn split" onClick={() => setModal({ mode: "edit", rule })}>
+                ✎
+              </span>
+              <span
+                className="icon-btn remove"
+                onClick={async () => {
+                  await rulesApi.remove(rule.id);
+                  load();
+                }}
+              >
+                🗑
+              </span>
+            </div>
+          )}
         </div>
       ))}
 
@@ -402,6 +492,21 @@ function RulesTab() {
           onClose={() => setModal(null)}
           onSaved={() => {
             setModal(null);
+            load();
+          }}
+        />
+      )}
+
+      {mergeModalRules && (
+        <RuleModal
+          mode="new"
+          categories={categories}
+          mergeSourceRules={mergeModalRules}
+          initial={buildMergeInitial(mergeModalRules)}
+          onClose={() => setMergeModalRules(null)}
+          onSaved={() => {
+            setMergeModalRules(null);
+            exitMergeMode();
             load();
           }}
         />

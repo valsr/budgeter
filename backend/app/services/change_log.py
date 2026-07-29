@@ -90,6 +90,7 @@ def serialize_category(category: Category) -> dict[str, Any]:
         "color": category.color,
         "sort_order": category.sort_order,
         "archived_at": category.archived_at.isoformat() if category.archived_at else None,
+        "is_income": category.is_income,
     }
 
 
@@ -138,6 +139,7 @@ _CATEGORY_FIELD_LABELS = {
     "parent_id": "parent category",
     "color": "color",
     "archived_at": "archived state",
+    "is_income": "income/expense type",
 }
 
 _TRANSACTION_FIELD_LABELS = {

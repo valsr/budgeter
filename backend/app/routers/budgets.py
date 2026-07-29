@@ -23,6 +23,7 @@ def row_to_read(row) -> ReportRowRead:
         ytd_diff=float(row.ytd_diff),
         has_budget=row.has_budget,
         depth=row.depth,
+        is_income=row.is_income,
     )
 
 

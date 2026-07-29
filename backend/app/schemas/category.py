@@ -7,6 +7,7 @@ class CategoryCreate(BaseModel):
     name: str
     parent_id: int | None = None
     color: str | None = None
+    is_income: bool = False
 
 
 class CategoryUpdate(BaseModel):
@@ -15,6 +16,7 @@ class CategoryUpdate(BaseModel):
     parent_id: int | None = None
     move_to_root: bool = False
     """Set true to explicitly move a category to top-level (parent_id=None)."""
+    is_income: bool | None = None
 
 
 class CategoryRead(BaseModel):
@@ -27,6 +29,9 @@ class CategoryRead(BaseModel):
     """Effective color: the stored override, or the deterministic hash-based default."""
     sort_order: int
     archived_at: datetime | None
+    is_income: bool
+    """This category's own flag, not inherited from an ancestor -- see
+    Category.is_income."""
     children: list["CategoryRead"] = []
 
 

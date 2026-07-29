@@ -30,14 +30,15 @@ export function Overview() {
     categoriesApi.list().then((tree) => setTopLevelIds(new Set(tree.map((c) => c.id))));
   }, []);
 
-  // Grand total = Σ actual across top-level rows only (parent rollups already
-  // fold their children's actuals in, so summing children too would double
-  // count). "Σ expense actuals − Σ income actuals" falls out for free: an
-  // income category's deposits are positive splits, which the backend negates
-  // into a negative "actual", so adding it into this sum subtracts it.
+  // Grand total = Σ expense actuals − Σ income actuals, over top-level rows
+  // only (parent rollups already fold their children's actuals in, so
+  // summing children too would double count). The backend already flips an
+  // income-marked category's actual to read as a natural positive "money
+  // received" amount (see Category.is_income), so it has to be subtracted
+  // back out explicitly here rather than just summed with the rest.
   const grandTotal = rows
     .filter((r) => topLevelIds.has(r.category_id))
-    .reduce((sum, r) => sum + rowTotals(r).actual, 0);
+    .reduce((sum, r) => sum + (r.is_income ? -rowTotals(r).actual : rowTotals(r).actual), 0);
 
   return (
     <div>

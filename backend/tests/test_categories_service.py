@@ -54,6 +54,28 @@ def test_update_name_and_color(db_session):
     assert updated.color == "#ff0000"
 
 
+def test_create_defaults_to_not_income(db_session):
+    cat = svc.create_category(db_session, "shared")
+    assert cat.is_income is False
+
+
+def test_create_can_be_marked_income(db_session):
+    cat = svc.create_category(db_session, "salary", is_income=True)
+    assert cat.is_income is True
+
+
+def test_update_income_flag(db_session):
+    cat = svc.create_category(db_session, "salary")
+    updated = svc.update_category(db_session, cat.id, is_income=True)
+    assert updated.is_income is True
+
+
+def test_update_omitting_income_flag_leaves_it_unchanged(db_session):
+    cat = svc.create_category(db_session, "salary", is_income=True)
+    updated = svc.update_category(db_session, cat.id, name="bonus")
+    assert updated.is_income is True
+
+
 def test_update_cannot_self_parent(db_session):
     cat = svc.create_category(db_session, "shared")
     with pytest.raises(ValidationError):

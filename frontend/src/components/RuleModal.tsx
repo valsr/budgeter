@@ -45,9 +45,14 @@ interface RuleModalProps {
   /** When true, saving does a one-time auto-confirm backfill (POST /api/rules/learn)
    * instead of the normal suggest-only create/update flow. */
   learnedFlow?: boolean;
+  /** The rules being combined into this one, when opened from the "Merge rules"
+   * flow (mode is always "new" in that case). Once the merged rule is created,
+   * these are deleted so the merge is a clean replacement rather than leaving
+   * redundant originals behind. */
+  mergeSourceRules?: Rule[];
 }
 
-export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, learnedFlow }: RuleModalProps) {
+export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, learnedFlow, mergeSourceRules }: RuleModalProps) {
   const [matchType, setMatchType] = useState<MatchType>(rule?.match_type ?? initial?.matchType ?? "all");
   const [conditions, setConditions] = useState<RuleConditionInput[]>(
     rule?.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value })) ??
@@ -94,22 +99,37 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
       await rulesApi.learn(payload);
     } else if (mode === "new") {
       await rulesApi.create(payload);
+      if (mergeSourceRules) {
+        await Promise.all(mergeSourceRules.map((r) => rulesApi.remove(r.id)));
+      }
     } else if (rule) {
       await rulesApi.update(rule.id, payload);
     }
     onSaved();
   }
 
-  const title = mode === "edit" ? "Edit rule" : learnedFlow ? "Add learned rule" : "New rule";
+  const title = mergeSourceRules
+    ? `Merge ${mergeSourceRules.length} rules`
+    : mode === "edit"
+      ? "Edit rule"
+      : learnedFlow
+        ? "Add learned rule"
+        : "New rule";
 
   return (
     <Modal
       title={title}
       onClose={onClose}
       onSubmit={save}
-      submitLabel={learnedFlow ? "Add rule" : "Save rule"}
+      submitLabel={mergeSourceRules ? "Create merged rule" : learnedFlow ? "Add rule" : "Save rule"}
       width={MODAL_WIDTH}
     >
+      {mergeSourceRules && (
+        <p className="sub" style={{ marginBottom: 12 }}>
+          Combines the conditions of the {mergeSourceRules.length} selected rules with ANY matching. Creating this
+          rule deletes those {mergeSourceRules.length} originals.
+        </p>
+      )}
       <div className="field">
         <label>Match</label>
         <select value={matchType} onChange={(e) => setMatchType(e.target.value as MatchType)}>

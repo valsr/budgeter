@@ -24,8 +24,8 @@ const categories: Category[] = [
     parent_id: null,
     color: "#111",
     sort_order: 0,
-    archived_at: null,
-    children: [{ id: 2, name: "dining", parent_id: 1, color: "#222", sort_order: 0, archived_at: null, children: [] }],
+    archived_at: null, is_income: false,
+    children: [{ id: 2, name: "dining", parent_id: 1, color: "#222", sort_order: 0, archived_at: null, is_income: false, children: [] }],
   },
 ];
 

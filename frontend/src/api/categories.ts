@@ -5,6 +5,7 @@ export interface CategoryInput {
   name: string;
   parent_id?: number | null;
   color?: string | null;
+  is_income?: boolean;
 }
 
 export const categoriesApi = {

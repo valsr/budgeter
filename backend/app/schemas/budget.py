@@ -54,3 +54,4 @@ class ReportRowRead(BaseModel):
     ytd_diff: float
     has_budget: bool = True
     depth: int = 0
+    is_income: bool = False
