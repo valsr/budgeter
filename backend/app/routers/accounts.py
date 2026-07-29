@@ -6,7 +6,7 @@ from app.db import get_db
 from app.errors import NotFoundError
 from app.schemas.account import AccountCreate, AccountRead, AccountUpdate
 from app.services import accounts as accounts_service
-from app.services.balances import compute_balance
+from app.services.balances import compute_balance, compute_balances
 
 router = APIRouter(
     prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(require_api_key)]
@@ -28,7 +28,20 @@ def _to_read(db: Session, account) -> AccountRead:
 
 @router.get("", response_model=list[AccountRead])
 def list_accounts(db: Session = Depends(get_db)):
-    return [_to_read(db, a) for a in accounts_service.list_accounts(db)]
+    accounts = accounts_service.list_accounts(db)
+    activity = compute_balances(db, [a.id for a in accounts])
+    return [
+        AccountRead(
+            id=a.id,
+            name=a.name,
+            account_number=a.account_number,
+            type=a.type,
+            opening_balance=float(a.opening_balance),
+            color=a.color,
+            balance=float(a.opening_balance) + activity[a.id],
+        )
+        for a in accounts
+    ]
 
 
 @router.post("", response_model=AccountRead, status_code=201)

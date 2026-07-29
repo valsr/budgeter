@@ -3,7 +3,7 @@
 # volume mounted at /data (see scripts/podman-run.sh).
 
 # --- Stage 1: build the frontend ---
-FROM docker.io/node:20-alpine AS frontend-build
+FROM docker.io/node:24-alpine AS frontend-build
 WORKDIR /app/frontend
 
 # The frontend is a static SPA bundled at build time, so its API key/base
@@ -18,7 +18,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: backend runtime, serving the built frontend too ---
-FROM docker.io/python:3.12-slim AS runtime
+FROM docker.io/python:3.14-slim AS runtime
 WORKDIR /app
 
 RUN useradd --create-home --uid 1000 budgeter
