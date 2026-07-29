@@ -32,6 +32,18 @@ class TestEvaluateCondition:
         c = Condition(ConditionField.NAME, ConditionOperator.NOT_CONTAINS, "spotify")
         assert evaluate_condition(c, ctx()) is True
 
+    def test_name_contains_ignores_punctuation_differences(self):
+        # rule_learning derives NAME values from normalize_name'd (punctuation
+        # stripped) merchant strings, e.g. "GITHUB, INC." -> "github inc" --
+        # matching must normalize the same way or a learned value never
+        # matches the raw names it was learned from.
+        c = Condition(ConditionField.NAME, ConditionOperator.CONTAINS, "github inc")
+        assert evaluate_condition(c, ctx(name="GITHUB, INC.")) is True
+
+    def test_name_not_contains_ignores_punctuation_differences(self):
+        c = Condition(ConditionField.NAME, ConditionOperator.NOT_CONTAINS, "github inc")
+        assert evaluate_condition(c, ctx(name="GITHUB, INC.")) is False
+
     def test_name_equals(self):
         c = Condition(ConditionField.NAME, ConditionOperator.EQUALS, "GITHUB INC")
         assert evaluate_condition(c, ctx()) is True

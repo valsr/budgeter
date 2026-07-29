@@ -74,7 +74,7 @@ describe("Toast", () => {
     previewMatches.mockReset();
     listCategories.mockReset();
     listCategories.mockResolvedValue(categories);
-    previewMatches.mockResolvedValue({ count: 0, sample: [] });
+    previewMatches.mockResolvedValue({ count: 0, matches: [] });
   });
 
   it("shows nothing for 'covered' or 'none' statuses", async () => {

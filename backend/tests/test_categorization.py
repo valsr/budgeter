@@ -4,7 +4,8 @@ import pytest
 
 from app.models.account import AccountType
 from app.models.rule import ConditionField, ConditionOperator, MatchType
-from app.models.split import SuggestionSource
+from app.models.split import Split, SuggestionSource
+from app.models.transaction import Transaction, TransactionType
 from app.services import accounts as accounts_svc
 from app.services import categories as categories_svc
 from app.services import categorization
@@ -87,6 +88,54 @@ def test_ignores_multi_split_transactions(db_session, account, category):
         "Costco",
         [(category.id, -60.0), (other_category.id, -20.0)],
     )
+    count = categorization.run_categorization(db_session)
+    assert count == 0
+    refreshed = txn_svc.get_transaction(db_session, txn.id)
+    assert all(s.suggested_category_id is None for s in refreshed.splits)
+
+
+def test_suggests_the_remaining_split_of_a_partially_split_transaction(db_session, account, category):
+    # One split already has a confirmed category; the other is still
+    # uncategorized. A rule proposes a category for that one remaining
+    # split without disturbing the confirmed one (this transaction still
+    # shows as "uncategorized" everywhere else in the app, so it must
+    # remain eligible here too).
+    other_category = categories_svc.create_category(db_session, "shared")
+    rules_svc.create_rule(
+        db_session, MatchType.ALL, [(ConditionField.NAME, ConditionOperator.CONTAINS, "costco")], category.id
+    )
+    txn = txn_svc.create_transaction(
+        db_session,
+        account.id,
+        dt.date(2026, 1, 1),
+        "Costco",
+        [(other_category.id, -60.0), (None, -20.0)],
+    )
+    count = categorization.run_categorization(db_session)
+    assert count == 1
+
+    refreshed = txn_svc.get_transaction(db_session, txn.id)
+    confirmed_split = next(s for s in refreshed.splits if s.category_id is not None)
+    open_split = next(s for s in refreshed.splits if s.category_id is None)
+    assert confirmed_split.category_id == other_category.id
+    assert confirmed_split.suggested_category_id is None
+    assert open_split.suggested_category_id == category.id
+
+
+def test_ignores_transactions_with_multiple_uncategorized_splits(db_session, account, category):
+    # Two splits still lack a category -- a rule can't tell which one to
+    # fill in, so this stays untouched (same as the fully-uncategorized
+    # multi-split case). The API layer's validate_splits never allows this
+    # state to be created, but the categorization pool guards against it
+    # defensively too, so build it directly through the ORM.
+    rules_svc.create_rule(
+        db_session, MatchType.ALL, [(ConditionField.NAME, ConditionOperator.CONTAINS, "costco")], category.id
+    )
+    txn = Transaction(account_id=account.id, date=dt.date(2026, 1, 1), name="Costco", type=TransactionType.NORMAL)
+    txn.splits = [Split(category_id=None, amount=-60.0), Split(category_id=None, amount=-20.0)]
+    db_session.add(txn)
+    db_session.commit()
+
     count = categorization.run_categorization(db_session)
     assert count == 0
     refreshed = txn_svc.get_transaction(db_session, txn.id)

@@ -42,7 +42,7 @@ describe("RuleModal", () => {
     create.mockReset().mockResolvedValue(rule);
     update.mockReset().mockResolvedValue(rule);
     learn.mockReset().mockResolvedValue({ rule, confirmed_count: 0, confirmed_transaction_ids: [] });
-    previewMatches.mockReset().mockResolvedValue({ count: 0, sample: [] });
+    previewMatches.mockReset().mockResolvedValue({ count: 0, matches: [] });
   });
 
   it("plain new mode calls create, not learn (regression guard for the extraction)", async () => {
@@ -104,10 +104,10 @@ describe("RuleModal", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
-  it("live preview calls previewMatches on condition change and renders the count", async () => {
+  it("live preview calls previewMatches on condition change and renders a table of matches", async () => {
     previewMatches.mockResolvedValue({
       count: 3,
-      sample: [{ id: 1, date: "2026-01-01", name: "McDonalds #1", amount: -5 }],
+      matches: [{ id: 1, date: "2026-01-01", name: "McDonalds #1", amount: -5 }],
     });
     render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={() => {}} />);
 
@@ -120,6 +120,33 @@ describe("RuleModal", () => {
       target_category_id: 2,
     });
     await screen.findByText(/Matches 3 currently-uncategorized transaction/);
+    expect(await screen.findByText("McDonalds #1")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–1 of 1")).toBeInTheDocument();
+  });
+
+  it("paginates the preview table 10 rows at a time", async () => {
+    const matches = Array.from({ length: 12 }, (_, i) => ({
+      id: i + 1,
+      date: "2026-01-01",
+      name: `McDonalds #${i + 1}`,
+      amount: -5,
+    }));
+    previewMatches.mockResolvedValue({ count: 12, matches });
+    render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={() => {}} />);
+
+    fireEvent.change(screen.getByPlaceholderText("value"), { target: { value: "mcdonalds" } });
+
+    await screen.findByText("McDonalds #1");
+    expect(screen.getByText("McDonalds #10")).toBeInTheDocument();
+    expect(screen.queryByText("McDonalds #11")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–10 of 12")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("›"));
+
+    await screen.findByText("McDonalds #11");
+    expect(screen.getByText("McDonalds #12")).toBeInTheDocument();
+    expect(screen.queryByText("McDonalds #1")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
   });
 
   it("does not call previewMatches while a condition value is empty", async () => {

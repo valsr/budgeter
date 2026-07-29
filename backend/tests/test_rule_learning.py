@@ -20,7 +20,7 @@ from app.services.rule_learning import (
     longest_common_substring,
     separate_amount_clusters,
 )
-from app.services.rule_engine import Condition, RuleSpec
+from app.services.rule_engine import Condition, RuleSpec, TransactionContext, evaluate_rule
 
 
 class TestLongestCommonSubstring:
@@ -206,6 +206,31 @@ class TestLearnRuleForCategory:
         assert result.match_type == MatchType.ALL
         assert result.conditions == [LearnedCondition(ConditionField.NAME, ConditionOperator.CONTAINS, "mcdonalds")]
         assert result.target_category_id == category.id
+
+    def test_tier1_learned_value_matches_the_punctuated_names_it_was_learned_from(
+        self, db_session, account, category
+    ):
+        # Real merchant names carry punctuation ("GITHUB, INC.") that
+        # normalize_name strips when deriving the LCS. The learned
+        # condition must still match those same raw, punctuated names --
+        # not just their normalized form.
+        names = ["GITHUB, INC.", "GITHUB, INC.", "GITHUB, INC."]
+        for i, name in enumerate(names):
+            txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, i + 1), name, [(category.id, -9.0)])
+        pool = find_learning_candidates(db_session, category.id)
+
+        result = learn_rule_for_category(db_session, pool, category.id)
+        assert result is not None
+        spec = RuleSpec(
+            id=-1,
+            match_type=result.match_type,
+            priority=-1,
+            target_category_id=result.target_category_id,
+            conditions=[Condition(c.field, c.operator, c.value) for c in result.conditions],
+        )
+        for name in names:
+            ctx = TransactionContext(date=dt.date(2026, 1, 1), name=name, account_id=account.id, amount=-9.0)
+            assert evaluate_rule(spec, ctx) is True
 
     def test_tier1_conflict_falls_through_to_tier2(self, db_session, account, category, other_category):
         # target cluster: low-amount "amazon" purchases -> category

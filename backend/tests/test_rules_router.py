@@ -226,7 +226,7 @@ def test_preview_matches_counts_uncategorized_and_excludes_categorized(client, a
     assert resp.status_code == 200
     body = resp.json()
     assert body["count"] == 1
-    assert body["sample"][0]["name"] == "McDonalds #1"
+    assert body["matches"][0]["name"] == "McDonalds #1"
 
 
 def test_learn_endpoint_creates_rule_and_backfills_matches(client, auth_headers, category_id, account_id):

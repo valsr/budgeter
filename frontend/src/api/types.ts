@@ -90,7 +90,7 @@ export interface LearnCheckResponse {
   suggestion: LearnedRuleSuggestion | null;
 }
 
-export interface PreviewMatchSample {
+export interface PreviewMatchItem {
   id: number;
   date: string;
   name: string;
@@ -99,7 +99,7 @@ export interface PreviewMatchSample {
 
 export interface PreviewMatchesResponse {
   count: number;
-  sample: PreviewMatchSample[];
+  matches: PreviewMatchItem[];
 }
 
 export interface LearnRuleResponse {

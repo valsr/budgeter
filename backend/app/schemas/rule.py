@@ -78,7 +78,7 @@ class PreviewMatchesRequest(BaseModel):
     target_category_id: int
 
 
-class PreviewMatchSample(BaseModel):
+class PreviewMatchItem(BaseModel):
     id: int
     date: dt.date
     name: str
@@ -87,7 +87,7 @@ class PreviewMatchSample(BaseModel):
 
 class PreviewMatchesResponse(BaseModel):
     count: int
-    sample: list[PreviewMatchSample]
+    matches: list[PreviewMatchItem]
 
 
 class LearnRuleRequest(BaseModel):

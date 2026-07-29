@@ -13,7 +13,7 @@ from app.schemas.rule import (
     LearnRuleResponse,
     PreviewMatchesRequest,
     PreviewMatchesResponse,
-    PreviewMatchSample,
+    PreviewMatchItem,
     RecategorizeRequest,
     RuleConflictInfo,
     RuleCreate,
@@ -83,7 +83,7 @@ def run_preview(db: Session = Depends(get_db)):
 
     items = []
     for txn in pool:
-        split = txn.splits[0]
+        split = categorization.find_uncategorized_split(txn)
         ctx = TransactionContext(date=txn.date, name=txn.name, account_id=txn.account_id, amount=float(split.amount))
         match = find_matching_rule(rule_specs, ctx)
         if match is None:
@@ -161,16 +161,13 @@ def preview_matches(payload: PreviewMatchesRequest, db: Session = Depends(get_db
 
     matches = []
     for txn in pool:
-        split = txn.splits[0]
+        split = categorization.find_uncategorized_split(txn)
         ctx = TransactionContext(date=txn.date, name=txn.name, account_id=txn.account_id, amount=float(split.amount))
         if evaluate_rule(spec, ctx):
-            matches.append(txn)
+            matches.append((txn, split))
 
-    sample = [
-        PreviewMatchSample(id=t.id, date=t.date, name=t.name, amount=float(t.splits[0].amount))
-        for t in matches[:20]
-    ]
-    return PreviewMatchesResponse(count=len(matches), sample=sample)
+    items = [PreviewMatchItem(id=t.id, date=t.date, name=t.name, amount=float(s.amount)) for t, s in matches]
+    return PreviewMatchesResponse(count=len(items), matches=items)
 
 
 @router.post("/learn", response_model=LearnRuleResponse, status_code=201)
