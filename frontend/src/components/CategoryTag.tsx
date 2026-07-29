@@ -6,10 +6,32 @@ export function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function CategoryTag({ label, color }: { label: string; color: string }) {
+export function CategoryTag({
+  label,
+  color,
+  onRemove,
+}: {
+  label: string;
+  color: string;
+  /** Renders a "| x" control inside the pill; clicking it unassigns the
+   * category instead of opening the cell for editing. */
+  onRemove?: () => void;
+}) {
   return (
     <span className="tag" style={{ background: hexToRgba(color, 0.15), color }}>
       {label}
+      {onRemove && (
+        <span
+          className="tag-remove"
+          title="Remove category"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+        >
+          ×
+        </span>
+      )}
     </span>
   );
 }

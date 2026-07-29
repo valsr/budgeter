@@ -229,7 +229,15 @@ export function TransactionTable({
     const cat = categoryById.get(split.category_id);
     return (
       <td className="cat-cell" onClick={() => setEditingSplit({ txnId: txn.id, splitId: split.id })}>
-        {cat ? <CategoryTag label={cat.path} color={cat.color} /> : split.category_id}
+        {cat ? (
+          <CategoryTag
+            label={cat.path}
+            color={cat.color}
+            onRemove={() => assignCategory(txn.id, split.id, null)}
+          />
+        ) : (
+          split.category_id
+        )}
       </td>
     );
   }

@@ -44,6 +44,8 @@ tr.grouped td{border-bottom:1px solid #ece9e1;background:#faf9f6}
 tr.grouped.last td{border-bottom:1px solid var(--line)}
 tr.grouped td.name-cell{color:var(--ink-3)}
 .tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:600}
+.tag-remove{margin-left:6px;padding-left:6px;border-left:1px solid currentColor;opacity:.55;cursor:pointer;font-weight:700;line-height:1}
+.tag-remove:hover{opacity:1}
 tr.undone-row td{opacity:.55}
 .right{text-align:right;font-variant-numeric:tabular-nums}
 .badge{font-size:10.5px;padding:2px 7px;border-radius:4px;margin-left:8px;font-weight:600}
