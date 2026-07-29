@@ -69,14 +69,13 @@ export function Accounts() {
     setModal("new");
   }
 
-  function openEditModal() {
-    if (!currentAccount) return;
+  function openEditModal(account: Account) {
     setForm({
-      name: currentAccount.name,
-      account_number: currentAccount.account_number ?? "",
-      type: currentAccount.type,
-      opening_balance: String(currentAccount.opening_balance),
-      color: currentAccount.color ?? "#4f8a9c",
+      name: account.name,
+      account_number: account.account_number ?? "",
+      type: account.type,
+      opening_balance: String(account.opening_balance),
+      color: account.color ?? "#4f8a9c",
     });
     setModal("edit");
   }
@@ -159,7 +158,7 @@ export function Accounts() {
                     onClick={(e) => {
                       e.stopPropagation();
                       setCurrentAccountId(a.id);
-                      openEditModal();
+                      openEditModal(a);
                     }}
                   >
                     ✎
