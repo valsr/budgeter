@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
+import { setCategorizationChangedListener } from "../api/rules";
 import type { Account, Category, Transaction } from "../api/types";
 import { RunRulesModal } from "../components/RunRulesModal";
 import { SplitModal } from "../components/SplitModal";
@@ -24,6 +25,16 @@ export function Transactions() {
   useEffect(() => {
     accountsApi.list().then(setAccounts);
     loadCategories();
+  }, []);
+
+  // Rules can be added/edited from outside this page too -- the toast-driven
+  // learned-rule and conflict-resolution flows (components/Toast.tsx) are
+  // mounted at the app root, not here. Either one immediately re-runs
+  // categorization server-side, so while this page is open, refresh its
+  // transaction list whenever that happens.
+  useEffect(() => {
+    setCategorizationChangedListener(() => setRefreshKey((k) => k + 1));
+    return () => setCategorizationChangedListener(null);
   }, []);
 
   // The Overview banner links here as /transactions?uncategorized=1 —
