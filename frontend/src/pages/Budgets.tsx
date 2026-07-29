@@ -4,13 +4,9 @@ import { budgetsApi, overviewApi } from "../api/budgets";
 import { categoriesApi } from "../api/categories";
 import type { Budget, Category, ReportRow } from "../api/types";
 import { Modal } from "../components/Modal";
+import { formatMoney } from "../format";
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function fmtMoney(n: number): string {
-  const sign = n < 0 ? "-" : "";
-  return `${sign}$${Math.abs(n).toFixed(0)}`;
-}
 
 const now = new Date();
 const CURRENT_YEAR = now.getFullYear();
@@ -140,14 +136,13 @@ export function Budgets() {
                     const cls = monthClass(i, months.length);
                     return (
                       <Fragment key={m}>
-                        <td className={"right muted-cell " + cls}>{cell.budgeted}</td>
-                        <td className={"right " + cls + (over ? " over" : "")}>{cell.actual}</td>
+                        <td className={"right muted-cell " + cls}>{formatMoney(cell.budgeted, 0)}</td>
+                        <td className={"right " + cls + (over ? " over" : "")}>{formatMoney(cell.actual, 0)}</td>
                       </Fragment>
                     );
                   })}
                   <td className={"right " + (row.ytd_diff >= 0 ? "diff-pos" : "diff-neg")}>
-                    {row.ytd_diff >= 0 ? "+" : ""}
-                    {fmtMoney(row.ytd_diff)}
+                    {formatMoney(row.ytd_diff, 0)}
                   </td>
                 </tr>
               ))}

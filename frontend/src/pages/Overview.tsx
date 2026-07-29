@@ -4,11 +4,7 @@ import { overviewApi } from "../api/budgets";
 import { categoriesApi } from "../api/categories";
 import { transactionsApi } from "../api/transactions";
 import type { ReportRow } from "../api/types";
-
-function fmtMoney(n: number): string {
-  const sign = n < 0 ? "-" : "";
-  return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+import { formatMoney } from "../format";
 
 function rowTotals(row: ReportRow): { budgeted: number; actual: number } {
   const months = Object.values(row.monthly);
@@ -68,10 +64,10 @@ export function Overview() {
             return (
               <tr key={row.category_id} style={row.is_parent ? { fontWeight: 600 } : undefined}>
                 <td style={row.depth > 0 ? { paddingLeft: 26 * row.depth } : undefined}>{row.name}</td>
-                <td className="right">{row.has_budget ? fmtMoney(budgeted) : "—"}</td>
-                <td className="right">{fmtMoney(actual)}</td>
+                <td className="right">{row.has_budget ? formatMoney(budgeted) : "—"}</td>
+                <td className="right">{formatMoney(actual)}</td>
                 <td className={"right" + (balance !== null && balance < 0 ? " neg" : "")}>
-                  {balance !== null ? fmtMoney(balance) : "—"}
+                  {balance !== null ? formatMoney(balance) : "—"}
                 </td>
               </tr>
             );
@@ -80,7 +76,7 @@ export function Overview() {
             <td>Grand total (expenses − income)</td>
             <td></td>
             <td></td>
-            <td className={"right" + (grandTotal < 0 ? " neg" : "")}>{fmtMoney(grandTotal)}</td>
+            <td className={"right" + (grandTotal < 0 ? " neg" : "")}>{formatMoney(grandTotal)}</td>
           </tr>
         </tbody>
       </table>
