@@ -8,7 +8,7 @@ import type { Category, Rule } from "../api/types";
 import { Modal } from "../components/Modal";
 import { RuleModal } from "../components/RuleModal";
 
-type Tab = "api" | "cats" | "rules" | "backup";
+type Tab = "api" | "cats" | "rules" | "backup" | "history";
 
 export function Settings() {
   const [tab, setTab] = useState<Tab>("api");
@@ -30,12 +30,16 @@ export function Settings() {
         <span className={tab === "backup" ? "active" : ""} onClick={() => setTab("backup")}>
           Backup &amp; restore
         </span>
+        <span className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>
+          History
+        </span>
       </div>
 
       {tab === "api" && <ApiKeyTab />}
       {tab === "cats" && <CategoriesTab />}
       {tab === "rules" && <RulesTab />}
       {tab === "backup" && <BackupTab />}
+      {tab === "history" && <HistoryRetentionTab />}
     </div>
   );
 }
@@ -440,6 +444,64 @@ function BackupTab() {
             }}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryRetentionTab() {
+  const [retentionDays, setRetentionDays] = useState<number | null>(null);
+  const [input, setInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    settingsApi.getRetention().then((r) => {
+      setRetentionDays(r.retention_days);
+      setInput(String(r.retention_days));
+    });
+  }, []);
+
+  async function save() {
+    const days = Number(input);
+    setSaving(true);
+    setSaved(false);
+    try {
+      const { retention_days } = await settingsApi.updateRetention(days);
+      setRetentionDays(retention_days);
+      setInput(String(retention_days));
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 420 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Change history retention</div>
+      <p className="sub" style={{ marginBottom: 12 }}>
+        How long to keep account/category/transaction change history before it's purged and can no longer be
+        undone. Lowering this purges older entries immediately.
+      </p>
+      <div className="field">
+        <label>Retention (days)</label>
+        <input
+          type="number"
+          min={1}
+          max={3650}
+          style={{ width: 120 }}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setSaved(false);
+          }}
+        />
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button className="btn sm" onClick={save} disabled={saving || retentionDays === null}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {saved && <span className="sub">Saved.</span>}
       </div>
     </div>
   );

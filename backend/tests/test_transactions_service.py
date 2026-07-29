@@ -294,3 +294,36 @@ def test_list_transactions_pagination(db_session, account):
     items_p2, _ = txn_svc.list_transactions(db_session, page=2, page_size=2)
     assert len(items_p2) == 2
     assert items_p2[0].name == "t2"
+
+
+def test_delete_transfer_logs_both_legs_under_one_group(db_session, account, other_account):
+    from app.models.change import ChangeOperation, TransactionChange
+
+    from_txn, to_txn = txn_svc.create_transfer(
+        db_session, account.id, other_account.id, dt.date(2026, 1, 1), "Payment", 300.0
+    )
+    txn_svc.delete_transaction(db_session, from_txn.id)
+
+    rows = (
+        db_session.query(TransactionChange)
+        .filter(TransactionChange.operation == ChangeOperation.DELETE)
+        .all()
+    )
+    assert {r.entity_id for r in rows} == {from_txn.id, to_txn.id}
+    assert len({r.group_id for r in rows}) == 1
+
+
+def test_update_splits_logs_full_before_after_snapshot(db_session, account, category):
+    from app.models.change import ChangeOperation, TransactionChange
+
+    txn = txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "Store", [(None, -50.0)])
+    other_category = categories_svc.create_category(db_session, "other")
+    txn_svc.update_transaction_splits(db_session, txn.id, [(other_category.id, -50.0)])
+
+    row = (
+        db_session.query(TransactionChange)
+        .filter(TransactionChange.entity_id == txn.id, TransactionChange.operation == ChangeOperation.UPDATE)
+        .one()
+    )
+    assert row.before["splits"][0]["category_id"] is None
+    assert row.after["splits"][0]["category_id"] == other_category.id

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import db as db_module
 from app.db import upgrade_to_head
 from app.routers import (
     accounts,
@@ -14,17 +15,27 @@ from app.routers import (
     budgets,
     categories,
     health,
+    history,
     imports,
     overview,
     rules,
     settings,
     transactions,
 )
+from app.services.change_log import purge_expired
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     upgrade_to_head()
+    # Dynamic module attribute access (not `from app.db import SessionLocal`)
+    # so tests' monkeypatched SessionLocal (see tests/conftest.py) is honored.
+    db = db_module.SessionLocal()
+    try:
+        purge_expired(db)
+        db.commit()
+    finally:
+        db.close()
     yield
 
 
@@ -49,6 +60,7 @@ app.include_router(budgets.router)
 app.include_router(backup.router)
 app.include_router(overview.router)
 app.include_router(settings.router)
+app.include_router(history.router)
 
 # In the packaged container, the frontend's `npm run build` output is copied
 # to app/static/ (see the root Containerfile). In local dev this directory

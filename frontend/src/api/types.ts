@@ -189,3 +189,36 @@ export interface ReportRow {
   has_budget: boolean;
   depth: number;
 }
+
+export type ChangeOperation = "create" | "update" | "delete";
+export type ChangeEntityType = "account" | "category" | "transaction";
+
+export interface ChangeItem {
+  entity_id: number;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+export interface ChangeGroup {
+  group_id: string;
+  entity_type: ChangeEntityType;
+  operation: ChangeOperation;
+  summary: string;
+  created_at: string;
+  undone_at: string | null;
+  is_stale: boolean;
+  items: ChangeItem[];
+}
+
+export interface HistoryPage {
+  items: ChangeGroup[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface UndoResult {
+  group_id: string;
+  status: "undone" | "skipped";
+  reason: string | null;
+}

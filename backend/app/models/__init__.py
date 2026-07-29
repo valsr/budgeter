@@ -2,6 +2,13 @@ from app.models.account import Account, AccountType
 from app.models.api_key import ApiKey
 from app.models.budget import Budget, BudgetAmount, BudgetCategory
 from app.models.category import Category
+from app.models.change import (
+    AccountChange,
+    AppSettings,
+    CategoryChange,
+    ChangeOperation,
+    TransactionChange,
+)
 from app.models.import_batch import ImportBatch, ReviewItemStatus, ReviewQueueItem
 from app.models.rule import ConditionField, ConditionOperator, MatchType, Rule, RuleCondition
 from app.models.split import Split, SuggestionSource
@@ -9,12 +16,16 @@ from app.models.transaction import Transaction, TransactionType
 
 __all__ = [
     "Account",
+    "AccountChange",
     "AccountType",
     "ApiKey",
+    "AppSettings",
     "Budget",
     "BudgetAmount",
     "BudgetCategory",
     "Category",
+    "CategoryChange",
+    "ChangeOperation",
     "ConditionField",
     "ConditionOperator",
     "ImportBatch",
@@ -26,5 +37,6 @@ __all__ = [
     "Split",
     "SuggestionSource",
     "Transaction",
+    "TransactionChange",
     "TransactionType",
 ]

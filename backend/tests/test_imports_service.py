@@ -40,6 +40,19 @@ def test_import_unknown_account_404(db_session):
         imports_svc.import_qif(db_session, 999, "test.qif", QIF_BASIC)
 
 
+def test_import_logs_one_grouped_entry_per_batch(db_session, account):
+    from app.models.change import ChangeOperation, TransactionChange
+
+    batch, ids = imports_svc.import_qif(db_session, account.id, "test.qif", QIF_BASIC)
+
+    rows = db_session.query(TransactionChange).filter(TransactionChange.operation == ChangeOperation.CREATE).all()
+    assert {r.entity_id for r in rows} == set(ids)
+    assert len({r.group_id for r in rows}) == 1
+
+    primary = next(r for r in rows if r.is_primary)
+    assert "Imported 2 transactions from 'test.qif'" == primary.summary
+
+
 def test_reimport_same_file_dedupes_exactly(db_session, account):
     imports_svc.import_qif(db_session, account.id, "test.qif", QIF_BASIC)
     batch2, ids2 = imports_svc.import_qif(db_session, account.id, "test.qif", QIF_BASIC)

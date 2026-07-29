@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.errors import NotFoundError, ValidationError
 from app.models.account import Account
+from app.models.change import ChangeOperation, TransactionChange
 from app.models.import_batch import ImportBatch, ReviewItemStatus, ReviewQueueItem
 from app.models.split import Split
 from app.models.transaction import Transaction, TransactionType
+from app.services import change_log
 from app.services.dedupe import ExistingTransaction, MatchType, classify_match
 from app.services.qfx_parser import looks_like_qfx, parse_qfx_accounts
 from app.services.qif_parser import QifAccountBlock, QifTransaction, parse_qif_accounts
@@ -55,6 +57,7 @@ def _import_rows(
     skipped_count = 0
     review_count = 0
     imported_transaction_ids: list[int] = []
+    imported_transactions: list[Transaction] = []
 
     for row in rows:
         match_type, matched_id = classify_match(row.date, row.amount, row.name, existing)
@@ -86,6 +89,7 @@ def _import_rows(
         db.flush()
         existing.append(ExistingTransaction(id=txn.id, date=row.date, amount=row.amount, name=row.name))
         imported_transaction_ids.append(txn.id)
+        imported_transactions.append(txn)
         imported_count += 1
 
     batch.imported_count = imported_count
@@ -93,6 +97,32 @@ def _import_rows(
     batch.needs_review_count = review_count
     db.commit()
     db.refresh(batch)
+
+    if imported_transactions:
+        total = len(imported_transactions)
+        primary_summary = f"Imported {total} transaction{'s' if total != 1 else ''} from '{filename}'"
+        group_id: str | None = None
+        for index, txn in enumerate(imported_transactions):
+            db.refresh(txn)
+            after = change_log.serialize_transaction(txn)
+            summary = (
+                primary_summary
+                if index == 0
+                else change_log.summarize_transaction(ChangeOperation.CREATE, None, after)
+            )
+            group_id = change_log.record_change(
+                db,
+                TransactionChange,
+                txn.id,
+                ChangeOperation.CREATE,
+                before=None,
+                after=after,
+                summary=summary,
+                group_id=group_id,
+                is_primary=(index == 0),
+            )
+        db.commit()
+
     return batch, imported_transaction_ids
 
 
@@ -216,6 +246,10 @@ def resolve_review_item(db: Session, item_id: int, action: str) -> ReviewQueueIt
     if item.status != ReviewItemStatus.PENDING:
         raise ValidationError(f"Review item {item_id} has already been resolved")
 
+    new_txn: Transaction | None = None
+    merge_txn: Transaction | None = None
+    merge_before: dict | None = None
+
     if action == "new":
         txn = Transaction(
             account_id=item.account_id, date=item.date, name=item.name, type=TransactionType.NORMAL
@@ -223,14 +257,17 @@ def resolve_review_item(db: Session, item_id: int, action: str) -> ReviewQueueIt
         txn.splits = [Split(category_id=None, amount=item.amount)]
         db.add(txn)
         item.status = ReviewItemStatus.RESOLVED_NEW
+        new_txn = txn
     elif action == "merge":
         if item.candidate_transaction_id is None:
             raise ValidationError("This review item has no candidate transaction to merge into")
         candidate = db.get(Transaction, item.candidate_transaction_id)
         if candidate is None:
             raise NotFoundError(f"Candidate transaction {item.candidate_transaction_id} not found")
+        merge_before = change_log.serialize_transaction(candidate)
         candidate.name = item.name
         item.status = ReviewItemStatus.RESOLVED_MERGED
+        merge_txn = candidate
     elif action == "skip":
         item.status = ReviewItemStatus.RESOLVED_SKIPPED
     else:
@@ -238,4 +275,33 @@ def resolve_review_item(db: Session, item_id: int, action: str) -> ReviewQueueIt
 
     db.commit()
     db.refresh(item)
+
+    if new_txn is not None:
+        db.refresh(new_txn)
+        after = change_log.serialize_transaction(new_txn)
+        change_log.record_change(
+            db,
+            TransactionChange,
+            new_txn.id,
+            ChangeOperation.CREATE,
+            before=None,
+            after=after,
+            summary=change_log.summarize_transaction(ChangeOperation.CREATE, None, after),
+        )
+        db.commit()
+    elif merge_txn is not None:
+        db.refresh(merge_txn)
+        after = change_log.serialize_transaction(merge_txn)
+        if merge_before != after:
+            change_log.record_change(
+                db,
+                TransactionChange,
+                merge_txn.id,
+                ChangeOperation.UPDATE,
+                before=merge_before,
+                after=after,
+                summary=change_log.summarize_transaction(ChangeOperation.UPDATE, merge_before, after),
+            )
+            db.commit()
+
     return item

@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.errors import NotFoundError, ValidationError
 from app.models.account import Account
 from app.models.category import Category
-from app.models.split import Split
+from app.models.change import ChangeOperation, TransactionChange
+from app.models.split import Split, SuggestionSource
 from app.models.transaction import Transaction, TransactionType
+from app.services import change_log
 from app.services.splits import validate_splits
 
 SplitInput = tuple[int | None, float]
@@ -42,6 +44,18 @@ def create_transaction(
     db.add(txn)
     db.commit()
     db.refresh(txn)
+
+    after = change_log.serialize_transaction(txn)
+    change_log.record_change(
+        db,
+        TransactionChange,
+        txn.id,
+        ChangeOperation.CREATE,
+        before=None,
+        after=after,
+        summary=change_log.summarize_transaction(ChangeOperation.CREATE, None, after),
+    )
+    db.commit()
     return txn
 
 
@@ -52,12 +66,27 @@ def update_transaction_details(
     name: str | None = None,
 ) -> Transaction:
     txn = _get_transaction_or_404(db, transaction_id)
+    before = change_log.serialize_transaction(txn)
+
     if date is not None:
         txn.date = date
     if name is not None:
         txn.name = name
     db.commit()
     db.refresh(txn)
+
+    after = change_log.serialize_transaction(txn)
+    if before != after:
+        change_log.record_change(
+            db,
+            TransactionChange,
+            txn.id,
+            ChangeOperation.UPDATE,
+            before=before,
+            after=after,
+            summary=change_log.summarize_transaction(ChangeOperation.UPDATE, before, after),
+        )
+        db.commit()
     return txn
 
 
@@ -68,6 +97,7 @@ def update_transaction_splits(
     if txn.type == TransactionType.TRANSFER:
         raise ValidationError("Transfer transactions cannot be split across categories")
 
+    before = change_log.serialize_transaction(txn)
     current_total = sum(float(s.amount) for s in txn.splits)
     validate_splits(splits, expected_total=current_total)
 
@@ -76,16 +106,57 @@ def update_transaction_splits(
     txn.splits = [Split(category_id=cat_id, amount=amount) for cat_id, amount in splits]
     db.commit()
     db.refresh(txn)
+
+    after = change_log.serialize_transaction(txn)
+    if before != after:
+        change_log.record_change(
+            db,
+            TransactionChange,
+            txn.id,
+            ChangeOperation.UPDATE,
+            before=before,
+            after=after,
+            summary=change_log.summarize_transaction(ChangeOperation.UPDATE, before, after),
+        )
+        db.commit()
     return txn
 
 
 def delete_transaction(db: Session, transaction_id: int) -> None:
     txn = _get_transaction_or_404(db, transaction_id)
+    before_txn = change_log.serialize_transaction(txn)
+
+    pair = None
+    before_pair = None
     if txn.type == TransactionType.TRANSFER and txn.transfer_pair_id is not None:
         pair = db.get(Transaction, txn.transfer_pair_id)
         if pair is not None:
+            before_pair = change_log.serialize_transaction(pair)
             db.delete(pair)
     db.delete(txn)
+    db.commit()
+
+    group_id = change_log.record_change(
+        db,
+        TransactionChange,
+        transaction_id,
+        ChangeOperation.DELETE,
+        before=before_txn,
+        after=None,
+        summary=change_log.summarize_transaction(ChangeOperation.DELETE, before_txn, None),
+    )
+    if pair is not None and before_pair is not None:
+        change_log.record_change(
+            db,
+            TransactionChange,
+            before_pair["id"],
+            ChangeOperation.DELETE,
+            before=before_pair,
+            after=None,
+            summary=change_log.summarize_transaction(ChangeOperation.DELETE, before_pair, None),
+            group_id=group_id,
+            is_primary=False,
+        )
     db.commit()
 
 
@@ -127,6 +198,31 @@ def create_transfer(
     db.commit()
     db.refresh(from_txn)
     db.refresh(to_txn)
+
+    transfer_summary = f"Created transfer '{name}' (${amount:.2f})"
+    after_from = change_log.serialize_transaction(from_txn)
+    after_to = change_log.serialize_transaction(to_txn)
+    group_id = change_log.record_change(
+        db,
+        TransactionChange,
+        from_txn.id,
+        ChangeOperation.CREATE,
+        before=None,
+        after=after_from,
+        summary=transfer_summary,
+    )
+    change_log.record_change(
+        db,
+        TransactionChange,
+        to_txn.id,
+        ChangeOperation.CREATE,
+        before=None,
+        after=after_to,
+        summary=transfer_summary,
+        group_id=group_id,
+        is_primary=False,
+    )
+    db.commit()
     return from_txn, to_txn
 
 
@@ -142,15 +238,34 @@ def _get_split_or_404(db: Session, transaction_id: int, split_id: int) -> Split:
     return split
 
 
+def _record_split_change(db: Session, txn: Transaction, before: dict) -> None:
+    after = change_log.serialize_transaction(txn)
+    if before != after:
+        change_log.record_change(
+            db,
+            TransactionChange,
+            txn.id,
+            ChangeOperation.UPDATE,
+            before=before,
+            after=after,
+            summary=change_log.summarize_transaction(ChangeOperation.UPDATE, before, after),
+        )
+        db.commit()
+
+
 def accept_suggestion(db: Session, transaction_id: int, split_id: int) -> Split:
     split = _get_split_or_404(db, transaction_id, split_id)
     if split.suggested_category_id is None:
         raise ValidationError("This split has no pending suggestion to accept")
+    txn = split.transaction
+    before = change_log.serialize_transaction(txn)
     split.category_id = split.suggested_category_id
     split.suggested_category_id = None
     split.suggestion_source = None
     db.commit()
     db.refresh(split)
+    db.refresh(txn)
+    _record_split_change(db, txn, before)
     return split
 
 
@@ -158,10 +273,14 @@ def reject_suggestion(db: Session, transaction_id: int, split_id: int) -> Split:
     split = _get_split_or_404(db, transaction_id, split_id)
     if split.suggested_category_id is None:
         raise ValidationError("This split has no pending suggestion to reject")
+    txn = split.transaction
+    before = change_log.serialize_transaction(txn)
     split.suggested_category_id = None
     split.suggestion_source = None
     db.commit()
     db.refresh(split)
+    db.refresh(txn)
+    _record_split_change(db, txn, before)
     return split
 
 
@@ -273,3 +392,90 @@ def count_uncategorized(db: Session) -> int:
         .where(Split.category_id.is_(None))
     )
     return db.execute(stmt).scalar_one()
+
+
+# --- undo-only helpers -------------------------------------------------
+#
+# Used exclusively by app/services/undo.py. apply_transaction_snapshot
+# replaces date/name/splits wholesale (including suggested_category_id/
+# suggestion_source, which none of update_transaction_details /
+# update_transaction_splits / accept_suggestion / reject_suggestion alone
+# can fully restore) so a single call can reverse an UPDATE row regardless
+# of which of those four originally produced it. restore_transaction
+# recreates a deleted transaction (and its splits) with the original id;
+# undoing a create reuses delete_transaction as-is, since it already
+# handles the transfer-pair cascade.
+
+
+def apply_transaction_snapshot(db: Session, transaction_id: int, snapshot: dict) -> Transaction:
+    txn = _get_transaction_or_404(db, transaction_id)
+    before = change_log.serialize_transaction(txn)
+
+    txn.date = dt.date.fromisoformat(snapshot["date"])
+    txn.name = snapshot["name"]
+    for split in list(txn.splits):
+        db.delete(split)
+    txn.splits = [
+        Split(
+            category_id=s["category_id"],
+            amount=s["amount"],
+            suggested_category_id=s["suggested_category_id"],
+            suggestion_source=SuggestionSource(s["suggestion_source"]) if s["suggestion_source"] else None,
+        )
+        for s in snapshot["splits"]
+    ]
+    db.commit()
+    db.refresh(txn)
+
+    after = change_log.serialize_transaction(txn)
+    if before != after:
+        change_log.record_change(
+            db,
+            TransactionChange,
+            txn.id,
+            ChangeOperation.UPDATE,
+            before=before,
+            after=after,
+            summary=change_log.summarize_transaction(ChangeOperation.UPDATE, before, after),
+        )
+        db.commit()
+    return txn
+
+
+def restore_transaction(db: Session, snapshot: dict) -> Transaction:
+    if db.get(Transaction, snapshot["id"]) is not None:
+        raise ValidationError(f"Can't undo: transaction id {snapshot['id']} is now in use by a different record")
+
+    txn = Transaction(
+        id=snapshot["id"],
+        account_id=snapshot["account_id"],
+        date=dt.date.fromisoformat(snapshot["date"]),
+        name=snapshot["name"],
+        type=TransactionType(snapshot["type"]),
+        transfer_pair_id=snapshot["transfer_pair_id"],
+    )
+    txn.splits = [
+        Split(
+            category_id=s["category_id"],
+            amount=s["amount"],
+            suggested_category_id=s["suggested_category_id"],
+            suggestion_source=SuggestionSource(s["suggestion_source"]) if s["suggestion_source"] else None,
+        )
+        for s in snapshot["splits"]
+    ]
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+
+    after = change_log.serialize_transaction(txn)
+    change_log.record_change(
+        db,
+        TransactionChange,
+        txn.id,
+        ChangeOperation.CREATE,
+        before=None,
+        after=after,
+        summary=change_log.summarize_transaction(ChangeOperation.CREATE, None, after),
+    )
+    db.commit()
+    return txn

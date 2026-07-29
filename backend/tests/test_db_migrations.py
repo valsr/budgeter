@@ -21,7 +21,18 @@ def test_upgrade_to_head_creates_schema_on_a_fresh_db_file(tmp_path, monkeypatch
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         conn.close()
-    assert {"accounts", "categories", "transactions", "splits", "rules", "api_key"} <= tables
+    assert {
+        "accounts",
+        "categories",
+        "transactions",
+        "splits",
+        "rules",
+        "api_key",
+        "account_changes",
+        "category_changes",
+        "transaction_changes",
+        "app_settings",
+    } <= tables
 
 
 def test_upgrade_to_head_is_idempotent(tmp_path, monkeypatch):

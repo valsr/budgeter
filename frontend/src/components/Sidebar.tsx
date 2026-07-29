@@ -59,6 +59,17 @@ const NAV_ITEMS = [
     ),
   },
   {
+    to: "/history",
+    label: "History",
+    icon: (
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M12 7v5l3.5 2" />
+        <path d="M4.5 8.5A8.5 8.5 0 0 1 12 3.5" />
+      </svg>
+    ),
+  },
+  {
     to: "/settings",
     label: "Settings",
     icon: (
