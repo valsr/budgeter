@@ -60,6 +60,25 @@ The app's own backup/restore (Settings → Backup & restore, or `GET`/`POST /api
 podman volume export budgeter-data > budgeter-backup.tar
 ```
 
-## Rebuilding
+## Rebuilding / updating
 
-The image has no dev tooling (no pytest/httpx — see `backend/requirements.txt` vs `backend/requirements-dev.txt`) and no source bind-mount; code changes require a rebuild (`scripts/podman-build.sh`) and a fresh `podman run`. The data volume is untouched by rebuilds.
+The image has no dev tooling (no pytest/httpx — see `backend/requirements.txt` vs `backend/requirements-dev.txt`) and no source bind-mount; code changes require a rebuild and a fresh container. The data volume is untouched by rebuilds — it's named (`budgeter-data` by default) and outlives any single container, so swapping the image doesn't touch it.
+
+There's no image registry in this setup (single self-hosted deployment) — a new image just needs to end up tagged `com.valsr.budgeter:latest` (or whatever `IMAGE_NAME`/`IMAGE_TAG` you use) on the host that runs it, however it gets there (`scripts/podman-build.sh` on that host, or a `podman load` of a tarball built elsewhere). Once it is, redeploy with:
+
+```bash
+scripts/podman-update.sh
+```
+
+This removes the currently-running `budgeter` container (if any — the data volume it was using is untouched) and starts a fresh one from the image now tagged `latest`, same as `podman-run.sh`. Equivalent to:
+
+```bash
+podman rm -f budgeter   # only if it's currently running
+scripts/podman-run.sh
+```
+
+Same env var overrides as the other scripts apply (`IMAGE_NAME`, `IMAGE_TAG`, `CONTAINER_NAME`, `HOST_PORT`, `API_KEY`, `VOLUME_NAME`) — `podman-update.sh` just forwards to `podman-run.sh` for the actual `podman run`, so pass them the same way.
+
+### Always start the container via these scripts
+
+The Containerfile declares `VOLUME ["/data"]`, so running the image with a bare `podman run` (no `--volume` flag) still "works" — Podman silently creates a fresh **anonymous** volume to satisfy it. The app runs fine, but that volume isn't `budgeter-data`, has no name to `podman volume export` by, and nothing links it back to the container once removed. `podman-run.sh`/`podman-update.sh` always pass `--volume budgeter-data:/data` explicitly for exactly this reason — always start/update through them (or pass the same flag by hand) rather than a bare `podman run`, or you'll end up with data silently stranded in an unnamed volume next time you redeploy. `podman volume ls` shows any orphaned anonymous ones (long hex names, no container using them) if this has already happened.
