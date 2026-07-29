@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
 import type { Account, Category, Transaction } from "../api/types";
+import { RunRulesModal } from "../components/RunRulesModal";
 import { SplitModal } from "../components/SplitModal";
 import { TransactionTable } from "../components/TransactionTable";
 
@@ -11,6 +12,7 @@ export function Transactions() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showRunRulesModal, setShowRunRulesModal] = useState(false);
   const [searchParams] = useSearchParams();
 
   function loadCategories() {
@@ -40,6 +42,11 @@ export function Transactions() {
         refreshKey={refreshKey}
         onCategoriesChanged={loadCategories}
         initialFilters={uncategorizedOnly ? { show_categorized: false } : undefined}
+        filterRowExtra={
+          <button className="btn ghost sm" onClick={() => setShowRunRulesModal(true)}>
+            Run rules
+          </button>
+        }
       />
 
       {splitTxn && (
@@ -48,6 +55,17 @@ export function Transactions() {
           categories={categories}
           onClose={() => setSplitTxn(null)}
           onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {showRunRulesModal && (
+        <RunRulesModal
+          categories={categories}
+          onClose={() => setShowRunRulesModal(false)}
+          onApplied={() => {
+            setShowRunRulesModal(false);
+            setRefreshKey((k) => k + 1);
+          }}
         />
       )}
     </div>

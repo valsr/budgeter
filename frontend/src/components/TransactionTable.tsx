@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { transactionsApi } from "../api/transactions";
 import { activeCategories, flattenAllCategories } from "../api/categories";
@@ -20,6 +21,9 @@ interface TransactionTableProps {
    * combobox, so the caller can refetch its category tree. */
   onCategoriesChanged?: () => void;
   initialFilters?: Partial<Filters>;
+  /** Extra controls rendered in the filter row, right-aligned immediately
+   * left of "+ New transaction" (e.g. the Transactions page's "Run rules"). */
+  filterRowExtra?: ReactNode;
 }
 
 export interface Filters {
@@ -58,6 +62,7 @@ export function TransactionTable({
   onDataChanged,
   onCategoriesChanged,
   initialFilters,
+  filterRowExtra,
 }: TransactionTableProps) {
   const [filters, setFilters] = useState<Filters>({ ...EMPTY_FILTERS, ...initialFilters });
   const [page, setPage] = useState(1);
@@ -289,9 +294,12 @@ export function TransactionTable({
             value={filters.amount_max}
             onChange={(e) => setFilters((f) => ({ ...f, amount_max: e.target.value }))}
           />
-          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => setShowNewTxnModal(true)}>
-            + New transaction
-          </button>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            {filterRowExtra}
+            <button className="btn sm" onClick={() => setShowNewTxnModal(true)}>
+              + New transaction
+            </button>
+          </div>
         </div>
         <div className="filters-row">
           <CategoryCombobox
