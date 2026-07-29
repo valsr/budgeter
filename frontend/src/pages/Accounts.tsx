@@ -40,6 +40,7 @@ export function Accounts() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [modal, setModal] = useState<null | "new" | "edit">(null);
   const [form, setForm] = useState<AccountFormState>(EMPTY_FORM);
+  const [accountIdTouched, setAccountIdTouched] = useState(false);
   const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -66,6 +67,7 @@ export function Accounts() {
 
   function openNewModal() {
     setForm(EMPTY_FORM);
+    setAccountIdTouched(false);
     setModal("new");
   }
 
@@ -77,6 +79,7 @@ export function Accounts() {
       opening_balance: String(account.opening_balance),
       color: account.color ?? "#4f8a9c",
     });
+    setAccountIdTouched(true);
     setModal("edit");
   }
 
@@ -204,13 +207,26 @@ export function Accounts() {
         >
           <div className="field">
             <label>Account name</label>
-            <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <input
+              value={form.name}
+              onChange={(e) => {
+                const name = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  name,
+                  account_number: modal === "new" && !accountIdTouched ? name : f.account_number,
+                }));
+              }}
+            />
           </div>
           <div className="field">
             <label>Account ID</label>
             <input
               value={form.account_number}
-              onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
+              onChange={(e) => {
+                setAccountIdTouched(true);
+                setForm((f) => ({ ...f, account_number: e.target.value }));
+              }}
               placeholder="Bank account number / identifier"
             />
           </div>

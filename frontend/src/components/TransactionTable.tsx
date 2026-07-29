@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { transactionsApi } from "../api/transactions";
-import { activeCategories } from "../api/categories";
+import { activeCategories, flattenAllCategories } from "../api/categories";
 import type { Account, Category, Split, Transaction } from "../api/types";
 import { CategoryCombobox } from "./CategoryCombobox";
 import { CategoryTag, hexToRgba } from "./CategoryTag";
@@ -68,14 +68,10 @@ export function TransactionTable({
 
   const activeTree = useMemo(() => activeCategories(categories), [categories]);
   const categoryById = useMemo(() => {
-    const map = new Map<number, { name: string; color: string }>();
-    function walk(nodes: Category[]) {
-      for (const node of nodes) {
-        map.set(node.id, { name: node.name, color: node.color });
-        walk(node.children);
-      }
+    const map = new Map<number, { path: string; color: string }>();
+    for (const opt of flattenAllCategories(categories)) {
+      map.set(opt.id, { path: opt.path, color: opt.color });
     }
-    walk(categories);
     return map;
   }, [categories]);
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
@@ -195,7 +191,7 @@ export function TransactionTable({
           : "Suggested by a categorization rule — accept to confirm or reject to clear";
       return (
         <td>
-          <span className="cat-suggest" title={tooltip}>{cat?.name ?? "?"}?</span>
+          <span className="cat-suggest" title={tooltip}>{cat?.path ?? "?"}?</span>
           <span
             className="icon-btn accept"
             title="Accept"
@@ -233,7 +229,7 @@ export function TransactionTable({
     const cat = categoryById.get(split.category_id);
     return (
       <td className="cat-cell" onClick={() => setEditingSplit({ txnId: txn.id, splitId: split.id })}>
-        {cat ? <CategoryTag label={cat.name} color={cat.color} /> : split.category_id}
+        {cat ? <CategoryTag label={cat.path} color={cat.color} /> : split.category_id}
       </td>
     );
   }
