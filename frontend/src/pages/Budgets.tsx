@@ -55,12 +55,17 @@ export function Budgets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (currentBudgetId !== null) {
-      budgetsApi.report(currentBudgetId, CURRENT_YEAR, CURRENT_MONTH).then(setReport);
+  function loadReport(budgetId: number | null) {
+    if (budgetId !== null) {
+      budgetsApi.report(budgetId, CURRENT_YEAR, CURRENT_MONTH).then(setReport);
     } else {
       setReport([]);
     }
+  }
+
+  useEffect(() => {
+    loadReport(currentBudgetId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBudgetId]);
 
   const currentBudget = budgets.find((b) => b.id === currentBudgetId);
@@ -161,7 +166,11 @@ export function Budgets() {
           onSaved={(id) => {
             setModalMode(null);
             loadBudgets();
+            // setCurrentBudgetId is a no-op when editing the already-selected
+            // budget (same id in, same id out), which would otherwise leave
+            // the report showing pre-edit amounts -- refetch explicitly.
             setCurrentBudgetId(id);
+            loadReport(id);
           }}
         />
       )}
@@ -284,7 +293,7 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
       onClose={onClose}
       onSubmit={save}
       submitLabel={mode === "edit" ? "Save changes" : "Create budget"}
-      wide
+      width={1280}
     >
       <div className="field">
         <label>Budget name</label>

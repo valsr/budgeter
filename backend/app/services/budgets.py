@@ -75,6 +75,12 @@ def update_budget(
         _validate_categories(db, categories)
         for bc in list(budget.budget_categories):
             db.delete(bc)
+        # Flush the deletes before adding replacement rows -- otherwise a
+        # category kept across the edit (the common case: amounts changed,
+        # selection didn't) collides with itself on the (budget_id,
+        # category_id) unique constraint, since the old row hasn't been
+        # removed from the table yet when the new one is inserted.
+        db.flush()
         budget.budget_categories = _build_budget_categories(categories, year)
     db.commit()
     db.refresh(budget)

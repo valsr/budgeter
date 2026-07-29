@@ -85,6 +85,27 @@ def test_update_budget(client, auth_headers, groceries_id):
     assert resp.json()["name"] == "Renamed"
 
 
+def test_update_budget_keeping_same_category_selected(client, auth_headers, groceries_id):
+    """Regression guard: editing a budget without changing which categories
+    are selected (the common case -- only amounts change) used to raise a
+    UNIQUE constraint IntegrityError, because the old (budget_id,
+    category_id) row wasn't flushed as deleted before the replacement row
+    for the same category was inserted."""
+    created = client.post(
+        "/api/budgets",
+        json={"name": "Household", "year": 2026, "categories": [{"category_id": groceries_id, "monthly_amounts": {"1": 400}}]},
+        headers=auth_headers,
+    ).json()
+    resp = client.patch(
+        f"/api/budgets/{created['id']}",
+        json={"year": 2026, "categories": [{"category_id": groceries_id, "monthly_amounts": {"1": 500}}]},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["budget_categories"][0]["amounts"][0]["amount"] == 500.0
+
+
 def test_update_missing_budget_404(client, auth_headers):
     resp = client.patch("/api/budgets/999", json={"name": "x"}, headers=auth_headers)
     assert resp.status_code == 404

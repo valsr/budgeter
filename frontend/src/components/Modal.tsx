@@ -7,10 +7,23 @@ interface ModalProps {
   submitLabel?: string;
   submitDisabled?: boolean;
   wide?: boolean;
+  /** Explicit pixel width, for content wider than the standard "wide" (960px)
+   * modal — e.g. the budget editor's 12-month table. Takes precedence over `wide`. */
+  width?: number;
   children: ReactNode;
 }
 
-export function Modal({ title, onClose, onSubmit, submitLabel = "Save", submitDisabled, wide, children }: ModalProps) {
+export function Modal({
+  title,
+  onClose,
+  onSubmit,
+  submitLabel = "Save",
+  submitDisabled,
+  wide,
+  width,
+  children,
+}: ModalProps) {
+  const resolvedWidth = width ?? (wide ? 960 : undefined);
   return (
     <div
       className="overlay open"
@@ -18,7 +31,7 @@ export function Modal({ title, onClose, onSubmit, submitLabel = "Save", submitDi
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="modal" style={wide ? { width: 960 } : undefined}>
+      <div className="modal" style={resolvedWidth ? { width: resolvedWidth } : undefined}>
         <h2>{title}</h2>
         {children}
         <div className="modal-actions">
