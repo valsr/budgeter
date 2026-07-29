@@ -108,6 +108,19 @@ export interface LearnRuleResponse {
   confirmed_transaction_ids: number[];
 }
 
+export interface RunPreviewItem {
+  transaction_id: number;
+  date: string;
+  name: string;
+  account_id: number;
+  category_id: number;
+  amount: number;
+}
+
+export interface RunPreviewResponse {
+  items: RunPreviewItem[];
+}
+
 export interface ImportBatch {
   id: number;
   filename: string;

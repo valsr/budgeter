@@ -7,6 +7,7 @@ import type {
   MatchType,
   PreviewMatchesResponse,
   Rule,
+  RunPreviewResponse,
 } from "./types";
 
 export interface ConditionInput {
@@ -51,4 +52,5 @@ export const rulesApi = {
     ),
   learn: (input: RuleInput) =>
     apiFetch<LearnRuleResponse>("/api/rules/learn", { method: "POST", body: JSON.stringify(input) }),
+  runPreview: () => apiFetch<RunPreviewResponse>("/api/rules/run-preview"),
 };

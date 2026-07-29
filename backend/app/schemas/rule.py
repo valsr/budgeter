@@ -100,3 +100,16 @@ class LearnRuleResponse(BaseModel):
     rule: RuleRead
     confirmed_count: int
     confirmed_transaction_ids: list[int]
+
+
+class RunPreviewItem(BaseModel):
+    transaction_id: int
+    date: dt.date
+    name: str
+    account_id: int
+    category_id: int
+    amount: float
+
+
+class RunPreviewResponse(BaseModel):
+    items: list[RunPreviewItem]

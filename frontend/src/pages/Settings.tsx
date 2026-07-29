@@ -7,6 +7,7 @@ import { settingsApi } from "../api/settings";
 import type { Category, Rule } from "../api/types";
 import { Modal } from "../components/Modal";
 import { RuleModal } from "../components/RuleModal";
+import { RunRulesModal } from "../components/RunRulesModal";
 
 type Tab = "api" | "cats" | "rules" | "backup" | "history";
 
@@ -308,6 +309,8 @@ function RulesTab() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [modal, setModal] = useState<null | { mode: "new" | "edit"; rule?: Rule }>(null);
+  const [showRunModal, setShowRunModal] = useState(false);
+  const [appliedCount, setAppliedCount] = useState<number | null>(null);
 
   function load() {
     rulesApi.list().then(setRules);
@@ -339,9 +342,25 @@ function RulesTab() {
     <div>
       <div className="toolbar">
         <span style={{ color: "var(--ink-2)", fontSize: 12.5 }}>Order matters — first match wins.</span>
-        <button className="btn sm" onClick={() => setModal({ mode: "new" })}>
-          + New rule
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {appliedCount !== null && (
+            <span className="sub">
+              Applied {appliedCount} suggestion{appliedCount === 1 ? "" : "s"} — review in Transactions.
+            </span>
+          )}
+          <button
+            className="btn ghost sm"
+            onClick={() => {
+              setAppliedCount(null);
+              setShowRunModal(true);
+            }}
+          >
+            Run rules
+          </button>
+          <button className="btn sm" onClick={() => setModal({ mode: "new" })}>
+            + New rule
+          </button>
+        </div>
       </div>
       {rules.map((rule, i) => (
         <div className="rule-row" key={rule.id}>
@@ -384,6 +403,17 @@ function RulesTab() {
           onSaved={() => {
             setModal(null);
             load();
+          }}
+        />
+      )}
+
+      {showRunModal && (
+        <RunRulesModal
+          categories={categories}
+          onClose={() => setShowRunModal(false)}
+          onApplied={(count) => {
+            setShowRunModal(false);
+            setAppliedCount(count);
           }}
         />
       )}

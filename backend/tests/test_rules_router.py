@@ -316,6 +316,57 @@ def test_recategorize_endpoint(client, auth_headers, category_id, account_id):
     assert resp.json() == {"suggested_count": 1}
 
 
+def test_run_preview_lists_matches_without_persisting(client, auth_headers, category_id, account_id):
+    matching = client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-01", "name": "GitHub Inc.", "splits": [{"amount": -21.0}]},
+        headers=auth_headers,
+    ).json()
+    client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-02", "name": "Starbucks", "splits": [{"amount": -5.0}]},
+        headers=auth_headers,
+    )
+    _categorized_txn(client, auth_headers, account_id, "GitHub Inc. #2", category_id)  # already categorized, excluded
+
+    client.post("/api/rules", json=_rule_payload(category_id), headers=auth_headers)
+
+    # rule creation itself already suggested a category (see
+    # test_create_rule_triggers_categorization) -- clear it so we can prove
+    # run-preview alone doesn't set it again
+    refreshed = client.get(f"/api/transactions/{matching['id']}", headers=auth_headers).json()
+    split_id = refreshed["splits"][0]["id"]
+    client.post(f"/api/transactions/{matching['id']}/splits/{split_id}/reject-suggestion", headers=auth_headers)
+
+    resp = client.get("/api/rules/run-preview", headers=auth_headers)
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0] == {
+        "transaction_id": matching["id"],
+        "date": "2026-01-01",
+        "name": "GitHub Inc.",
+        "account_id": account_id,
+        "category_id": category_id,
+        "amount": -21.0,
+    }
+
+    # a dry run -- nothing persisted
+    refreshed = client.get(f"/api/transactions/{matching['id']}", headers=auth_headers).json()
+    assert refreshed["splits"][0]["suggested_category_id"] is None
+
+
+def test_run_preview_empty_when_no_rules(client, auth_headers, account_id):
+    client.post(
+        "/api/transactions",
+        json={"account_id": account_id, "date": "2026-01-01", "name": "GitHub Inc.", "splits": [{"amount": -21.0}]},
+        headers=auth_headers,
+    )
+    resp = client.get("/api/rules/run-preview", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
 def test_accept_and_reject_suggestion_endpoints(client, auth_headers, category_id, account_id):
     txn = client.post(
         "/api/transactions",

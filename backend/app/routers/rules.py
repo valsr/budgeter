@@ -19,6 +19,8 @@ from app.schemas.rule import (
     RuleCreate,
     RuleRead,
     RuleReorderRequest,
+    RunPreviewItem,
+    RunPreviewResponse,
     RuleUpdate,
 )
 from app.services import categorization
@@ -69,6 +71,34 @@ def create_rule(payload: RuleCreate, db: Session = Depends(get_db)):
 def recategorize(payload: RecategorizeRequest, db: Session = Depends(get_db)):
     count = categorization.run_categorization(db, payload.transaction_ids)
     return {"suggested_count": count}
+
+
+@router.get("/run-preview", response_model=RunPreviewResponse)
+def run_preview(db: Session = Depends(get_db)):
+    """Dry-run the current rule set against every eligible (uncategorized)
+    transaction without persisting anything, so the UI can show what a
+    "run rules" action would change before the user commits to it."""
+    rule_specs = rules_service.rules_to_specs(rules_service.list_rules(db))
+    pool = categorization.list_eligible_for_suggestion(db, None)
+
+    items = []
+    for txn in pool:
+        split = txn.splits[0]
+        ctx = TransactionContext(date=txn.date, name=txn.name, account_id=txn.account_id, amount=float(split.amount))
+        match = find_matching_rule(rule_specs, ctx)
+        if match is None:
+            continue
+        items.append(
+            RunPreviewItem(
+                transaction_id=txn.id,
+                date=txn.date,
+                name=txn.name,
+                account_id=txn.account_id,
+                category_id=match.target_category_id,
+                amount=float(split.amount),
+            )
+        )
+    return RunPreviewResponse(items=items)
 
 
 @router.post("/learn-check", response_model=LearnCheckResponse)
