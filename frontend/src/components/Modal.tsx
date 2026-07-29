@@ -33,7 +33,7 @@ export function Modal({
     >
       <div className="modal" style={resolvedWidth ? { width: resolvedWidth } : undefined}>
         <h2>{title}</h2>
-        {children}
+        <div className="modal-body">{children}</div>
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
             Cancel
