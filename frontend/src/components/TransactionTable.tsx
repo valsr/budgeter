@@ -257,13 +257,6 @@ export function TransactionTable({
 
   return (
     <div>
-      <div className="toolbar">
-        <span />
-        <button className="btn sm" onClick={() => setShowNewTxnModal(true)}>
-          + New transaction
-        </button>
-      </div>
-
       <div className="filters-2row">
         <div className="filters-row">
           <input
@@ -296,6 +289,9 @@ export function TransactionTable({
             value={filters.amount_max}
             onChange={(e) => setFilters((f) => ({ ...f, amount_max: e.target.value }))}
           />
+          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => setShowNewTxnModal(true)}>
+            + New transaction
+          </button>
         </div>
         <div className="filters-row">
           <CategoryCombobox
