@@ -376,13 +376,11 @@ function RulesTab() {
     categoriesApi.list().then(setCategories);
   }, []);
 
-  const categoryName = (id: number) => {
-    for (const p of categories) {
-      if (p.id === id) return p.name;
-      for (const c of p.children) if (c.id === id) return `${p.name}:${c.name}`;
-    }
-    return `#${id}`;
-  };
+  // Categories can nest to any depth (docs/requirements.md §2.2), so this
+  // has to walk the whole tree rather than just top-level + one child deep
+  // -- flattenAllCategories already does that recursively.
+  const categoryPaths = flattenAllCategories(categories);
+  const categoryName = (id: number) => categoryPaths.find((o) => o.id === id)?.path ?? `#${id}`;
 
   async function move(index: number, direction: -1 | 1) {
     const ids = rules.map((r) => r.id);
