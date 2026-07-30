@@ -48,17 +48,32 @@ class TestEvaluateCondition:
         c = Condition(ConditionField.NAME, ConditionOperator.EQUALS, "GITHUB INC")
         assert evaluate_condition(c, ctx()) is True
 
-    def test_amount_equals(self):
-        c = Condition(ConditionField.AMOUNT, ConditionOperator.EQUALS, "-21.00")
+    def test_amount_equals_matches_magnitude_regardless_of_sign(self):
+        # ctx() is a -21.00 withdrawal; a +21.00 deposit satisfies the same
+        # condition since AMOUNT compares abs(amount).
+        c = Condition(ConditionField.AMOUNT, ConditionOperator.EQUALS, "21.00")
         assert evaluate_condition(c, ctx()) is True
+        assert evaluate_condition(c, ctx(amount=21.00)) is True
 
-    def test_amount_less_than(self):
-        c = Condition(ConditionField.AMOUNT, ConditionOperator.LESS_THAN, "0")
-        assert evaluate_condition(c, ctx()) is True
+    def test_amount_less_than_uses_magnitude(self):
+        c = Condition(ConditionField.AMOUNT, ConditionOperator.LESS_THAN, "50")
+        assert evaluate_condition(c, ctx(amount=-21.00)) is True
+        assert evaluate_condition(c, ctx(amount=-100.00)) is False
 
-    def test_amount_greater_than(self):
-        c = Condition(ConditionField.AMOUNT, ConditionOperator.GREATER_THAN, "-100")
-        assert evaluate_condition(c, ctx()) is True
+    def test_amount_greater_than_uses_magnitude(self):
+        c = Condition(ConditionField.AMOUNT, ConditionOperator.GREATER_THAN, "100")
+        assert evaluate_condition(c, ctx(amount=-150.00)) is True
+        assert evaluate_condition(c, ctx(amount=-50.00)) is False
+
+    def test_amount_is_deposit_matches_positive_only(self):
+        c = Condition(ConditionField.AMOUNT, ConditionOperator.IS_DEPOSIT, "")
+        assert evaluate_condition(c, ctx(amount=100.00)) is True
+        assert evaluate_condition(c, ctx(amount=-100.00)) is False
+
+    def test_amount_is_withdrawal_matches_negative_only(self):
+        c = Condition(ConditionField.AMOUNT, ConditionOperator.IS_WITHDRAWAL, "")
+        assert evaluate_condition(c, ctx(amount=-100.00)) is True
+        assert evaluate_condition(c, ctx(amount=100.00)) is False
 
     def test_date_equals(self):
         c = Condition(ConditionField.DATE, ConditionOperator.EQUALS, "2026-07-19")
@@ -99,7 +114,7 @@ class TestEvaluateRule:
             target_category_id=1,
             conditions=[
                 Condition(ConditionField.NAME, ConditionOperator.CONTAINS, "github"),
-                Condition(ConditionField.AMOUNT, ConditionOperator.LESS_THAN, "0"),
+                Condition(ConditionField.AMOUNT, ConditionOperator.IS_WITHDRAWAL, ""),
             ],
         )
         assert evaluate_rule(rule, ctx()) is True

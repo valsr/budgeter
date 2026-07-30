@@ -322,6 +322,16 @@ function CategoryModal({
   );
 }
 
+/** One-line human-readable summary of a rule condition. is_deposit/
+ * is_withdrawal carry no value (they match on the split's sign alone), so
+ * they're worded as a plain statement instead of the usual field/operator/
+ * value template -- which would otherwise print a bare empty "". */
+function conditionSummary(c: { field: ConditionField; operator: ConditionOperator; value: string }): string {
+  if (c.operator === "is_deposit") return `${c.field} is a deposit/credit`;
+  if (c.operator === "is_withdrawal") return `${c.field} is a withdrawal/debit`;
+  return `${c.field} ${c.operator} "${c.value}"`;
+}
+
 /** Combines the conditions of the given rules (in list order) for the "Merge
  * rules" flow, deduping exact field/operator/value repeats across rules, and
  * defaulting the target category to the first selected rule's. */
@@ -458,7 +468,7 @@ function RulesTab() {
               </>
             )}
             <b>{i + 1}.</b> if {rule.match_type.toUpperCase()}:{" "}
-            {rule.conditions.map((c) => `${c.field} ${c.operator} "${c.value}"`).join(" · ")} →{" "}
+            {rule.conditions.map(conditionSummary).join(" · ")} →{" "}
             <span className="tag" style={{ background: "#ece5f2", color: "#8a6aa0" }}>
               {categoryName(rule.target_category_id)}
             </span>

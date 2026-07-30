@@ -51,7 +51,14 @@ export interface TransactionPage {
 }
 
 export type ConditionField = "date" | "day_of_month" | "name" | "account" | "amount";
-export type ConditionOperator = "contains" | "not_contains" | "equals" | "less_than" | "greater_than";
+export type ConditionOperator =
+  | "contains"
+  | "not_contains"
+  | "equals"
+  | "less_than"
+  | "greater_than"
+  | "is_deposit"
+  | "is_withdrawal";
 export type MatchType = "any" | "all";
 
 export interface RuleCondition {

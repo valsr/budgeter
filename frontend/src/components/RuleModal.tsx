@@ -23,6 +23,22 @@ const OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
   { value: "less_than", label: "less than" },
   { value: "greater_than", label: "greater than" },
 ];
+// Amount-only: direction operators ignore the value entirely (any deposit,
+// any withdrawal, regardless of size), so they're additive to the base set
+// rather than a replacement for it -- equals/less_than/greater_than above
+// still compare magnitude (rule_engine's AMOUNT field is abs()'d).
+const AMOUNT_OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
+  ...OPERATOR_OPTIONS,
+  { value: "is_deposit", label: "is a deposit/credit" },
+  { value: "is_withdrawal", label: "is a withdrawal/debit" },
+];
+const DIRECTION_OPERATORS: ConditionOperator[] = ["is_deposit", "is_withdrawal"];
+function operatorOptionsFor(field: ConditionField) {
+  return field === "amount" ? AMOUNT_OPERATOR_OPTIONS : OPERATOR_OPTIONS;
+}
+function operatorNeedsValue(operator: ConditionOperator) {
+  return !DIRECTION_OPERATORS.includes(operator);
+}
 
 interface RuleConditionInput {
   field: ConditionField;
@@ -70,7 +86,10 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
   }
 
   useEffect(() => {
-    if (targetCategoryId === "" || conditions.some((c) => c.value.trim() === "")) {
+    if (
+      targetCategoryId === "" ||
+      conditions.some((c) => operatorNeedsValue(c.operator) && c.value.trim() === "")
+    ) {
       setPreview(null);
       return;
     }
@@ -139,7 +158,19 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
       </div>
       {conditions.map((c, i) => (
         <div className="cond-row" key={i}>
-          <select value={c.field} onChange={(e) => updateCondition(i, { field: e.target.value as ConditionField })}>
+          <select
+            value={c.field}
+            onChange={(e) => {
+              const field = e.target.value as ConditionField;
+              const validOperators = operatorOptionsFor(field).map((o) => o.value);
+              // Direction operators (is_deposit/is_withdrawal) only make
+              // sense for the amount field -- switching away from it falls
+              // back to the first still-valid operator instead of keeping
+              // a now-meaningless one selected.
+              const operator = validOperators.includes(c.operator) ? c.operator : validOperators[0];
+              updateCondition(i, { field, operator, value: operatorNeedsValue(operator) ? c.value : "" });
+            }}
+          >
             {FIELD_OPTIONS.map((f) => (
               <option key={f.value} value={f.value}>
                 {f.label}
@@ -148,20 +179,29 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
           </select>
           <select
             value={c.operator}
-            onChange={(e) => updateCondition(i, { operator: e.target.value as ConditionOperator })}
+            onChange={(e) => {
+              const operator = e.target.value as ConditionOperator;
+              updateCondition(i, { operator, value: operatorNeedsValue(operator) ? c.value : "" });
+            }}
           >
-            {OPERATOR_OPTIONS.map((o) => (
+            {operatorOptionsFor(c.field).map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
           </select>
-          <input
-            placeholder="value"
-            style={{ flex: 1 }}
-            value={c.value}
-            onChange={(e) => updateCondition(i, { value: e.target.value })}
-          />
+          {operatorNeedsValue(c.operator) ? (
+            <input
+              placeholder="value"
+              style={{ flex: 1 }}
+              value={c.value}
+              onChange={(e) => updateCondition(i, { value: e.target.value })}
+            />
+          ) : (
+            <span className="sub" style={{ flex: 1 }}>
+              matches any amount
+            </span>
+          )}
           {conditions.length > 1 && (
             <span
               className="icon-btn remove"

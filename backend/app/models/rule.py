@@ -25,6 +25,12 @@ class ConditionOperator(str, enum.Enum):
     EQUALS = "equals"
     LESS_THAN = "less_than"
     GREATER_THAN = "greater_than"
+    IS_DEPOSIT = "is_deposit"
+    """Amount field only: matches any deposit/credit (a positive split),
+    ignoring the condition's value entirely -- see evaluate_condition."""
+    IS_WITHDRAWAL = "is_withdrawal"
+    """Amount field only: matches any withdrawal/debit (a negative split),
+    ignoring the condition's value entirely -- see evaluate_condition."""
 
 
 class Rule(Base):

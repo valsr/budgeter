@@ -42,6 +42,18 @@ def test_create_rule_invalid_condition_value_rejected(db_session, category):
         )
 
 
+def test_create_rule_direction_operator_accepts_empty_value(db_session, category):
+    # is_deposit/is_withdrawal match on the split's sign alone -- an empty
+    # value must not be rejected the way it would be for e.g. AMOUNT EQUALS.
+    rule = rules_svc.create_rule(
+        db_session,
+        MatchType.ALL,
+        [(ConditionField.AMOUNT, ConditionOperator.IS_DEPOSIT, "")],
+        category.id,
+    )
+    assert rule.conditions[0].operator == ConditionOperator.IS_DEPOSIT
+
+
 def test_priority_increments_across_rules(db_session, category):
     r1 = rules_svc.create_rule(
         db_session, MatchType.ALL, [(ConditionField.NAME, ConditionOperator.CONTAINS, "a")], category.id

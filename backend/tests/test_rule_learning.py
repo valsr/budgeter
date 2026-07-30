@@ -251,12 +251,12 @@ class TestLearnRuleForCategory:
         name_cond, amount_cond = result.conditions
         assert name_cond.field == ConditionField.NAME
         assert amount_cond.field == ConditionField.AMOUNT
-        # Stored amounts are negative (withdrawals): -9.99 is numerically
-        # GREATER than -16.44, so the smaller-spend (target) cluster sits
-        # above the boundary, not below it.
-        assert amount_cond.operator == ConditionOperator.GREATER_THAN
+        # AMOUNT conditions compare magnitude, not signed value: the
+        # smaller-spend (target) cluster's 9.99 max sits below the
+        # opposing cluster's 16.44, so the boundary separates as LESS_THAN.
+        assert amount_cond.operator == ConditionOperator.LESS_THAN
         midpoint = float(amount_cond.value)
-        assert -16.44 < midpoint < -9.99
+        assert 9.99 < midpoint < 16.44
 
     def test_tier2_fails_when_amounts_interleave(self, db_session, account, category, other_category):
         for i, amount in enumerate([9.99, 30.0, 6.55]):

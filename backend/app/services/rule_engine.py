@@ -39,8 +39,23 @@ def _field_value(field: ConditionField, ctx: TransactionContext):
     if field == ConditionField.ACCOUNT:
         return ctx.account_id
     if field == ConditionField.AMOUNT:
-        return ctx.amount
+        # Sign-agnostic: a $50 withdrawal and a $50 deposit both satisfy
+        # "amount greater_than 40" -- direction is checked separately via
+        # the IS_DEPOSIT/IS_WITHDRAWAL operators, not by field comparison.
+        return abs(ctx.amount)
     raise ValueError(f"Unknown condition field: {field}")
+
+
+_DIRECTION_OPERATORS = {ConditionOperator.IS_DEPOSIT, ConditionOperator.IS_WITHDRAWAL}
+
+
+def operator_needs_value(operator: ConditionOperator) -> bool:
+    """False for is_deposit/is_withdrawal, which match on the split's sign
+    alone and ignore the condition's value entirely -- callers that validate
+    or coerce a condition's value (e.g. rules.py's _validate_conditions)
+    should skip those checks for such operators rather than reject an
+    intentionally-empty value."""
+    return operator not in _DIRECTION_OPERATORS
 
 
 def coerce_condition_value(field: ConditionField, raw: str):
@@ -56,6 +71,14 @@ def coerce_condition_value(field: ConditionField, raw: str):
 
 
 def evaluate_condition(condition: Condition, ctx: TransactionContext) -> bool:
+    # These two check the split's raw sign directly and ignore the
+    # condition's value entirely, so they must run before the
+    # abs()'d _field_value/coerce_condition_value pair below.
+    if condition.operator == ConditionOperator.IS_DEPOSIT:
+        return ctx.amount > 0
+    if condition.operator == ConditionOperator.IS_WITHDRAWAL:
+        return ctx.amount < 0
+
     actual = _field_value(condition.field, ctx)
     expected = coerce_condition_value(condition.field, condition.value)
 

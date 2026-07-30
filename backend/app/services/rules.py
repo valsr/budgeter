@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.errors import NotFoundError, ValidationError
 from app.models.category import Category
 from app.models.rule import ConditionField, ConditionOperator, MatchType, Rule, RuleCondition
-from app.services.rule_engine import Condition, RuleSpec, coerce_condition_value
+from app.services.rule_engine import Condition, RuleSpec, coerce_condition_value, operator_needs_value
 
 ConditionInput = tuple[ConditionField, ConditionOperator, str]
 
@@ -19,7 +19,9 @@ def _get_rule_or_404(db: Session, rule_id: int) -> Rule:
 def _validate_conditions(conditions: list[ConditionInput]) -> None:
     if not conditions:
         raise ValidationError("A rule must have at least one condition")
-    for field, _operator, value in conditions:
+    for field, operator, value in conditions:
+        if not operator_needs_value(operator):
+            continue
         try:
             coerce_condition_value(field, value)
         except (ValueError, TypeError) as e:

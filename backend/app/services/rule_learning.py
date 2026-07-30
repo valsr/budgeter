@@ -213,7 +213,12 @@ def learn_rule_for_category(
         return None
 
     names = [t.name for t in candidate_pool]
-    target_amounts = [float(t.splits[0].amount) for t in candidate_pool]
+    # abs(): AMOUNT conditions now compare magnitude only (rule_engine's
+    # _field_value abs()es it), so the boundary this clusters toward must be
+    # computed on magnitude too, or a rule learned from all-negative (or
+    # all-positive) amounts would separate at a threshold on the wrong side
+    # of zero and never fire.
+    target_amounts = [abs(float(t.splits[0].amount)) for t in candidate_pool]
 
     tier1_lcs = _lcs_from_candidates(names, TIER1_MIN_LCS_RATIO)
     if tier1_lcs is not None:
@@ -233,7 +238,7 @@ def learn_rule_for_category(
         # nothing for tier 2 to separate against, so it can't help here.
         return None
 
-    opposing_amounts = [float(t.splits[0].amount) for t in opposing]
+    opposing_amounts = [abs(float(t.splits[0].amount)) for t in opposing]
     boundary = separate_amount_clusters(target_amounts, opposing_amounts)
     if boundary is None:
         return None
