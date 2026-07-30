@@ -136,8 +136,12 @@ export function Budgets() {
                     const cls = monthClass(i, months.length);
                     return (
                       <Fragment key={m}>
-                        <td className={"right muted-cell " + cls}>{formatMoney(cell.budgeted, 0)}</td>
-                        <td className={"right " + cls + (over ? " over" : "")}>{formatMoney(cell.actual, 0)}</td>
+                        <td className={"right muted-cell " + cls + (cell.budgeted < 0 ? " neg" : "")}>
+                          {formatMoney(cell.budgeted, 0)}
+                        </td>
+                        <td className={"right " + cls + (over ? " over" : cell.actual < 0 ? " neg" : "")}>
+                          {formatMoney(cell.actual, 0)}
+                        </td>
                       </Fragment>
                     );
                   })}

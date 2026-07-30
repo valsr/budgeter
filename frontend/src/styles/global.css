@@ -91,6 +91,7 @@ tr.undone-row td{opacity:.55}
 .diff-pos{color:var(--c1)}
 .diff-neg{color:var(--c5)}
 .muted-cell{color:var(--ink-3)}
+.muted-cell.neg{color:var(--c5)}
 .over{color:var(--c5);font-weight:600}
 th.sub-col{font-weight:500;text-transform:none;font-size:11px;color:var(--ink-3);text-align:right}
 th.month-label{text-align:center}

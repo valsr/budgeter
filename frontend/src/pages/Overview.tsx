@@ -64,8 +64,10 @@ export function Overview() {
             return (
               <tr key={row.category_id} style={row.is_parent ? { fontWeight: 600 } : undefined}>
                 <td style={row.depth > 0 ? { paddingLeft: 26 * row.depth } : undefined}>{row.name}</td>
-                <td className="right">{row.has_budget ? formatMoney(budgeted) : "—"}</td>
-                <td className="right">{formatMoney(actual)}</td>
+                <td className={"right" + (budgeted < 0 ? " neg" : "")}>
+                  {row.has_budget ? formatMoney(budgeted) : "—"}
+                </td>
+                <td className={"right" + (actual < 0 ? " neg" : "")}>{formatMoney(actual)}</td>
                 <td className={"right" + (balance !== null && balance < 0 ? " neg" : "")}>
                   {balance !== null ? formatMoney(balance) : "—"}
                 </td>
