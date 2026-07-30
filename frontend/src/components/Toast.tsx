@@ -68,22 +68,29 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function ensureCategories(): Promise<Category[]> {
-    if (categories) return categories;
+  // Always fetches fresh rather than caching: ToastProvider lives for the
+  // whole app session, so a stale list would silently omit any category
+  // created since the last fetch -- e.g. one just created inline on the
+  // Transactions page moments ago, which is exactly the case a learned-rule
+  // suggestion for a brand-new category hits. The target category still
+  // resolves correctly either way (RuleModal is handed its id directly),
+  // but a stale list has no matching <option>, so the picker would silently
+  // show the first category in the list instead of the real one.
+  async function refreshCategories(): Promise<Category[]> {
     const list = await categoriesApi.list();
     setCategories(list);
     return list;
   }
 
   async function openConflictRule(toast: ConflictToast) {
-    const [rule] = await Promise.all([rulesApi.get(toast.ruleId), ensureCategories()]);
+    const [rule] = await Promise.all([rulesApi.get(toast.ruleId), refreshCategories()]);
     setEditingRule(rule);
     setModalState({ kind: "edit-rule" });
     dismiss(toast.id);
   }
 
   async function openLearnedRule(toast: SuggestionToast) {
-    await ensureCategories();
+    await refreshCategories();
     setModalState({ kind: "learned-rule", toast });
     dismiss(toast.id);
   }

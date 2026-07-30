@@ -185,6 +185,24 @@ def test_learn_check_none_when_too_few_candidates(client, auth_headers, category
     assert resp.json()["status"] == "none"
 
 
+def test_learn_check_counts_the_just_categorized_transaction_toward_the_threshold(
+    client, auth_headers, category_id, account_id
+):
+    # Only 2 *other* prior categorizations exist -- the transaction just
+    # categorized (checked below) is the 3rd data point, not a 4th on top of
+    # an already-satisfied 3. The sample-size bar is "does this category
+    # have 3 transactions total to learn from," not "3 besides this one."
+    for i, suffix in enumerate(["775", "756"]):
+        _categorized_txn(client, auth_headers, account_id, f"McDonalds #{suffix}", category_id, date=f"2026-01-0{i + 1}")
+    newest = _categorized_txn(client, auth_headers, account_id, "McDonalds #999", category_id, date="2026-01-10")
+
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": newest["id"]}, headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "suggestion"
+    assert body["suggestion"]["tier"] == 1
+
+
 def test_learn_check_none_for_uncategorized_transaction(client, auth_headers, account_id):
     txn = client.post(
         "/api/transactions",

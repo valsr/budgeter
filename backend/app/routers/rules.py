@@ -129,9 +129,14 @@ def learn_check(payload: LearnCheckRequest, db: Session = Depends(get_db)):
             ),
         )
 
-    pool = rule_learning.find_learning_candidates(
-        db, split.category_id, exclude_transaction_id=txn.id
-    )
+    # Note: no exclude_transaction_id here -- `txn` was just persisted with
+    # this category, so it's already a genuine member of "transactions
+    # categorized to split.category_id" and should count toward the sample
+    # size threshold, not be treated as separate from it. The bar is "does
+    # this category have enough data (this categorization plus its history)",
+    # not "are there this many OTHER categorizations besides the one the
+    # user just made."
+    pool = rule_learning.find_learning_candidates(db, split.category_id)
     pool = rule_learning.filter_out_rule_matched(pool, rule_specs)
     candidate = rule_learning.learn_rule_for_category(db, pool, split.category_id)
     if candidate is None:
