@@ -40,6 +40,7 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 let nextToastId = 0;
 const ERROR_TOAST_LIFETIME_MS = 8000;
+const SUGGESTION_TOAST_LIFETIME_MS = 10000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -56,6 +57,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => [...prev, { ...item, id } as ToastItem]);
     if (item.kind === "error") {
       setTimeout(() => dismiss(id), ERROR_TOAST_LIFETIME_MS);
+    } else if (item.kind === "suggestion") {
+      setTimeout(() => dismiss(id), SUGGESTION_TOAST_LIFETIME_MS);
     }
   }
 

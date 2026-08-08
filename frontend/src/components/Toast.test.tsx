@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "../api/client";
 import type { Category, LearnCheckResponse, Rule } from "../api/types";
@@ -160,6 +160,37 @@ describe("Toast", () => {
     await screen.findByText(/merchant-1/);
     await screen.findByText(/merchant-2/);
     expect(screen.getAllByText("Add")).toHaveLength(2);
+  });
+
+  it("auto-dismisses the suggestion toast after 10 seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      learnCheck.mockResolvedValue({
+        status: "suggestion",
+        conflict: null,
+        suggestion: {
+          tier: 1,
+          match_type: "all",
+          conditions: [{ field: "name", operator: "contains", value: "mcdonalds" }],
+          target_category_id: 2,
+        },
+      });
+      renderWithTriggers([1]);
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("trigger-1"));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText(/Possible rule found/)).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+      expect(screen.queryByText(/Possible rule found/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   describe("global error toast", () => {
