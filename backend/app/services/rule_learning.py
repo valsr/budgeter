@@ -8,6 +8,7 @@ Note: app/services/dedupe.py has its own unrelated MatchType enum
 MatchType (ANY/ALL) for rule construction — don't confuse the two.
 """
 
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -89,6 +90,72 @@ def _lcs_from_candidates(names: list[str], min_ratio: float) -> str | None:
     if len(lcs) < min_ratio * shortest_len:
         return None
     return lcs
+
+
+def _cluster_candidates(pool: list[Transaction], min_ratio: float) -> list[list[Transaction]]:
+    """Group a category's full transaction history into clusters that
+    mutually agree on a shared name pattern, instead of treating the whole
+    pool as one bag.
+
+    Without this, a single unrelated transaction elsewhere in the same
+    category (e.g. one stray "OVERDRAFT FEE" sitting alongside a dozen
+    "ACCT FEE TRX") drags the *pool-wide* LCS down or blocks it outright,
+    even though "ACCT FEE TRX" alone would easily clear the bar on its own.
+
+    Greedy single-seed grouping, not full transitive union-find: each
+    unclustered transaction becomes a cluster "seed" and absorbs only the
+    remaining transactions that pairwise-match *that seed* directly. This
+    deliberately avoids a chaining artifact (A matches B, B matches C, but
+    A and C share nothing) that a transitive union could produce.
+    """
+    remaining = list(pool)
+    clusters = []
+    while remaining:
+        seed, *rest = remaining
+        cluster = [seed]
+        leftover = []
+        for txn in rest:
+            if _lcs_from_candidates([seed.name, txn.name], min_ratio) is not None:
+                cluster.append(txn)
+            else:
+                leftover.append(txn)
+        clusters.append(cluster)
+        remaining = leftover
+    return clusters
+
+
+def _largest_qualifying_cluster(pool: list[Transaction], min_ratio: float) -> list[Transaction] | None:
+    qualifying = [c for c in _cluster_candidates(pool, min_ratio) if len(c) >= MIN_LEARNING_SAMPLE_SIZE]
+    if not qualifying:
+        return None
+    return max(qualifying, key=len)
+
+
+_LEFTOVER_WORD_RE = re.compile(rf"[a-z]{{{MIN_LCS_LENGTH},}}")
+
+
+def _lcs_specific_enough(names: list[str], lcs: str) -> bool:
+    """Reject an LCS that's merely a shared brand/processor prefix rather
+    than the actual merchant identity -- e.g. "paypal " shared by "PAYPAL
+    *NETFLIX" and "PAYPAL *EBAY" is a real common substring, but the parts
+    it *doesn't* cover ("netflix", "ebay") are themselves distinct real
+    merchant names, not incidental noise. Matching on "paypal" alone would
+    later mis-fire on any other Paypal-routed purchase.
+
+    If every name's leftover (after removing the LCS) is just digits/IDs,
+    or the same recurring word (e.g. "store"), that's safe -- see
+    "TARGET #1234" / "TARGET #5678", which should still cluster on
+    "target ". Only reject when two or more *different* real words (>= the
+    same length floor as the LCS itself) show up across the leftovers --
+    that's the signature of a shared prefix hiding distinct merchants.
+    """
+    leftover_words: set[str] = set()
+    for name in names:
+        normalized = normalize_name(name)
+        idx = normalized.find(lcs)
+        leftover = normalized[:idx] + normalized[idx + len(lcs) :] if idx != -1 else normalized
+        leftover_words.update(_LEFTOVER_WORD_RE.findall(leftover))
+    return len(leftover_words) <= 1
 
 
 def build_candidate_rule(
@@ -208,27 +275,40 @@ def learn_rule_for_category(
     """Top-level pipeline: tier 1 (name only) -> tier 2 (name + amount) ->
     None if neither produces a rule that doesn't conflict with existing
     categorized data.
+
+    Each tier first narrows `candidate_pool` down to its largest cluster of
+    mutually-similar names (see `_cluster_candidates`) rather than pattern-
+    matching across the whole category's history at once -- otherwise one
+    unrelated transaction sharing the category dilutes or blocks a pattern
+    the rest of the pool agrees on perfectly.
     """
     if len(candidate_pool) < MIN_LEARNING_SAMPLE_SIZE:
         return None
 
-    names = [t.name for t in candidate_pool]
+    tier1_cluster = _largest_qualifying_cluster(candidate_pool, TIER1_MIN_LCS_RATIO)
+    if tier1_cluster is not None:
+        tier1_names = [t.name for t in tier1_cluster]
+        tier1_lcs = _lcs_from_candidates(tier1_names, TIER1_MIN_LCS_RATIO)
+        if tier1_lcs is not None and _lcs_specific_enough(tier1_names, tier1_lcs):
+            candidate = build_candidate_rule(tier1_lcs, target_category_id)
+            if not find_validation_conflicts(db, candidate):
+                return candidate
+            # else: falls through to tier 2 below
+
+    tier2_cluster = _largest_qualifying_cluster(candidate_pool, TIER2_MIN_LCS_RATIO)
+    if tier2_cluster is None:
+        return None
+
+    names = [t.name for t in tier2_cluster]
     # abs(): AMOUNT conditions now compare magnitude only (rule_engine's
     # _field_value abs()es it), so the boundary this clusters toward must be
     # computed on magnitude too, or a rule learned from all-negative (or
     # all-positive) amounts would separate at a threshold on the wrong side
     # of zero and never fire.
-    target_amounts = [abs(float(t.splits[0].amount)) for t in candidate_pool]
-
-    tier1_lcs = _lcs_from_candidates(names, TIER1_MIN_LCS_RATIO)
-    if tier1_lcs is not None:
-        candidate = build_candidate_rule(tier1_lcs, target_category_id)
-        if not find_validation_conflicts(db, candidate):
-            return candidate
-        # else: falls through to tier 2 below
+    target_amounts = [abs(float(t.splits[0].amount)) for t in tier2_cluster]
 
     tier2_lcs = _lcs_from_candidates(names, TIER2_MIN_LCS_RATIO)
-    if tier2_lcs is None:
+    if tier2_lcs is None or not _lcs_specific_enough(names, tier2_lcs):
         return None
 
     name_only_candidate = build_candidate_rule(tier2_lcs, target_category_id)

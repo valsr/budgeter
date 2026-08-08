@@ -69,6 +69,25 @@ class TestLcsFromCandidates:
         assert rule_learning._lcs_from_candidates(["###", "mcdonalds 775"], 0.5) is None
 
 
+class TestLcsSpecificEnough:
+    def test_numeric_leftover_is_safe(self):
+        names = ["Target #1234", "Target #5678", "Target #9999"]
+        assert rule_learning._lcs_specific_enough(names, "target") is True
+
+    def test_distinct_words_in_leftover_are_rejected(self):
+        # "paypal " is a real common substring, but what's left after
+        # stripping it ("netflix" / "ebay" / "hulu") is itself a distinct
+        # merchant name each time -- too generic to trust as a rule value.
+        names = ["PAYPAL *NETFLIX", "PAYPAL *EBAY", "PAYPAL *HULU"]
+        assert rule_learning._lcs_specific_enough(names, "paypal") is False
+
+    def test_single_recurring_leftover_word_is_safe(self):
+        # "store" repeats verbatim across leftovers -- boilerplate, not
+        # evidence of multiple distinct merchants sharing a prefix.
+        names = ["Starbucks Store 12345", "Starbucks Store 67890", "Starbucks #99999"]
+        assert rule_learning._lcs_specific_enough(names, "starbucks") is True
+
+
 class TestSeparateAmountClusters:
     def test_target_below_opposing(self):
         result = separate_amount_clusters([9.99, 5.44, 6.55], [16.55, 16.44])
@@ -301,6 +320,69 @@ class TestLearnRuleForCategory:
         txn_svc.create_transaction(
             db_session, account.id, dt.date(2026, 1, 11), "Amazon Mktp #50", [(third_category.id, -7.00)]
         )
+        pool = find_learning_candidates(db_session, category.id)
+        assert learn_rule_for_category(db_session, pool, category.id) is None
+
+    def test_dissimilar_transaction_in_same_category_does_not_block_the_real_pattern(
+        self, db_session, account, category
+    ):
+        # "OVERDRAFT PENALTY FEE" sits in the *same* category as three
+        # "ACCT FEE TRX" entries. The old pool-wide LCS would dilute (or
+        # block outright) the match on "acct fee trx" because of this one
+        # unrelated name; clustering should isolate it into its own
+        # (too-small) cluster and learn from the real pattern instead.
+        for i in range(3):
+            txn_svc.create_transaction(
+                db_session, account.id, dt.date(2026, 1, i + 1), "ACCT FEE TRX", [(category.id, -2.50)]
+            )
+        txn_svc.create_transaction(
+            db_session, account.id, dt.date(2026, 1, 10), "OVERDRAFT PENALTY FEE", [(category.id, -35.0)]
+        )
+        pool = find_learning_candidates(db_session, category.id)
+        assert len(pool) == 4
+
+        result = learn_rule_for_category(db_session, pool, category.id)
+        assert result is not None
+        assert result.tier == 1
+        assert result.conditions == [LearnedCondition(ConditionField.NAME, ConditionOperator.CONTAINS, "acct fee trx")]
+
+    def test_similarly_named_transaction_in_another_category_does_not_block_the_match(
+        self, db_session, account, category, other_category
+    ):
+        for i in range(3):
+            txn_svc.create_transaction(
+                db_session, account.id, dt.date(2026, 1, i + 1), "ACCT FEE TRX", [(category.id, -2.50)]
+            )
+        txn_svc.create_transaction(
+            db_session, account.id, dt.date(2026, 1, 10), "GC CT FEES", [(other_category.id, -12.0)]
+        )
+        pool = find_learning_candidates(db_session, category.id)
+        assert len(pool) == 3
+
+        result = learn_rule_for_category(db_session, pool, category.id)
+        assert result is not None
+        assert result.conditions == [LearnedCondition(ConditionField.NAME, ConditionOperator.CONTAINS, "acct fee trx")]
+
+    def test_numeric_store_suffixes_still_cluster_together(self, db_session, account, category):
+        for i, store in enumerate(["1234", "5678", "9999"]):
+            txn_svc.create_transaction(
+                db_session, account.id, dt.date(2026, 1, i + 1), f"Target #{store}", [(category.id, -25.0)]
+            )
+        pool = find_learning_candidates(db_session, category.id)
+
+        result = learn_rule_for_category(db_session, pool, category.id)
+        assert result is not None
+        assert result.tier == 1
+        assert result.conditions == [LearnedCondition(ConditionField.NAME, ConditionOperator.CONTAINS, "target")]
+
+    def test_rejects_generic_processor_prefix_across_distinct_merchants(self, db_session, account, category):
+        # All three route through Paypal, but they're three different real
+        # merchants -- "paypal" alone would later mis-fire on any other
+        # Paypal-routed purchase, so no rule should be learned at all.
+        for i, merchant in enumerate(["NETFLIX", "EBAY", "HULU"]):
+            txn_svc.create_transaction(
+                db_session, account.id, dt.date(2026, 1, i + 1), f"PAYPAL *{merchant}", [(category.id, -10.0)]
+            )
         pool = find_learning_candidates(db_session, category.id)
         assert learn_rule_for_category(db_session, pool, category.id) is None
 
