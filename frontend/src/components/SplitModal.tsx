@@ -2,6 +2,7 @@ import { useState } from "react";
 import { activeCategories, flattenLeafCategories } from "../api/categories";
 import { transactionsApi } from "../api/transactions";
 import type { Category, Transaction } from "../api/types";
+import { CategoryCombobox } from "./CategoryCombobox";
 import { Modal } from "./Modal";
 import { useLearnCheck } from "./Toast";
 
@@ -13,7 +14,7 @@ interface SplitModalProps {
 }
 
 export function SplitModal({ transaction, categories, onClose, onSaved }: SplitModalProps) {
-  const leafCategories = flattenLeafCategories(activeCategories(categories));
+  const activeTree = activeCategories(categories);
   const total = transaction.splits.reduce((sum, s) => sum + s.amount, 0);
   const [rows, setRows] = useState(
     transaction.splits.map((s) => ({ category_id: s.category_id, amount: String(s.amount) })),
@@ -29,7 +30,8 @@ export function SplitModal({ transaction, categories, onClose, onSaved }: SplitM
   }
 
   function addRow() {
-    setRows((prev) => [...prev, { category_id: leafCategories[0]?.id ?? null, amount: "0.00" }]);
+    const firstLeaf = flattenLeafCategories(activeTree)[0]?.id ?? null;
+    setRows((prev) => [...prev, { category_id: firstLeaf, amount: "0.00" }]);
   }
 
   function removeRow(index: number) {
@@ -37,10 +39,6 @@ export function SplitModal({ transaction, categories, onClose, onSaved }: SplitM
   }
 
   async function save() {
-    if (!matches) {
-      setError(`Splits must sum to $${Math.abs(total).toFixed(2)}`);
-      return;
-    }
     try {
       await transactionsApi.updateSplits(
         transaction.id,
@@ -57,23 +55,24 @@ export function SplitModal({ transaction, categories, onClose, onSaved }: SplitM
   }
 
   return (
-    <Modal title="Split transaction" onClose={onClose} onSubmit={save} submitLabel="Save splits">
+    <Modal
+      title="Split transaction"
+      onClose={onClose}
+      onSubmit={save}
+      submitLabel="Save splits"
+      submitDisabled={!matches}
+    >
       <p className="sub" style={{ marginBottom: 12 }}>
         {transaction.name} · ${Math.abs(total).toFixed(2)} total
       </p>
       {rows.map((row, i) => (
         <div className="cond-row" key={i}>
-          <select
-            value={row.category_id ?? ""}
-            onChange={(e) => updateRow(i, { category_id: e.target.value === "" ? null : Number(e.target.value) })}
-          >
-            <option value="">Unassigned</option>
-            {leafCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.path}
-              </option>
-            ))}
-          </select>
+          <CategoryCombobox
+            categories={activeTree}
+            value={row.category_id}
+            onChange={(categoryId) => updateRow(i, { category_id: categoryId })}
+            clearLabel="Unassigned"
+          />
           <input
             value={row.amount}
             style={{ width: 90 }}
@@ -89,7 +88,7 @@ export function SplitModal({ transaction, categories, onClose, onSaved }: SplitM
       <button type="button" className="btn ghost sm" onClick={addRow}>
         + Add split
       </button>
-      <p className="sub" style={{ marginTop: 10 }}>
+      <p className="sub" style={{ marginTop: 10, color: matches ? undefined : "var(--c5)" }}>
         Splits must sum to ${Math.abs(total).toFixed(2)}. Current sum: ${Math.abs(sum).toFixed(2)}
       </p>
       {error && (

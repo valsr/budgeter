@@ -66,7 +66,7 @@ describe("SplitModal", () => {
     learnCheck.mockReset().mockResolvedValue({ status: "none", conflict: null, suggestion: null });
   });
 
-  it("shows an error and does not save when split amounts don't sum to the total", () => {
+  it("disables saving and shows the mismatch text in red when split amounts don't sum to the total", () => {
     const onSaved = vi.fn();
     renderModal({ transaction, categories, onClose: () => {}, onSaved });
 
@@ -74,9 +74,11 @@ describe("SplitModal", () => {
     const amountInputs = screen.getAllByDisplayValue(/^(-88\.4|0\.00)$/);
     fireEvent.change(amountInputs[1], { target: { value: "-10.00" } });
 
-    fireEvent.click(screen.getByText("Save splits"));
+    const saveButton = screen.getByText("Save splits");
+    expect(saveButton).toBeDisabled();
+    expect(screen.getByText(/Current sum: \$98\.40/)).toHaveStyle({ color: "var(--c5)" });
 
-    expect(screen.getByTestId("split-error")).toHaveTextContent("Splits must sum to $88.40");
+    fireEvent.click(saveButton);
     expect(updateSplits).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
   });
@@ -88,8 +90,10 @@ describe("SplitModal", () => {
     renderModal({ transaction, categories, onClose, onSaved });
 
     fireEvent.click(screen.getByText("+ Add split"));
-    const categorySelects = screen.getAllByRole("combobox");
-    fireEvent.change(categorySelects[1], { target: { value: "3" } }); // household, distinct from row 1's groceries
+    const categoryInputs = screen.getAllByDisplayValue("shared:groceries");
+    fireEvent.focus(categoryInputs[1]);
+    fireEvent.change(categoryInputs[1], { target: { value: "household" } });
+    fireEvent.mouseDown(screen.getByText("shared:household")); // distinct from row 1's groceries
 
     const amountInputs = screen.getAllByDisplayValue(/^(-88\.4|0\.00)$/);
     fireEvent.change(amountInputs[0], { target: { value: "-60.00" } });
@@ -130,8 +134,10 @@ describe("SplitModal", () => {
     renderModal({ transaction, categories, onClose: () => {}, onSaved: () => {} });
 
     fireEvent.click(screen.getByText("+ Add split"));
-    const categorySelects = screen.getAllByRole("combobox");
-    fireEvent.change(categorySelects[1], { target: { value: "3" } });
+    const categoryInputs = screen.getAllByDisplayValue("shared:groceries");
+    fireEvent.focus(categoryInputs[1]);
+    fireEvent.change(categoryInputs[1], { target: { value: "household" } });
+    fireEvent.mouseDown(screen.getByText("shared:household"));
     const amountInputs = screen.getAllByDisplayValue(/^(-88\.4|0\.00)$/);
     fireEvent.change(amountInputs[0], { target: { value: "-60.00" } });
     fireEvent.change(amountInputs[1], { target: { value: "-28.40" } });
