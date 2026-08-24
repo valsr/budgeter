@@ -168,7 +168,7 @@ def test_learn_check_conflict_summary_names_the_account(client, auth_headers, ca
         "/api/rules",
         json={
             "match_type": "all",
-            "conditions": [{"field": "account", "operator": "equals", "value": str(account_id)}],
+            "conditions": [{"field": "account", "operator": "in", "value": str(account_id)}],
             "target_category_id": category_id,
         },
         headers=auth_headers,
@@ -178,8 +178,8 @@ def test_learn_check_conflict_summary_names_the_account(client, auth_headers, ca
     resp = client.post("/api/rules/learn-check", json={"transaction_id": txn["id"]}, headers=auth_headers)
     body = resp.json()
     assert body["status"] == "conflict"
-    # An account condition stores an id; the summary must read as the name.
-    assert body["conflict"]["rule_summary"] == "account equals 'Main'"
+    # An account condition stores ids; the summary must read as names.
+    assert body["conflict"]["rule_summary"] == "account in 'Main'"
 
 
 def test_learn_check_suggestion_tier1_happy_path(client, auth_headers, category_id, account_id):
@@ -480,3 +480,112 @@ def test_reject_suggestion_no_pending_422(client, auth_headers, account_id):
     split_id = txn["splits"][0]["id"]
     resp = client.post(f"/api/transactions/{txn['id']}/splits/{split_id}/reject-suggestion", headers=auth_headers)
     assert resp.status_code == 422
+
+
+# --- account conditions match by set membership ------------------------
+
+
+@pytest.fixture()
+def second_account_id(client, auth_headers):
+    return client.post(
+        "/api/accounts", json={"name": "Home", "type": "asset", "opening_balance": 0}, headers=auth_headers
+    ).json()["id"]
+
+
+def _account_rule(client, auth_headers, category_id, operator, account_ids):
+    return client.post(
+        "/api/rules",
+        json={
+            "match_type": "all",
+            "conditions": [
+                {
+                    "field": "account",
+                    "operator": operator,
+                    "value": ",".join(str(i) for i in account_ids),
+                }
+            ],
+            "target_category_id": category_id,
+        },
+        headers=auth_headers,
+    )
+
+
+def test_create_rule_with_multi_account_condition(
+    client, auth_headers, category_id, account_id, second_account_id
+):
+    resp = _account_rule(client, auth_headers, category_id, "in", [account_id, second_account_id])
+    assert resp.status_code == 201
+    assert resp.json()["conditions"][0]["value"] == f"{account_id},{second_account_id}"
+
+
+def test_create_rule_account_equals_rejected(client, auth_headers, category_id, account_id):
+    resp = _account_rule(client, auth_headers, category_id, "equals", [account_id])
+    assert resp.status_code == 422
+
+
+def test_preview_matches_account_in_covers_every_listed_account(
+    client, auth_headers, category_id, account_id, second_account_id
+):
+    for account in (account_id, second_account_id):
+        client.post(
+            "/api/transactions",
+            json={
+                "account_id": account,
+                "date": "2026-01-01",
+                "name": "Anything",
+                "splits": [{"amount": -10.0}],
+            },
+            headers=auth_headers,
+        )
+
+    resp = client.post(
+        "/api/rules/preview-matches",
+        json={
+            "match_type": "all",
+            "conditions": [
+                {"field": "account", "operator": "in", "value": f"{account_id},{second_account_id}"}
+            ],
+            "target_category_id": category_id,
+        },
+        headers=auth_headers,
+    )
+    assert resp.json()["count"] == 2
+
+
+def test_preview_matches_account_not_in_excludes_listed_accounts(
+    client, auth_headers, category_id, account_id, second_account_id
+):
+    for account in (account_id, second_account_id):
+        client.post(
+            "/api/transactions",
+            json={
+                "account_id": account,
+                "date": "2026-01-01",
+                "name": "Anything",
+                "splits": [{"amount": -10.0}],
+            },
+            headers=auth_headers,
+        )
+
+    resp = client.post(
+        "/api/rules/preview-matches",
+        json={
+            "match_type": "all",
+            "conditions": [{"field": "account", "operator": "not_in", "value": str(account_id)}],
+            "target_category_id": category_id,
+        },
+        headers=auth_headers,
+    )
+    body = resp.json()
+    assert body["count"] == 1
+
+
+def test_conflict_summary_names_every_account_in_the_set(
+    client, auth_headers, category_id, account_id, second_account_id
+):
+    other = client.post("/api/categories", json={"name": "other"}, headers=auth_headers).json()["id"]
+    _account_rule(client, auth_headers, category_id, "in", [account_id, second_account_id])
+    txn = _categorized_txn(client, auth_headers, account_id, "GitHub Inc.", other)
+
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": txn["id"]}, headers=auth_headers)
+    assert resp.json()["conflict"]["rule_summary"] == "account in 'Main, Home'"

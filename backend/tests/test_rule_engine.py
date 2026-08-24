@@ -10,6 +10,8 @@ from app.services.rule_engine import (
     evaluate_condition,
     evaluate_rule,
     find_matching_rule,
+    format_account_ids,
+    parse_account_ids,
 )
 
 
@@ -99,10 +101,29 @@ class TestEvaluateCondition:
         c = Condition(ConditionField.DAY_OF_MONTH, ConditionOperator.GREATER_THAN, "1")
         assert evaluate_condition(c, ctx()) is True
 
-    def test_account_equals(self):
-        c = Condition(ConditionField.ACCOUNT, ConditionOperator.EQUALS, "1")
+    def test_account_in_single(self):
+        c = Condition(ConditionField.ACCOUNT, ConditionOperator.IN, "1")
         assert evaluate_condition(c, ctx(account_id=1)) is True
         assert evaluate_condition(c, ctx(account_id=2)) is False
+
+    def test_account_in_several(self):
+        c = Condition(ConditionField.ACCOUNT, ConditionOperator.IN, "1,3")
+        assert evaluate_condition(c, ctx(account_id=1)) is True
+        assert evaluate_condition(c, ctx(account_id=3)) is True
+        assert evaluate_condition(c, ctx(account_id=2)) is False
+
+    def test_account_not_in(self):
+        c = Condition(ConditionField.ACCOUNT, ConditionOperator.NOT_IN, "1,3")
+        assert evaluate_condition(c, ctx(account_id=2)) is True
+        assert evaluate_condition(c, ctx(account_id=1)) is False
+
+    def test_account_ids_parse_and_format_round_trip(self):
+        assert parse_account_ids("3, 1 ,3") == frozenset({1, 3})
+        assert format_account_ids([3, 1, 3]) == "1,3"
+
+    def test_account_ids_reject_empty_value(self):
+        with pytest.raises(ValueError):
+            parse_account_ids(" ")
 
 
 class TestEvaluateRule:

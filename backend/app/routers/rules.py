@@ -28,7 +28,14 @@ from app.services import categorization
 from app.services import rule_learning
 from app.services import rules as rules_service
 from app.services import transactions as txn_service
-from app.services.rule_engine import Condition, RuleSpec, TransactionContext, evaluate_rule, find_matching_rule
+from app.services.rule_engine import (
+    Condition,
+    RuleSpec,
+    TransactionContext,
+    evaluate_rule,
+    find_matching_rule,
+    parse_account_ids,
+)
 
 router = APIRouter(prefix="/api/rules", tags=["rules"], dependencies=[Depends(require_api_key)])
 
@@ -39,15 +46,22 @@ def _conditions_as_tuples(conditions):
 
 def _summarize_rule(db: Session, rule: RuleSpec) -> str:
     """Human-readable one-liner for a rule, as shown in the learn-check
-    conflict toast. An ACCOUNT condition's value is an account id, so it is
-    resolved to the account's name rather than surfaced as a bare number."""
+    conflict toast. An ACCOUNT condition's value is a comma-separated list of
+    account ids, so it is resolved to account names rather than surfaced as
+    bare numbers."""
 
     def _value(condition: Condition) -> str:
-        if condition.field == ConditionField.ACCOUNT:
-            account = db.get(Account, int(condition.value)) if condition.value.isdigit() else None
-            if account is not None:
-                return account.name
-        return condition.value
+        if condition.field != ConditionField.ACCOUNT:
+            return condition.value
+        try:
+            account_ids = parse_account_ids(condition.value)
+        except ValueError:
+            return condition.value
+        names = []
+        for account_id in sorted(account_ids):
+            account = db.get(Account, account_id)
+            names.append(account.name if account is not None else str(account_id))
+        return ", ".join(names)
 
     joiner = " or " if rule.match_type == MatchType.ANY else " and "
     return joiner.join(

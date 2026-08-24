@@ -48,6 +48,13 @@ def _field_value(field: ConditionField, ctx: TransactionContext):
 
 _DIRECTION_OPERATORS = {ConditionOperator.IS_DEPOSIT, ConditionOperator.IS_WITHDRAWAL}
 
+# The account field identifies accounts by surrogate id, so substring and
+# ordering comparisons on it are meaningless. Set membership is the only
+# operation that makes sense -- and "one of these accounts" is what people
+# actually want to express, so IN/NOT_IN replace EQUALS rather than
+# supplementing it.
+MEMBERSHIP_OPERATORS = {ConditionOperator.IN, ConditionOperator.NOT_IN}
+
 
 def operator_needs_value(operator: ConditionOperator) -> bool:
     """False for is_deposit/is_withdrawal, which match on the split's sign
@@ -64,10 +71,26 @@ def coerce_condition_value(field: ConditionField, raw: str):
     if field == ConditionField.DAY_OF_MONTH:
         return int(raw)
     if field == ConditionField.ACCOUNT:
-        return int(raw)
+        return parse_account_ids(raw)
     if field == ConditionField.AMOUNT:
         return float(raw)
     return raw  # NAME: plain string
+
+
+def parse_account_ids(raw: str) -> frozenset[int]:
+    """An account condition's value is a comma-separated list of account ids
+    ("3" or "3,7"). A single id stays a valid one-element list, so conditions
+    written before IN/NOT_IN existed parse unchanged."""
+    ids = frozenset(int(part) for part in raw.split(",") if part.strip())
+    if not ids:
+        raise ValueError("An account condition must name at least one account")
+    return ids
+
+
+def format_account_ids(ids: list[int]) -> str:
+    """The storage form of an account condition's value -- sorted so two
+    conditions naming the same accounts compare equal as strings."""
+    return ",".join(str(i) for i in sorted(set(ids)))
 
 
 def evaluate_condition(condition: Condition, ctx: TransactionContext) -> bool:
@@ -82,6 +105,10 @@ def evaluate_condition(condition: Condition, ctx: TransactionContext) -> bool:
     actual = _field_value(condition.field, ctx)
     expected = coerce_condition_value(condition.field, condition.value)
 
+    if condition.operator == ConditionOperator.IN:
+        return actual in expected
+    if condition.operator == ConditionOperator.NOT_IN:
+        return actual not in expected
     if condition.operator == ConditionOperator.CONTAINS:
         if condition.field == ConditionField.NAME:
             # Rule learning derives its NAME value from normalize_name'd

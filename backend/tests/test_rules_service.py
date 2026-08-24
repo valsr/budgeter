@@ -169,3 +169,84 @@ def test_rules_to_specs_roundtrip(db_session, category):
     specs = rules_svc.rules_to_specs([rule])
     assert specs[0].id == rule.id
     assert specs[0].conditions[0].value == "a"
+
+
+# --- account conditions match by set membership ------------------------
+
+
+def test_create_rule_with_multi_account_condition(db_session, category):
+    rule = rules_svc.create_rule(
+        db_session,
+        MatchType.ALL,
+        [(ConditionField.ACCOUNT, ConditionOperator.IN, "1,3")],
+        category.id,
+    )
+    assert rule.conditions[0].value == "1,3"
+
+
+def test_create_rule_account_not_in(db_session, category):
+    rule = rules_svc.create_rule(
+        db_session,
+        MatchType.ALL,
+        [(ConditionField.ACCOUNT, ConditionOperator.NOT_IN, "2")],
+        category.id,
+    )
+    assert rule.conditions[0].operator == ConditionOperator.NOT_IN
+
+
+@pytest.mark.parametrize(
+    "operator",
+    [
+        ConditionOperator.EQUALS,
+        ConditionOperator.CONTAINS,
+        ConditionOperator.LESS_THAN,
+        ConditionOperator.IS_DEPOSIT,
+    ],
+)
+def test_account_condition_rejects_non_membership_operator(db_session, category, operator):
+    with pytest.raises(ValidationError):
+        rules_svc.create_rule(
+            db_session, MatchType.ALL, [(ConditionField.ACCOUNT, operator, "1")], category.id
+        )
+
+
+@pytest.mark.parametrize(
+    "field", [ConditionField.NAME, ConditionField.AMOUNT, ConditionField.DAY_OF_MONTH]
+)
+def test_membership_operator_rejected_on_other_fields(db_session, category, field):
+    with pytest.raises(ValidationError):
+        rules_svc.create_rule(
+            db_session, MatchType.ALL, [(field, ConditionOperator.IN, "1,2")], category.id
+        )
+
+
+def test_account_condition_rejects_empty_value(db_session, category):
+    with pytest.raises(ValidationError):
+        rules_svc.create_rule(
+            db_session, MatchType.ALL, [(ConditionField.ACCOUNT, ConditionOperator.IN, "")], category.id
+        )
+
+
+def test_account_condition_rejects_non_numeric_value(db_session, category):
+    with pytest.raises(ValidationError):
+        rules_svc.create_rule(
+            db_session,
+            MatchType.ALL,
+            [(ConditionField.ACCOUNT, ConditionOperator.IN, "Main")],
+            category.id,
+        )
+
+
+def test_update_rule_validates_account_operator(db_session, category):
+    rule = rules_svc.create_rule(
+        db_session,
+        MatchType.ALL,
+        [(ConditionField.ACCOUNT, ConditionOperator.IN, "1")],
+        category.id,
+    )
+    with pytest.raises(ValidationError):
+        rules_svc.update_rule(
+            db_session,
+            rule.id,
+            conditions=[(ConditionField.ACCOUNT, ConditionOperator.EQUALS, "1")],
+        )

@@ -160,7 +160,7 @@ describe("RuleModal", () => {
     expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
   });
 
-  it("picks an account by name for an account condition instead of asking for a raw id", async () => {
+  it("picks accounts by name for an account condition instead of asking for raw ids", async () => {
     const onSaved = vi.fn();
     render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={onSaved} />);
     await waitFor(() => expect(listAccounts).toHaveBeenCalled());
@@ -168,21 +168,79 @@ describe("RuleModal", () => {
     fireEvent.change(screen.getByDisplayValue("Name"), { target: { value: "account" } });
 
     // Free-text value input is replaced by the account picker, and the
-    // operator collapses to the only one an account id supports.
+    // operator collapses to the membership set the account field supports.
     expect(screen.queryByPlaceholderText("value")).not.toBeInTheDocument();
-    const picker = screen.getByLabelText("Account") as HTMLSelectElement;
-    expect(picker.value).toBe("7"); // defaulted, not left blank
-    expect(screen.getByText("Visa")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("is one of")).toBeInTheDocument();
+    expect(screen.getByLabelText("Visa")).toBeInTheDocument();
 
-    fireEvent.change(picker, { target: { value: "8" } });
+    fireEvent.click(screen.getByLabelText("Visa"));
     fireEvent.click(screen.getByText("Save rule"));
 
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(create).toHaveBeenCalledWith({
       match_type: "all",
-      conditions: [{ field: "account", operator: "equals", value: "8" }],
+      conditions: [{ field: "account", operator: "in", value: "8" }],
       target_category_id: 2,
     });
+  });
+
+  it("puts several accounts in one condition", async () => {
+    render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={() => {}} />);
+    await waitFor(() => expect(listAccounts).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByDisplayValue("Name"), { target: { value: "account" } });
+    fireEvent.click(screen.getByLabelText("Visa"));
+    fireEvent.click(screen.getByLabelText("Main checking"));
+    fireEvent.click(screen.getByText("Save rule"));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    // Sorted, so two conditions naming the same accounts compare equal.
+    expect(create.mock.calls[0][0].conditions).toEqual([
+      { field: "account", operator: "in", value: "7,8" },
+    ]);
+  });
+
+  it("offers not-in and keeps the chosen accounts", async () => {
+    render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={() => {}} />);
+    await waitFor(() => expect(listAccounts).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByDisplayValue("Name"), { target: { value: "account" } });
+    fireEvent.click(screen.getByLabelText("Visa"));
+    fireEvent.change(screen.getByDisplayValue("is one of"), { target: { value: "not_in" } });
+    fireEvent.click(screen.getByText("Save rule"));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0][0].conditions).toEqual([
+      { field: "account", operator: "not_in", value: "8" },
+    ]);
+  });
+
+  it("starts an account condition with nothing selected, so Save stays disabled", async () => {
+    render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={() => {}} />);
+    await waitFor(() => expect(listAccounts).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByDisplayValue("Name"), { target: { value: "account" } });
+
+    // Defaulting to the first account would, under "is not one of", quietly
+    // exclude a real account the user never picked.
+    expect(screen.getByLabelText("Main checking")).not.toBeChecked();
+    expect(screen.getByLabelText("Visa")).not.toBeChecked();
+    expect(screen.getByText("Save rule")).toBeDisabled();
+  });
+
+  it("migrates a saved equals account condition onto in", async () => {
+    const saved: Rule = {
+      id: 5,
+      match_type: "all",
+      priority: 0,
+      target_category_id: 2,
+      conditions: [{ id: 1, field: "account", operator: "equals", value: "8" }],
+    };
+    render(<RuleModal mode="edit" rule={saved} categories={categories} onClose={() => {}} onSaved={() => {}} />);
+    await waitFor(() => expect(listAccounts).toHaveBeenCalled());
+
+    expect(screen.getByDisplayValue("is one of")).toBeInTheDocument();
+    expect(screen.getByLabelText("Visa")).toBeChecked();
   });
 
   it("clears a carried-over value when switching a condition away from account", async () => {

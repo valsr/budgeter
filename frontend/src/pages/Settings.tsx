@@ -327,15 +327,21 @@ function CategoryModal({
  * is_withdrawal carry no value (they match on the split's sign alone), so
  * they're worded as a plain statement instead of the usual field/operator/
  * value template -- which would otherwise print a bare empty "". An
- * `account` condition stores an account id, so it's resolved to the account
- * name rather than shown as a bare number. */
+ * `account` condition stores a comma-separated list of account ids, so those
+ * are resolved to account names rather than shown as bare numbers. */
 function conditionSummary(
   c: { field: ConditionField; operator: ConditionOperator; value: string },
   accountName: (id: string) => string,
 ): string {
   if (c.operator === "is_deposit") return `${c.field} is a deposit/credit`;
   if (c.operator === "is_withdrawal") return `${c.field} is a withdrawal/debit`;
-  if (c.field === "account") return `account is "${accountName(c.value)}"`;
+  if (c.field === "account") {
+    const names = c.value
+      .split(",")
+      .filter((part) => part.trim() !== "")
+      .map((id) => `"${accountName(id.trim())}"`);
+    return `account ${c.operator === "not_in" ? "is not" : "is"} ${names.join(" or ")}`;
+  }
   return `${c.field} ${c.operator} "${c.value}"`;
 }
 

@@ -41,15 +41,29 @@ const AMOUNT_OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
   { value: "is_deposit", label: "is a deposit/credit" },
   { value: "is_withdrawal", label: "is a withdrawal/debit" },
 ];
-// Account-only: the condition's value is an account *id* (rule_engine
-// compares TransactionContext.account_id), so the only operator with a
-// sensible meaning is equality -- substring and ordering comparisons on a
-// surrogate key are nonsense, and the coercion behind them (int(value))
-// rejects anything but a bare id.
+// Account-only: the condition's value is a comma-separated list of account
+// *ids* (rule_engine compares TransactionContext.account_id), so the only
+// operators with a sensible meaning are set membership -- substring and
+// ordering comparisons on a surrogate key are nonsense. "one of these
+// accounts" is also what people actually want to say, so a rule that used to
+// need one clause per account is now a single condition.
 const ACCOUNT_OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
-  { value: "equals", label: "is" },
+  { value: "in", label: "is one of" },
+  { value: "not_in", label: "is not one of" },
 ];
 const DIRECTION_OPERATORS: ConditionOperator[] = ["is_deposit", "is_withdrawal"];
+
+/** An account condition's value is "3" or "3,7" -- the storage form the
+ * backend's rule_engine.parse_account_ids expects. */
+function parseAccountIds(value: string): number[] {
+  return value
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+function formatAccountIds(ids: number[]): string {
+  return [...new Set(ids)].sort((a, b) => a - b).join(",");
+}
 function operatorOptionsFor(field: ConditionField) {
   if (field === "amount") return AMOUNT_OPERATOR_OPTIONS;
   if (field === "account") return ACCOUNT_OPERATOR_OPTIONS;
@@ -66,8 +80,9 @@ interface RuleConditionInput {
 }
 
 /** Pull a loaded condition onto an operator this editor still offers for its
- * field -- older account conditions may carry a `contains`/`less_than`
- * operator that only ever compared account ids by accident. */
+ * field -- account conditions written before `in`/`not_in` existed carry
+ * `equals` (or, older still, a `contains`/`less_than` that only ever compared
+ * account ids by accident), all of which mean "in" over a one-element set. */
 function normalizeCondition(c: RuleConditionInput): RuleConditionInput {
   const valid = operatorOptionsFor(c.field).map((o) => o.value);
   return valid.includes(c.operator) ? c : { ...c, operator: valid[0] };
@@ -109,8 +124,8 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
   );
   const [preview, setPreview] = useState<{ count: number; matches: PreviewMatchItem[] } | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
-  // An `account` condition's value is an account id, so the picker needs the
-  // account list to turn that into something choosable and readable.
+  // An `account` condition's value is a list of account ids, so the picker
+  // needs the account list to turn those into something choosable and readable.
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   useEffect(() => {
@@ -215,11 +230,12 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
               // fails the server's int() coercion. Default a new account
               // condition to the first account instead of an empty pick.
               const switchesValueKind = (field === "account") !== (c.field === "account");
-              const value = switchesValueKind
-                ? field === "account"
-                  ? String(accounts[0]?.id ?? "")
-                  : ""
-                : c.value;
+              // A new account condition starts with nothing selected rather
+              // than defaulting to the first account: under `is not one of`, a
+              // silent default would quietly exclude a real account. The empty
+              // value keeps `incomplete` true, so Save stays disabled until a
+              // deliberate pick.
+              const value = switchesValueKind ? "" : c.value;
               updateCondition(i, { field, operator, value: operatorNeedsValue(operator) ? value : "" });
             }}
           >
@@ -243,21 +259,11 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
             ))}
           </select>
           {c.field === "account" ? (
-            <select
-              aria-label="Account"
-              style={{ flex: 1 }}
-              value={c.value}
-              onChange={(e) => updateCondition(i, { value: e.target.value })}
-            >
-              <option value="" disabled>
-                Select an account
-              </option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+            <AccountPicker
+              accounts={accounts}
+              selectedIds={parseAccountIds(c.value)}
+              onChange={(ids) => updateCondition(i, { value: formatAccountIds(ids) })}
+            />
           ) : operatorNeedsValue(c.operator) ? (
             <input
               placeholder="value"
@@ -342,5 +348,46 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
         </div>
       )}
     </Modal>
+  );
+}
+
+
+interface AccountPickerProps {
+  accounts: Account[];
+  selectedIds: number[];
+  onChange: (ids: number[]) => void;
+}
+
+/** Checkbox list for an account condition's set of accounts. A native
+ * `<select multiple>` would fit the row better but hides the fact that more
+ * than one account can be picked, and needs a modifier key to add a second. */
+function AccountPicker({ accounts, selectedIds, onChange }: AccountPickerProps) {
+  const selected = new Set(selectedIds);
+
+  function toggle(accountId: number) {
+    const next = new Set(selected);
+    if (next.has(accountId)) next.delete(accountId);
+    else next.add(accountId);
+    onChange([...next]);
+  }
+
+  if (accounts.length === 0) {
+    return (
+      <span className="sub" style={{ flex: 1 }}>
+        No accounts yet
+      </span>
+    );
+  }
+
+  return (
+    <div className="account-picker" style={{ flex: 1 }}>
+      {accounts.map((a) => (
+        <label key={a.id} className="account-picker-item">
+          <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} />
+          {a.name}
+        </label>
+      ))}
+      {selected.size === 0 && <span className="sub">Pick at least one account</span>}
+    </div>
   );
 }

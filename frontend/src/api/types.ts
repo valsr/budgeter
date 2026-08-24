@@ -58,7 +58,9 @@ export type ConditionOperator =
   | "less_than"
   | "greater_than"
   | "is_deposit"
-  | "is_withdrawal";
+  | "is_withdrawal"
+  | "in"
+  | "not_in";
 export type MatchType = "any" | "all";
 
 export interface RuleCondition {

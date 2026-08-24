@@ -4,7 +4,13 @@ from sqlalchemy.orm import Session, selectinload
 from app.errors import NotFoundError, ValidationError
 from app.models.category import Category
 from app.models.rule import ConditionField, ConditionOperator, MatchType, Rule, RuleCondition
-from app.services.rule_engine import Condition, RuleSpec, coerce_condition_value, operator_needs_value
+from app.services.rule_engine import (
+    MEMBERSHIP_OPERATORS,
+    Condition,
+    RuleSpec,
+    coerce_condition_value,
+    operator_needs_value,
+)
 
 ConditionInput = tuple[ConditionField, ConditionOperator, str]
 
@@ -20,6 +26,16 @@ def _validate_conditions(conditions: list[ConditionInput]) -> None:
     if not conditions:
         raise ValidationError("A rule must have at least one condition")
     for field, operator, value in conditions:
+        # Account conditions match by set membership over account ids, and
+        # nothing else does -- substring/ordering comparisons on a surrogate
+        # key are meaningless, and membership over free text or an amount has
+        # no defined coercion.
+        if field == ConditionField.ACCOUNT and operator not in MEMBERSHIP_OPERATORS:
+            raise ValidationError("An account condition must use the 'in' or 'not in' operator")
+        if field != ConditionField.ACCOUNT and operator in MEMBERSHIP_OPERATORS:
+            raise ValidationError(
+                f"The '{operator.value}' operator only applies to the account field"
+            )
         if not operator_needs_value(operator):
             continue
         try:

@@ -31,6 +31,11 @@ class ConditionOperator(str, enum.Enum):
     IS_WITHDRAWAL = "is_withdrawal"
     """Amount field only: matches any withdrawal/debit (a negative split),
     ignoring the condition's value entirely -- see evaluate_condition."""
+    IN = "in"
+    """Account field only: the transaction's account is one of the ids in the
+    condition's comma-separated value -- see coerce_condition_value."""
+    NOT_IN = "not_in"
+    """Account field only: the negation of IN."""
 
 
 class Rule(Base):
