@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/budgets", tags=["budgets"], dependencies=[Depend
 
 
 def _categories_as_tuples(categories):
-    return [(c.category_id, c.monthly_amounts) for c in categories]
+    return [(c.category_id, c.account_id, c.monthly_amounts) for c in categories]
 
 
 def _saved_budget_read(budget, dropped) -> BudgetRead:
@@ -26,7 +26,9 @@ def _saved_budget_read(budget, dropped) -> BudgetRead:
     are no longer budgetable -- see budgets_service._partition_categories."""
     read = BudgetRead.model_validate(budget)
     read.dropped_categories = [
-        DroppedCategoryRead(category_id=d.category_id, name=d.name, reason=d.reason)
+        DroppedCategoryRead(
+            category_id=d.category_id, name=d.name, reason=d.reason, account_id=d.account_id
+        )
         for d in dropped
     ]
     return read
@@ -34,7 +36,9 @@ def _saved_budget_read(budget, dropped) -> BudgetRead:
 
 def row_to_read(row) -> ReportRowRead:
     return ReportRowRead(
+        row_key=row.row_key,
         category_id=row.category_id,
+        account_id=row.account_id,
         name=row.name,
         is_parent=row.is_parent,
         monthly={m: MonthCell(budgeted=float(b), actual=float(a)) for m, (b, a) in row.monthly.items()},

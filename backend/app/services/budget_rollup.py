@@ -31,6 +31,9 @@ class ReportRow:
     category_id: int
     name: str
     is_parent: bool
+    account_id: int | None = None
+    """Set on a per-source breakdown row -- the account this slice of the
+    category's spending came from. None on ordinary category rows."""
     monthly: dict[int, tuple[Decimal, Decimal]] = field(default_factory=dict)  # month -> (budgeted, actual)
     ytd_diff: Decimal = Decimal(0)
     has_budget: bool = True
@@ -47,6 +50,15 @@ class ReportRow:
     exposed purely so callers (e.g. an expense-minus-income grand total) can
     tell which rows were flipped."""
 
+    @property
+    def row_key(self) -> str:
+        """Stable per-row identity for the client. category_id alone stopped
+        being unique once a category can be followed by per-account rows, and
+        the client uses this as both the React key and the highlight key."""
+        return f"cat:{self.category_id}" + (
+            "" if self.account_id is None else f":acct:{self.account_id}"
+        )
+
 
 def build_row(
     category_id: int,
@@ -59,6 +71,7 @@ def build_row(
     has_budget: bool = True,
     depth: int = 0,
     is_income: bool = False,
+    account_id: int | None = None,
 ) -> ReportRow:
     monthly = {m: (budgeted.get(m, Decimal(0)), actual.get(m, Decimal(0))) for m in months}
     ytd_diff = cumulative_balance(budgeted, actual, through_month)
@@ -66,6 +79,7 @@ def build_row(
         category_id=category_id,
         name=name,
         is_parent=is_parent,
+        account_id=account_id,
         monthly=monthly,
         ytd_diff=ytd_diff,
         has_budget=has_budget,

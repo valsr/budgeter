@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict
 class BudgetCategoryInput(BaseModel):
     category_id: int
     monthly_amounts: dict[int, float]  # month (1-12) -> budgeted amount
+    account_id: int | None = None
+    """Narrows this line to one source account. Omit to budget the category as
+    a whole. A category uses one mode or the other, never both."""
 
 
 class BudgetCreate(BaseModel):
@@ -32,6 +35,7 @@ class BudgetCategoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     category_id: int
+    account_id: int | None
     amounts: list[BudgetAmountRead]
 
 
@@ -41,7 +45,8 @@ class DroppedCategoryRead(BaseModel):
 
     category_id: int
     name: str | None
-    reason: Literal["removed", "archived", "broken_down"]
+    reason: Literal["removed", "archived", "broken_down", "account_removed"]
+    account_id: int | None = None
 
 
 class BudgetRead(BaseModel):
@@ -61,7 +66,12 @@ class MonthCell(BaseModel):
 
 
 class ReportRowRead(BaseModel):
+    row_key: str
+    """Unique per row. category_id stopped being unique once a category can be
+    followed by per-account breakdown rows."""
+
     category_id: int
+    account_id: int | None = None
     name: str
     is_parent: bool
     monthly: dict[int, MonthCell]

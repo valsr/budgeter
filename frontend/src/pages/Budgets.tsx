@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { budgetsApi, overviewApi } from "../api/budgets";
+import type { BudgetCategoryInput } from "../api/budgets";
+import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
-import type { Budget, Category, DroppedCategory, ReportRow } from "../api/types";
+import type { Account, Budget, Category, DroppedCategory, ReportRow } from "../api/types";
 import { Modal } from "../components/Modal";
 import { formatMoney } from "../format";
 
@@ -27,9 +29,10 @@ export function Budgets() {
   const [modalMode, setModalMode] = useState<null | "new" | "edit">(null);
   const [avgByCategory, setAvgByCategory] = useState<Record<number, number>>({});
   const [dropped, setDropped] = useState<DroppedCategory[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   // Report rows are read off one at a time when copying figures into another
   // system, so the row under the eye stays marked until another is picked.
-  const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
+  const [highlightedRow, setHighlightedRow] = useState<string | null>(null);
 
   function loadBudgets() {
     budgetsApi.list().then((list) => {
@@ -41,6 +44,7 @@ export function Budgets() {
   useEffect(() => {
     loadBudgets();
     categoriesApi.list().then(setCategories);
+    accountsApi.list().then(setAccounts);
     // Actuals across all categories (regardless of budget membership), used
     // for the edit modal's per-category "avg $" hint (docs/wireframes.html AVERAGES).
     overviewApi.get(CURRENT_YEAR, CURRENT_MONTH).then((rows) => {
@@ -160,12 +164,16 @@ export function Budgets() {
             <tbody>
               {report.map((row) => (
                 <tr
-                  key={row.category_id}
-                  className={highlightedRow === row.category_id ? "row-highlight" : undefined}
+                  key={row.row_key}
+                  className={
+                    (highlightedRow === row.row_key ? "row-highlight " : "") +
+                    (row.account_id !== null ? "breakdown-row" : "")
+                  }
                   style={row.is_parent ? { fontWeight: 600 } : undefined}
-                  onClick={() => setHighlightedRow(row.category_id)}
+                  onClick={() => setHighlightedRow(row.row_key)}
                 >
                   <td style={row.depth > 0 ? { paddingLeft: 22 * row.depth, color: "var(--ink-2)" } : undefined}>
+                    {row.account_id !== null && <span className="breakdown-mark">↳</span>}
                     {row.name}
                   </td>
                   {months.map((m, i) => {
@@ -184,7 +192,7 @@ export function Budgets() {
                     );
                   })}
                   <td className={"right " + (row.ytd_diff >= 0 ? "diff-pos" : "diff-neg")}>
-                    {formatMoney(row.ytd_diff)}
+                    {row.has_budget ? formatMoney(row.ytd_diff) : "—"}
                   </td>
                 </tr>
               ))}
@@ -198,6 +206,7 @@ export function Budgets() {
           mode={modalMode}
           budget={modalMode === "edit" ? currentBudget ?? null : null}
           categories={categories}
+          accounts={accounts}
           avgByCategory={avgByCategory}
           onClose={() => setModalMode(null)}
           onSaved={(id, droppedCategories) => {
@@ -222,6 +231,7 @@ function describeDropped(d: DroppedCategory): string {
   const name = d.name === null ? `Category #${d.category_id}` : `"${d.name}"`;
   if (d.reason === "broken_down") return `${name} was split into subcategories — budget those instead.`;
   if (d.reason === "archived") return `${name} was archived.`;
+  if (d.reason === "account_removed") return `${name}'s line for a deleted account was removed.`;
   return `${name} was deleted.`;
 }
 
@@ -229,22 +239,48 @@ interface BudgetModalProps {
   mode: "new" | "edit";
   budget: Budget | null;
   categories: Category[];
+  accounts: Account[];
   avgByCategory: Record<number, number>;
   onClose: () => void;
   onSaved: (budgetId: number, dropped: DroppedCategory[]) => void;
 }
 
-function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved }: BudgetModalProps) {
+/** A category's amounts are keyed by source account, with SOURCE_ALL standing
+ * for "the category as a whole". Keeping both in one shape means the month
+ * inputs, the save payload, and the totals all take the same path whether or
+ * not a category is broken down. */
+const SOURCE_ALL = "all";
+type MonthAmounts = Record<number, string>;
+type CategoryAmounts = Record<string, MonthAmounts>;
+
+function sumMonth(bySource: CategoryAmounts | undefined, month: number): number {
+  if (!bySource) return 0;
+  return Object.entries(bySource)
+    .filter(([source]) => source !== SOURCE_ALL)
+    .reduce((total, [, months]) => total + (parseFloat(months[month] ?? "") || 0), 0);
+}
+
+function BudgetModal({ mode, budget, categories, accounts, avgByCategory, onClose, onSaved }: BudgetModalProps) {
   const [name, setName] = useState(budget?.name ?? "");
   const [selected, setSelected] = useState<Set<number>>(
     new Set(budget?.budget_categories.map((bc) => bc.category_id) ?? []),
   );
-  const [amounts, setAmounts] = useState<Record<number, Record<number, string>>>(() => {
-    const initial: Record<number, Record<number, string>> = {};
+  // Categories planned per source account rather than as a whole.
+  const [perAccount, setPerAccount] = useState<Set<number>>(
+    new Set(
+      (budget?.budget_categories ?? [])
+        .filter((bc) => bc.account_id !== null)
+        .map((bc) => bc.category_id),
+    ),
+  );
+  const [amounts, setAmounts] = useState<Record<number, CategoryAmounts>>(() => {
+    const initial: Record<number, CategoryAmounts> = {};
     for (const bc of budget?.budget_categories ?? []) {
-      initial[bc.category_id] = {};
+      const source = bc.account_id === null ? SOURCE_ALL : String(bc.account_id);
+      const bySource = (initial[bc.category_id] ??= {});
+      bySource[source] = {};
       for (const a of bc.amounts) {
-        if (a.year === CURRENT_YEAR) initial[bc.category_id][a.month] = String(a.amount);
+        if (a.year === CURRENT_YEAR) bySource[source][a.month] = String(a.amount);
       }
     }
     return initial;
@@ -259,10 +295,24 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
     });
   }
 
-  function setAmount(categoryId: number, month: number, value: string) {
+  function togglePerAccount(categoryId: number) {
+    setPerAccount((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
+    // Selecting the breakdown implies budgeting the category.
+    setSelected((prev) => new Set(prev).add(categoryId));
+  }
+
+  function setAmount(categoryId: number, source: string, month: number, value: string) {
     setAmounts((prev) => ({
       ...prev,
-      [categoryId]: { ...prev[categoryId], [month]: value },
+      [categoryId]: {
+        ...prev[categoryId],
+        [source]: { ...prev[categoryId]?.[source], [month]: value },
+      },
     }));
   }
 
@@ -273,12 +323,23 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
     const rows: ReactNode[] = [];
     for (const node of nodes) {
       if (node.children.length === 0) {
+        const split = perAccount.has(node.id);
         rows.push(
           <tr key={node.id}>
             <td style={{ paddingLeft: 14 + depth * 14, color: "var(--ink-2)" }}>
               <div>{node.name}</div>
               {avgByCategory[node.id] !== undefined && (
                 <div className="avg-hint">avg {formatMoney(avgByCategory[node.id])}</div>
+              )}
+              {accounts.length > 1 && (
+                <button
+                  type="button"
+                  className={"btn ghost sm split-toggle" + (split ? " on" : "")}
+                  title="Plan this category separately for each source account"
+                  onClick={() => togglePerAccount(node.id)}
+                >
+                  {split ? "one total" : "per account"}
+                </button>
               )}
             </td>
             <td style={{ textAlign: "center" }}>
@@ -288,16 +349,48 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
               const m = i + 1;
               return (
                 <td key={m} className={i % 2 === 1 ? "month-alt" : undefined}>
-                  <input
-                    className="month-input"
-                    value={amounts[node.id]?.[m] ?? ""}
-                    onChange={(e) => setAmount(node.id, m, e.target.value)}
-                  />
+                  {split ? (
+                    // Derived from the account rows below, like every other
+                    // total in the report — not separately editable.
+                    <span className="month-total">{formatMoney(sumMonth(amounts[node.id], m))}</span>
+                  ) : (
+                    <input
+                      className="month-input"
+                      value={amounts[node.id]?.[SOURCE_ALL]?.[m] ?? ""}
+                      onChange={(e) => setAmount(node.id, SOURCE_ALL, m, e.target.value)}
+                    />
+                  )}
                 </td>
               );
             })}
           </tr>,
         );
+        if (split) {
+          for (const account of accounts) {
+            rows.push(
+              <tr key={`${node.id}-${account.id}`} className="breakdown-row">
+                <td style={{ paddingLeft: 28 + depth * 14, color: "var(--ink-2)" }}>
+                  <span className="breakdown-mark">↳</span>
+                  {account.name}
+                </td>
+                <td />
+                {MONTH_LABELS.map((_, i) => {
+                  const m = i + 1;
+                  return (
+                    <td key={m} className={i % 2 === 1 ? "month-alt" : undefined}>
+                      <input
+                        className="month-input"
+                        aria-label={`${node.name} ${account.name} ${MONTH_LABELS[i]}`}
+                        value={amounts[node.id]?.[String(account.id)]?.[m] ?? ""}
+                        onChange={(e) => setAmount(node.id, String(account.id), m, e.target.value)}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>,
+            );
+          }
+        }
       } else {
         rows.push(
           <tr key={node.id}>
@@ -315,15 +408,48 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
     return rows;
   }
 
+  function monthsFor(categoryId: number, source: string): Record<number, number> {
+    const monthly: Record<number, number> = {};
+    for (let m = 1; m <= 12; m++) {
+      const raw = amounts[categoryId]?.[source]?.[m];
+      monthly[m] = raw ? parseFloat(raw) || 0 : 0;
+    }
+    return monthly;
+  }
+
   async function save() {
-    const categoryPayload = Array.from(selected).map((categoryId) => {
-      const monthly: Record<number, number> = {};
-      for (let m = 1; m <= 12; m++) {
-        const raw = amounts[categoryId]?.[m];
-        monthly[m] = raw ? parseFloat(raw) || 0 : 0;
+    const categoryPayload: BudgetCategoryInput[] = [];
+    for (const categoryId of selected) {
+      if (!perAccount.has(categoryId)) {
+        categoryPayload.push({
+          category_id: categoryId,
+          account_id: null,
+          monthly_amounts: monthsFor(categoryId, SOURCE_ALL),
+        });
+        continue;
       }
-      return { category_id: categoryId, monthly_amounts: monthly };
-    });
+      // One line per account that actually has a plan. An account left blank
+      // has no line rather than a line of zeros, so the report doesn't sprout
+      // a row for every account the user never budgeted.
+      const lines = accounts
+        .map((account) => ({
+          category_id: categoryId,
+          account_id: account.id,
+          monthly_amounts: monthsFor(categoryId, String(account.id)),
+        }))
+        .filter((line) => Object.values(line.monthly_amounts).some((v) => v !== 0));
+      if (lines.length > 0) {
+        categoryPayload.push(...lines);
+      } else {
+        // Broken down but nothing entered anywhere: keep the category
+        // budgeted rather than silently dropping the selection.
+        categoryPayload.push({
+          category_id: categoryId,
+          account_id: null,
+          monthly_amounts: monthsFor(categoryId, SOURCE_ALL),
+        });
+      }
+    }
 
     if (mode === "new") {
       const created = await budgetsApi.create({ name: name || "Untitled budget", year: CURRENT_YEAR, categories: categoryPayload });

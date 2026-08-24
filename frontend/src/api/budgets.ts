@@ -4,6 +4,9 @@ import type { Budget, ReportRow } from "./types";
 export interface BudgetCategoryInput {
   category_id: number;
   monthly_amounts: Record<number, number>;
+  /** Narrows this line to one source account. Omit to budget the category as
+   * a whole — a category uses one mode or the other, never both. */
+  account_id?: number | null;
 }
 
 export interface BudgetInput {

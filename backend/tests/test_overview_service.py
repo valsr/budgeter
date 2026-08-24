@@ -41,7 +41,7 @@ def test_overview_category_without_any_budget_has_budget_false(db_session, groce
 
 
 def test_overview_category_with_budget_has_budget_true(db_session, groceries):
-    budgets_svc.create_budget(db_session, "Household", [(groceries.id, {1: 400})], year=2026)
+    budgets_svc.create_budget(db_session, "Household", [(groceries.id, None, {1: 400})], year=2026)
     rows = budgets_svc.get_overview(db_session, year=2026, through_month=1)
     groceries_row = next(r for r in rows if r.name == "groceries")
     assert groceries_row.has_budget is True
@@ -50,7 +50,7 @@ def test_overview_category_with_budget_has_budget_true(db_session, groceries):
 
 def test_overview_parent_has_budget_true_if_any_child_budgeted(db_session, shared, groceries):
     categories_svc.create_category(db_session, "utilities", parent_id=shared.id)  # unbudgeted sibling
-    budgets_svc.create_budget(db_session, "Household", [(groceries.id, {1: 400})], year=2026)
+    budgets_svc.create_budget(db_session, "Household", [(groceries.id, None, {1: 400})], year=2026)
     rows = budgets_svc.get_overview(db_session, year=2026, through_month=1)
     shared_row = next(r for r in rows if r.name == "shared")
     assert shared_row.has_budget is True
@@ -59,8 +59,8 @@ def test_overview_parent_has_budget_true_if_any_child_budgeted(db_session, share
 def test_overview_aggregates_across_multiple_budgets_for_same_category(db_session, groceries):
     # if a category ends up in two budgets (unusual, but the API doesn't
     # forbid it), the overview should sum their amounts rather than pick one.
-    budgets_svc.create_budget(db_session, "A", [(groceries.id, {1: 200})], year=2026)
-    budgets_svc.create_budget(db_session, "B", [(groceries.id, {1: 100})], year=2026)
+    budgets_svc.create_budget(db_session, "A", [(groceries.id, None, {1: 200})], year=2026)
+    budgets_svc.create_budget(db_session, "B", [(groceries.id, None, {1: 100})], year=2026)
     rows = budgets_svc.get_overview(db_session, year=2026, through_month=1)
     groceries_row = next(r for r in rows if r.name == "groceries")
     assert groceries_row.monthly[1] == (Decimal("300"), Decimal("0"))

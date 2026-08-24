@@ -16,12 +16,29 @@ class Budget(Base):
 
 
 class BudgetCategory(Base):
+    """One budgeted line: a category, optionally narrowed to a single account.
+
+    `account_id` NULL budgets the category as a whole. Set, it budgets that
+    category's spending from that one account -- so a category can be planned
+    per source ("groceries on Main, groceries on Visa") when a downstream
+    system needs the split.
+
+    A category uses one mode or the other, never both at once: a NULL line
+    alongside account lines would leave "the groceries budget" ambiguous
+    between the NULL row and the sum of the account rows. The unique
+    constraint can't express that (SQL treats NULLs as distinct, so it won't
+    even stop two NULL lines), so budgets._partition_categories enforces it.
+    """
+
     __tablename__ = "budget_categories"
-    __table_args__ = (UniqueConstraint("budget_id", "category_id", name="uq_budget_category"),)
+    __table_args__ = (
+        UniqueConstraint("budget_id", "category_id", "account_id", name="uq_budget_category"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     budget_id: Mapped[int] = mapped_column(ForeignKey("budgets.id"), nullable=False)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
 
     budget: Mapped["Budget"] = relationship("Budget", back_populates="budget_categories")
     amounts: Mapped[list["BudgetAmount"]] = relationship(

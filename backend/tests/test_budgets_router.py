@@ -50,7 +50,7 @@ def test_create_budget_drops_non_leaf_category(client, auth_headers, shared_id, 
     body = resp.json()
     assert body["budget_categories"] == []
     assert body["dropped_categories"] == [
-        {"category_id": shared_id, "name": "shared", "reason": "broken_down"}
+        {"category_id": shared_id, "name": "shared", "reason": "broken_down", "account_id": None}
     ]
 
 
@@ -62,7 +62,7 @@ def test_create_budget_drops_unknown_category(client, auth_headers):
     )
     assert resp.status_code == 201
     assert resp.json()["dropped_categories"] == [
-        {"category_id": 999, "name": None, "reason": "removed"}
+        {"category_id": 999, "name": None, "reason": "removed", "account_id": None}
     ]
 
 
@@ -141,7 +141,7 @@ def test_update_budget_drops_a_category_that_was_broken_down(client, auth_header
     body = resp.json()
     assert body["budget_categories"] == []
     assert body["dropped_categories"] == [
-        {"category_id": groceries_id, "name": "groceries", "reason": "broken_down"}
+        {"category_id": groceries_id, "name": "groceries", "reason": "broken_down", "account_id": None}
     ]
 
 

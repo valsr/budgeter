@@ -200,6 +200,8 @@ export interface BudgetAmount {
 
 export interface BudgetCategory {
   category_id: number;
+  /** Narrows this line to one source account; null budgets the whole category. */
+  account_id: number | null;
   amounts: BudgetAmount[];
 }
 
@@ -209,7 +211,8 @@ export interface BudgetCategory {
 export interface DroppedCategory {
   category_id: number;
   name: string | null;
-  reason: "removed" | "archived" | "broken_down";
+  reason: "removed" | "archived" | "broken_down" | "account_removed";
+  account_id: number | null;
 }
 
 export interface Budget {
@@ -226,7 +229,11 @@ export interface MonthCell {
 }
 
 export interface ReportRow {
+  /** Unique per row — category_id repeats across a category's breakdown rows. */
+  row_key: string;
   category_id: number;
+  /** Set on a per-source breakdown row: the account this slice came from. */
+  account_id: number | null;
   name: string;
   is_parent: boolean;
   monthly: Record<number, MonthCell>;

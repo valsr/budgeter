@@ -677,7 +677,7 @@ def test_a_categorized_pair_counts_once_in_the_budget(db_session, category, link
     txn_svc.update_transaction_splits(db_session, selected.id, [(category.id, -1024.0)])
 
     budget, _ = budgets_svc.create_budget(
-        db_session, "Contributions", [(category.id, {5: 1000})], year=2026
+        db_session, "Contributions", [(category.id, None, {5: 1000})], year=2026
     )
     rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=5)
     row = next(r for r in rows if r.category_id == category.id)
@@ -699,7 +699,7 @@ def test_categorizing_either_leg_gives_the_same_sign(db_session, category, linke
     assert other.splits[0].category_id is None
 
     budget, _ = budgets_svc.create_budget(
-        db_session, "Contributions", [(category.id, {5: 1000})], year=2026
+        db_session, "Contributions", [(category.id, None, {5: 1000})], year=2026
     )
     rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=5)
     row = next(r for r in rows if r.category_id == category.id)
@@ -725,7 +725,7 @@ def test_linking_from_the_deposit_leg_still_charges_the_category(
     txn_svc.link_as_transfer(db_session, home_leg.id, main_leg.id)
 
     budget, _ = budgets_svc.create_budget(
-        db_session, "Contributions", [(category.id, {1: 1000})], year=2026
+        db_session, "Contributions", [(category.id, None, {1: 1000})], year=2026
     )
     rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=1)
     row = next(r for r in rows if r.category_id == category.id)
@@ -735,7 +735,7 @@ def test_linking_from_the_deposit_leg_still_charges_the_category(
 
 def test_an_uncategorized_pair_still_stays_out_of_budgets(db_session, category, linked_pair):
     budget, _ = budgets_svc.create_budget(
-        db_session, "Contributions", [(category.id, {5: 1000})], year=2026
+        db_session, "Contributions", [(category.id, None, {5: 1000})], year=2026
     )
     rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=5)
     row = next(r for r in rows if r.category_id == category.id)
