@@ -27,6 +27,9 @@ export function Budgets() {
   const [modalMode, setModalMode] = useState<null | "new" | "edit">(null);
   const [avgByCategory, setAvgByCategory] = useState<Record<number, number>>({});
   const [dropped, setDropped] = useState<DroppedCategory[]>([]);
+  // Report rows are read off one at a time when copying figures into another
+  // system, so the row under the eye stays marked until another is picked.
+  const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
 
   function loadBudgets() {
     budgetsApi.list().then((list) => {
@@ -62,8 +65,21 @@ export function Budgets() {
 
   useEffect(() => {
     loadReport(currentBudgetId);
+    setHighlightedRow(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBudgetId]);
+
+  // Escape clears it. Clicking the highlighted row again deliberately does
+  // *not*, so a stray second click while reading figures across doesn't wipe
+  // the marker.
+  useEffect(() => {
+    if (highlightedRow === null) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setHighlightedRow(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [highlightedRow]);
 
   const currentBudget = budgets.find((b) => b.id === currentBudgetId);
   const months = useMemo(() => Array.from({ length: CURRENT_MONTH }, (_, i) => i + 1), []);
@@ -143,7 +159,12 @@ export function Budgets() {
             </thead>
             <tbody>
               {report.map((row) => (
-                <tr key={row.category_id} style={row.is_parent ? { fontWeight: 600 } : undefined}>
+                <tr
+                  key={row.category_id}
+                  className={highlightedRow === row.category_id ? "row-highlight" : undefined}
+                  style={row.is_parent ? { fontWeight: 600 } : undefined}
+                  onClick={() => setHighlightedRow(row.category_id)}
+                >
                   <td style={row.depth > 0 ? { paddingLeft: 22 * row.depth, color: "var(--ink-2)" } : undefined}>
                     {row.name}
                   </td>
@@ -154,16 +175,16 @@ export function Budgets() {
                     return (
                       <Fragment key={m}>
                         <td className={"right muted-cell " + cls + (cell.budgeted < 0 ? " neg" : "")}>
-                          {formatMoney(cell.budgeted, 0)}
+                          {formatMoney(cell.budgeted)}
                         </td>
                         <td className={"right " + cls + (over ? " over" : cell.actual < 0 ? " neg" : "")}>
-                          {formatMoney(cell.actual, 0)}
+                          {formatMoney(cell.actual)}
                         </td>
                       </Fragment>
                     );
                   })}
                   <td className={"right " + (row.ytd_diff >= 0 ? "diff-pos" : "diff-neg")}>
-                    {formatMoney(row.ytd_diff, 0)}
+                    {formatMoney(row.ytd_diff)}
                   </td>
                 </tr>
               ))}
@@ -257,7 +278,7 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
             <td style={{ paddingLeft: 14 + depth * 14, color: "var(--ink-2)" }}>
               <div>{node.name}</div>
               {avgByCategory[node.id] !== undefined && (
-                <div className="avg-hint">avg ${Math.round(Math.abs(avgByCategory[node.id]))}</div>
+                <div className="avg-hint">avg {formatMoney(avgByCategory[node.id])}</div>
               )}
             </td>
             <td style={{ textAlign: "center" }}>

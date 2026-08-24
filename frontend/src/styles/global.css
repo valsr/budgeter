@@ -101,6 +101,12 @@ tr.undone-row td{opacity:.55}
 .over{color:var(--c5);font-weight:600}
 th.sub-col{font-weight:500;text-transform:none;font-size:11px;color:var(--ink-3);text-align:right}
 th.month-label{text-align:center}
+/* Click-to-mark a report row while copying its figures elsewhere. The month
+   tints below are background-*images*, so this background-color layers under
+   them and the banding still reads through the highlight. */
+#budget-report-table tbody tr{cursor:pointer}
+#budget-report-table tbody tr.row-highlight>td{background-color:rgba(240,187,58,.30)}
+#budget-report-table tbody tr.row-highlight>td:first-child{box-shadow:inset 3px 0 0 #c8901a}
 #budget-report-table th.month-alt, #budget-report-table td.month-alt{background-image:linear-gradient(rgba(37,99,235,.07),rgba(37,99,235,.07))}
 #budget-report-table th.month-current, #budget-report-table td.month-current{background-image:linear-gradient(rgba(37,99,235,.26),rgba(37,99,235,.26))}
 .month-input{width:100px;padding:4px 6px;font-size:11.5px;text-align:right;border:1px solid var(--line);border-radius:5px}
