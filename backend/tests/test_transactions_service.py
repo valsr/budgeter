@@ -457,11 +457,11 @@ def test_link_as_transfer_keeps_the_selected_legs_category(db_session, account, 
     assert other.splits[0].category_id is None
 
 
-def test_link_as_transfer_leaves_a_lone_category_on_its_own_leg(
+def test_link_as_transfer_moves_a_lone_category_to_the_withdrawal_leg(
     db_session, account, other_account, category
 ):
-    """Only the non-selected leg is categorized: "at most one leg" already
-    holds, and moving it across would flip the sign it contributes."""
+    """Only the deposit leg is categorized. The category survives, but it
+    lands on the withdrawal leg so the movement reads as spending."""
     out = txn_svc.create_transaction(
         db_session, account.id, dt.date(2026, 1, 19), "TFR out", [(None, -50.0)]
     )
@@ -470,8 +470,8 @@ def test_link_as_transfer_leaves_a_lone_category_on_its_own_leg(
     )
 
     selected, other = txn_svc.link_as_transfer(db_session, out.id, into.id)
-    assert selected.splits[0].category_id is None
-    assert other.splits[0].category_id == category.id
+    assert selected.splits[0].category_id == category.id  # the -50 leg
+    assert other.splits[0].category_id is None
 
 
 def test_link_as_transfer_reports_the_category_it_had_to_drop(
@@ -685,13 +685,18 @@ def test_a_categorized_pair_counts_once_in_the_budget(db_session, category, link
     assert actual == Decimal("1024")
 
 
-def test_categorizing_the_deposit_leg_credits_the_category_instead(
-    db_session, category, linked_pair
-):
-    """Which leg carries the category sets the sign the category sees --
-    that's how a movement can read as a refund rather than a charge."""
-    _selected, other = linked_pair  # the deposit leg, +1024
+def test_categorizing_either_leg_gives_the_same_sign(db_session, category, linked_pair):
+    """The reported bug: an identical movement read as a credit or a charge
+    depending on which row happened to be clicked. It reads the same either
+    way now — the category lives on the withdrawal leg regardless."""
+    selected, other = linked_pair  # selected is the -1024 withdrawal leg
+
+    # Address the deposit leg; the category still lands on the withdrawal one.
     txn_svc.update_transaction_splits(db_session, other.id, [(category.id, 1024.0)])
+    db_session.refresh(selected)
+    db_session.refresh(other)
+    assert selected.splits[0].category_id == category.id
+    assert other.splits[0].category_id is None
 
     budget, _ = budgets_svc.create_budget(
         db_session, "Contributions", [(category.id, {5: 1000})], year=2026
@@ -699,7 +704,33 @@ def test_categorizing_the_deposit_leg_credits_the_category_instead(
     rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=5)
     row = next(r for r in rows if r.category_id == category.id)
     _budgeted, actual = row.monthly[5]
-    assert actual == Decimal("-1024")
+    assert actual == Decimal("1024")
+
+
+def test_linking_from_the_deposit_leg_still_charges_the_category(
+    db_session, account, other_account, category
+):
+    """Reproduces the reported case exactly: money left Main and arrived in
+    Home, the user linked from the Home (deposit) row, and the category came
+    out negative. It comes out positive now."""
+    other_cat = categories_svc.create_category(db_session, "other")
+    home_leg = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 2), "PTS FRM", [(category.id, 1024.0)]
+    )
+    main_leg = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 2), "PTS TO", [(other_cat.id, -1024.0)]
+    )
+
+    # Linked from the deposit leg, as in the report.
+    txn_svc.link_as_transfer(db_session, home_leg.id, main_leg.id)
+
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Contributions", [(category.id, {1: 1000})], year=2026
+    )
+    rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=1)
+    row = next(r for r in rows if r.category_id == category.id)
+    _budgeted, actual = row.monthly[1]
+    assert actual == Decimal("1024")
 
 
 def test_an_uncategorized_pair_still_stays_out_of_budgets(db_session, category, linked_pair):

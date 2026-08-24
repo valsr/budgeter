@@ -109,6 +109,22 @@ def _clear_category(txn: Transaction) -> None:
         split.suggestion_source = None
 
 
+def _category_leg(txn: Transaction, pair: Transaction | None) -> Transaction:
+    """The leg of a pair that holds its category: always the withdrawal one.
+
+    A pair's category has to live on one leg, and that leg's sign is the sign
+    the category sees. Letting the choice ride on which row happened to be
+    clicked made an identical movement read as spending or as a credit
+    depending on an invisible detail -- so it's fixed instead. Money leaving
+    the source account *into* the category is what a transfer between your own
+    accounts means when it's worth categorizing at all.
+
+    Falls back to the given leg for an orphan (unpaired) transfer."""
+    if pair is None:
+        return txn
+    return txn if _single_split_amount(txn) < 0 else pair
+
+
 def update_transaction_splits(
     db: Session, transaction_id: int, splits: list[SplitInput]
 ) -> Transaction:
@@ -129,11 +145,22 @@ def update_transaction_splits(
     current_total = sum(float(s.amount) for s in txn.splits)
     validate_splits(splits, expected_total=current_total)
 
-    for split in list(txn.splits):
-        db.delete(split)
-    txn.splits = [Split(category_id=cat_id, amount=amount) for cat_id, amount in splits]
-    if pair is not None and splits[0][0] is not None:
-        _clear_category(pair)
+    if pair is not None:
+        # Addressing either leg categorizes the pair, and the category always
+        # lands on the withdrawal leg -- see _category_leg. Amounts are fixed
+        # for a transfer (validate_splits above already checked the addressed
+        # leg's total is unchanged), so only the category moves.
+        category_id = splits[0][0]
+        target = _category_leg(txn, pair)
+        other = pair if target is txn else txn
+        _clear_category(other)
+        target.splits[0].category_id = category_id
+        target.splits[0].suggested_category_id = None
+        target.splits[0].suggestion_source = None
+    else:
+        for split in list(txn.splits):
+            db.delete(split)
+        txn.splits = [Split(category_id=cat_id, amount=amount) for cat_id, amount in splits]
     db.commit()
     db.refresh(txn)
     if pair is not None:
@@ -338,12 +365,10 @@ def link_as_transfer(
     Needed when both legs were imported independently — each account's own
     statement carries one side — so neither came from create_transfer.
 
-    `transaction_id` is the leg the user acted on, and that decides which leg
-    carries the pair's category: a linked pair holds its category on exactly
-    one leg (both legs would net the movement to zero under that category),
-    and which leg it is sets the sign the category sees. Categorizing the
-    withdrawal leg reads as money leaving that account *into* the category;
-    categorizing the deposit leg credits the category instead."""
+    `transaction_id` is the leg the user acted on. It decides which category
+    survives when both legs carry one, but not where that category lands: a
+    pair holds its category on its withdrawal leg (see _category_leg), so an
+    identical movement reads the same way however it was linked."""
     if transaction_id == other_transaction_id:
         raise ValidationError("A transaction can't be linked to itself")
 
@@ -367,19 +392,23 @@ def link_as_transfer(
     before_txn = change_log.serialize_transaction(txn)
     before_other = change_log.serialize_transaction(other)
 
-    # At most one leg may carry a category. Linking is non-destructive where
-    # it can be: if only `other` was categorized, its category stays put --
-    # moving it onto the selected leg would silently flip the sign it
-    # contributes. If both were, the selected leg wins and the other is
-    # reported as dropped rather than silently binned.
+    # Linking is non-destructive: a category either leg was carrying survives
+    # the operation. Where both carry one the selected leg's wins, and the
+    # loser is named in the summary rather than silently binned. The survivor
+    # then moves to the withdrawal leg, which is the only leg a pair's
+    # category ever lives on.
+    kept_category_id = _leg_category_id(txn) or _leg_category_id(other)
     dropped_category_id = None
     if _leg_category_id(txn) is not None and _leg_category_id(other) is not None:
         dropped_category_id = _leg_category_id(other)
-        _clear_category(other)
 
     for leg, pair in ((txn, other), (other, txn)):
         leg.type = TransactionType.TRANSFER
         leg.transfer_pair_id = pair.id
+
+    target = _category_leg(txn, other)
+    _clear_category(other if target is txn else txn)
+    target.splits[0].category_id = kept_category_id
     db.commit()
     db.refresh(txn)
     db.refresh(other)
