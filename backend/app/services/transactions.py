@@ -1,6 +1,6 @@
 import datetime as dt
 
-from sqlalchemy import Select, and_, false, func, select
+from sqlalchemy import Select, and_, case, desc, false, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import NotFoundError, ValidationError
@@ -90,26 +90,58 @@ def update_transaction_details(
     return txn
 
 
+def _transfer_pair(db: Session, txn: Transaction) -> Transaction | None:
+    """The other leg of a linked transfer, or None for an orphan leg (a
+    transfer whose counterpart was never linked -- see unlink_transfer)."""
+    if txn.transfer_pair_id is None:
+        return None
+    return db.get(Transaction, txn.transfer_pair_id)
+
+
+def _leg_category_id(txn: Transaction) -> int | None:
+    return next((s.category_id for s in txn.splits if s.category_id is not None), None)
+
+
+def _clear_category(txn: Transaction) -> None:
+    for split in txn.splits:
+        split.category_id = None
+        split.suggested_category_id = None
+        split.suggestion_source = None
+
+
 def update_transaction_splits(
     db: Session, transaction_id: int, splits: list[SplitInput]
 ) -> Transaction:
     txn = _get_transaction_or_404(db, transaction_id)
+    pair = None
     if txn.type == TransactionType.TRANSFER:
-        raise ValidationError("Transfer transactions cannot be split across categories")
+        # A transfer moves one sum of money, so it takes one category -- but
+        # only one, and only on one leg. Both legs categorized would net the
+        # movement to zero in every rollup (equal and opposite amounts under
+        # the same category), which is the whole reason a pair carries its
+        # category on a single leg.
+        if len(splits) != 1:
+            raise ValidationError("A transfer takes a single category, not a split across several")
+        pair = _transfer_pair(db, txn)
 
     before = change_log.serialize_transaction(txn)
+    before_pair = change_log.serialize_transaction(pair) if pair is not None else None
     current_total = sum(float(s.amount) for s in txn.splits)
     validate_splits(splits, expected_total=current_total)
 
     for split in list(txn.splits):
         db.delete(split)
     txn.splits = [Split(category_id=cat_id, amount=amount) for cat_id, amount in splits]
+    if pair is not None and splits[0][0] is not None:
+        _clear_category(pair)
     db.commit()
     db.refresh(txn)
+    if pair is not None:
+        db.refresh(pair)
 
     after = change_log.serialize_transaction(txn)
     if before != after:
-        change_log.record_change(
+        group_id = change_log.record_change(
             db,
             TransactionChange,
             txn.id,
@@ -118,6 +150,22 @@ def update_transaction_splits(
             after=after,
             summary=change_log.summarize_transaction(ChangeOperation.UPDATE, before, after),
         )
+        # The pair's cleared category rides in the same group, so undoing the
+        # categorization restores both legs together.
+        if pair is not None and before_pair != change_log.serialize_transaction(pair):
+            change_log.record_change(
+                db,
+                TransactionChange,
+                pair.id,
+                ChangeOperation.UPDATE,
+                before=before_pair,
+                after=change_log.serialize_transaction(pair),
+                summary=change_log.summarize_transaction(
+                    ChangeOperation.UPDATE, before_pair, change_log.serialize_transaction(pair)
+                ),
+                group_id=group_id,
+                is_primary=False,
+            )
         db.commit()
     return txn
 
@@ -288,7 +336,14 @@ def link_as_transfer(
     """Mark two existing transactions as the two legs of one transfer.
 
     Needed when both legs were imported independently — each account's own
-    statement carries one side — so neither came from create_transfer."""
+    statement carries one side — so neither came from create_transfer.
+
+    `transaction_id` is the leg the user acted on, and that decides which leg
+    carries the pair's category: a linked pair holds its category on exactly
+    one leg (both legs would net the movement to zero under that category),
+    and which leg it is sets the sign the category sees. Categorizing the
+    withdrawal leg reads as money leaving that account *into* the category;
+    categorizing the deposit leg credits the category instead."""
     if transaction_id == other_transaction_id:
         raise ValidationError("A transaction can't be linked to itself")
 
@@ -312,20 +367,28 @@ def link_as_transfer(
     before_txn = change_log.serialize_transaction(txn)
     before_other = change_log.serialize_transaction(other)
 
-    # A transfer isn't spending, so any category or pending suggestion on
-    # either leg is dropped — _is_uncategorized_clause and the budget rollups
-    # both assume a transfer carries no category.
+    # At most one leg may carry a category. Linking is non-destructive where
+    # it can be: if only `other` was categorized, its category stays put --
+    # moving it onto the selected leg would silently flip the sign it
+    # contributes. If both were, the selected leg wins and the other is
+    # reported as dropped rather than silently binned.
+    dropped_category_id = None
+    if _leg_category_id(txn) is not None and _leg_category_id(other) is not None:
+        dropped_category_id = _leg_category_id(other)
+        _clear_category(other)
+
     for leg, pair in ((txn, other), (other, txn)):
         leg.type = TransactionType.TRANSFER
         leg.transfer_pair_id = pair.id
-        leg.splits[0].category_id = None
-        leg.splits[0].suggested_category_id = None
-        leg.splits[0].suggestion_source = None
     db.commit()
     db.refresh(txn)
     db.refresh(other)
 
     summary = f"Linked '{txn.name}' and '{other.name}' as a transfer (${abs(amount):.2f})"
+    if dropped_category_id is not None:
+        category = db.get(Category, dropped_category_id)
+        label = category.name if category is not None else f"#{dropped_category_id}"
+        summary += f"; dropped '{label}' from '{other.name}' (a transfer is categorized on one leg)"
     group_id = change_log.record_change(
         db,
         TransactionChange,
@@ -474,6 +537,25 @@ def _is_uncategorized_clause():
     return and_(Transaction.type == TransactionType.NORMAL, uncat_split_exists)
 
 
+def _entry_key_expr():
+    """The id of the "entry" a transaction row belongs to. A linked transfer's
+    two legs share one key -- the lower of the two ids -- so grouping by this
+    collapses a pair into a single entry; every other transaction is its own
+    entry."""
+    return case(
+        (Transaction.transfer_pair_id.is_(None), Transaction.id),
+        else_=func.min(Transaction.id, Transaction.transfer_pair_id),
+    )
+
+
+def _entry_key(txn: Transaction) -> int:
+    """The Python-side twin of _entry_key_expr, for ordering already-fetched
+    rows -- keep the two in step."""
+    if txn.transfer_pair_id is None:
+        return txn.id
+    return min(txn.id, txn.transfer_pair_id)
+
+
 def _base_query(
     account_id: int | None = None,
     date_from: dt.date | None = None,
@@ -538,11 +620,48 @@ def list_transactions(
         show_categorized,
         show_uncategorized,
     )
-    total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    # Page by *entry*, not by row: a linked transfer is one movement of money
+    # shown as one line, so its two legs must count once toward the page size
+    # and never straddle a page boundary. Both legs are always returned
+    # together, even when the filters matched only one of them -- rendering
+    # the collapsed line needs the other leg's account and amount.
+    matching_ids = stmt.with_only_columns(Transaction.id).distinct().subquery()
+    key = _entry_key_expr()
+    entry_rows = (
+        select(
+            key.label("entry_key"),
+            func.max(Transaction.date).label("entry_date"),
+            func.max(Transaction.id).label("entry_id"),
+        )
+        .where(Transaction.id.in_(select(matching_ids.c.id)))
+        .group_by(key)
+    )
+    total = db.execute(select(func.count()).select_from(entry_rows.subquery())).scalar_one()
 
-    stmt = stmt.order_by(Transaction.date.desc(), Transaction.id.desc())
-    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
-    items = list(db.execute(stmt).scalars().unique().all())
+    page_keys = list(
+        db.execute(
+            entry_rows.order_by(desc("entry_date"), desc("entry_id"))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        .scalars()
+        .all()
+    )
+    if not page_keys:
+        return [], total
+
+    items = list(
+        db.execute(
+            select(Transaction).options(selectinload(Transaction.splits)).where(key.in_(page_keys))
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    # Restore the page's ordering, which the fetch-by-key above doesn't carry,
+    # and keep a pair's legs adjacent.
+    key_order = {k: i for i, k in enumerate(page_keys)}
+    items.sort(key=lambda t: (key_order[_entry_key(t)], t.id))
     return items, total
 
 

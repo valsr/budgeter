@@ -79,6 +79,10 @@ tr.undone-row td{opacity:.55}
 .icon-btn.remove{color:var(--c5)}
 .icon-btn.link{color:var(--accent)}
 .icon-btn.unlink{color:var(--ink-2)}
+.transfer-mark{display:inline-block;margin-right:6px;color:var(--accent);font-weight:600;cursor:default}
+.transfer-accounts{white-space:nowrap}
+.transfer-arrow{margin:0 5px;color:var(--ink-2)}
+.transfer-amount{color:var(--ink-2)}
 .cat-cell{cursor:pointer}
 .cat-assign-btn{padding:4px 10px;font-size:12px;border-style:dashed;color:var(--ink-2)}
 .ctrl-cell{white-space:nowrap;text-align:right}

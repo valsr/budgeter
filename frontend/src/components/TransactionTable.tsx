@@ -54,6 +54,25 @@ const EMPTY_FILTERS: Filters = {
 const PAGE_SIZE = 100;
 const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
 
+/** One line in the table. A linked transfer is a single movement of money
+ * shown once, with a leg in each of two accounts; everything else is one
+ * transaction on one account. */
+type Entry =
+  | { kind: "single"; txn: Transaction }
+  | { kind: "pair"; from: Transaction; to: Transaction; carrying: Transaction };
+
+function totalOf(txn: Transaction): number {
+  return txn.splits.reduce((sum, s) => sum + s.amount, 0);
+}
+
+/** The leg holding the pair's category. A pair carries its category on
+ * exactly one leg (both would net the movement to zero), and which leg sets
+ * the sign the category sees — so an uncategorized pair defaults to the
+ * withdrawal leg, whose amount is negative and therefore reads as spending. */
+function carryingLeg(from: Transaction, to: Transaction): Transaction {
+  return to.splits.some((s) => s.category_id !== null) ? to : from;
+}
+
 export function TransactionTable({
   categories,
   accounts,
@@ -82,6 +101,44 @@ export function TransactionTable({
     return map;
   }, [categories]);
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
+  const itemById = useMemo(
+    () => new Map((data?.items ?? []).map((t) => [t.id, t])),
+    [data],
+  );
+
+  /** The account whose ledger is being viewed, if any. A linked pair spans two
+   * accounts, so its amount only belongs in a Deposit/Withdraw column when
+   * there's a single account to be relative to. */
+  const viewingAccountId =
+    lockAccountId ?? (filters.account_id ? Number(filters.account_id) : undefined);
+
+  // A linked pair is one movement of money and renders as one line. The
+  // server guarantees both legs arrive on the same page (it pages by entry,
+  // not by row), so pairing up here is always complete -- see
+  // transactions.py's _entry_key_expr.
+  const entries = useMemo<Entry[]>(() => {
+    const rows = data?.items ?? [];
+    const byId = new Map(rows.map((t) => [t.id, t]));
+    const consumed = new Set<number>();
+    const result: Entry[] = [];
+
+    for (const txn of rows) {
+      if (consumed.has(txn.id)) continue;
+      const pair =
+        txn.type === "transfer" && txn.transfer_pair_id !== null
+          ? byId.get(txn.transfer_pair_id)
+          : undefined;
+      if (!pair) {
+        result.push({ kind: "single", txn });
+        continue;
+      }
+      consumed.add(txn.id);
+      consumed.add(pair.id);
+      const [from, to] = totalOf(txn) < 0 ? [txn, pair] : [pair, txn];
+      result.push({ kind: "pair", from, to, carrying: carryingLeg(from, to) });
+    }
+    return result;
+  }, [data]);
 
   const showAccountColumn = lockAccountId === undefined;
 
@@ -125,7 +182,12 @@ export function TransactionTable({
     setEditingSplit(null);
     load();
     onDataChanged?.();
-    if (resultingSplitCount === 1 && categoryId !== null && categoryId !== priorCategoryId) {
+    if (
+      txn.type === "normal" &&
+      resultingSplitCount === 1 &&
+      categoryId !== null &&
+      categoryId !== priorCategoryId
+    ) {
       runLearnCheck(transactionId);
     }
   }
@@ -167,16 +229,6 @@ export function TransactionTable({
   }
 
   function renderCategoryCell(txn: Transaction, split: Split) {
-    if (txn.type === "transfer") {
-      return (
-        <td>
-          <span className="tag" style={{ background: "#eee", color: "#777" }}>
-            transfer
-          </span>
-        </td>
-      );
-    }
-
     const isEditing = editingSplit?.txnId === txn.id && editingSplit?.splitId === split.id;
     if (isEditing) {
       return (
@@ -262,6 +314,100 @@ export function TransactionTable({
     );
   }
 
+  /** Transfers carry a ⇄ before the name so a linked pair is recognisable in
+   * the list itself, not only by opening the row. Where the other leg happens
+   * to be on the same page the tooltip names its account; otherwise only the
+   * pair's existence is known here (the row carries an id, not the pair). */
+  function renderName(txn: Transaction) {
+    if (txn.type !== "transfer") return txn.name;
+
+    const pair = txn.transfer_pair_id === null ? undefined : itemById.get(txn.transfer_pair_id);
+    const pairAccount = pair ? accountById.get(pair.account_id) : undefined;
+    const title =
+      txn.transfer_pair_id === null
+        ? "Transfer with no matching transaction linked"
+        : pairAccount
+          ? `Transfer — paired with ${pairAccount.name}`
+          : "Transfer — paired with a transaction on another account";
+
+    return (
+      <>
+        <span className="transfer-mark" title={title} aria-label={title}>
+          ⇄
+        </span>
+        {txn.name}
+      </>
+    );
+  }
+
+  function accountTagFor(accountId: number) {
+    const account = accountById.get(accountId);
+    if (!account) return null;
+    const color = account.color ?? DEFAULT_ACCOUNT_COLOR;
+    return (
+      <span className="tag" style={{ background: hexToRgba(color, 0.15), color }}>
+        {account.name}
+      </span>
+    );
+  }
+
+  /** A linked pair on one line: where the money went, and the one category it
+   * counts under. */
+  function renderPairRow(entry: Extract<Entry, { kind: "pair" }>) {
+    const { from, to, carrying } = entry;
+    const amount = Math.abs(totalOf(from));
+    // Deposit/Withdraw are account-relative, so they only mean something when
+    // a single account is in view. Otherwise the from → to arrow carries the
+    // direction and the amount spans both columns.
+    const viewedLeg =
+      viewingAccountId === undefined
+        ? undefined
+        : [from, to].find((leg) => leg.account_id === viewingAccountId);
+
+    return (
+      <tr key={`pair-${from.id}-${to.id}`} className="transfer-row">
+        <td>{from.date}</td>
+        <td title={`Other leg: ${to.name}`}>
+          <span className="transfer-mark" aria-label="Linked transfer">
+            ⇄
+          </span>
+          {from.name}
+        </td>
+        {showAccountColumn && (
+          <td className="transfer-accounts">
+            {accountTagFor(from.account_id)}
+            <span className="transfer-arrow">→</span>
+            {accountTagFor(to.account_id)}
+          </td>
+        )}
+        {renderCategoryCell(carrying, carrying.splits[0])}
+        {viewedLeg ? (
+          renderAmountCells(totalOf(viewedLeg))
+        ) : (
+          <td className="right transfer-amount" colSpan={2}>
+            ${amount.toFixed(2)}
+          </td>
+        )}
+        <td className="ctrl-cell">
+          <span
+            className="icon-btn unlink"
+            title="Unlink transfer — turn both legs back into ordinary transactions"
+            onClick={() => unlinkTransfer(from)}
+          >
+            ⛓
+          </span>
+          <span
+            className="icon-btn remove"
+            title="Delete transfer (both legs)"
+            onClick={() => deleteTransaction(from)}
+          >
+            🗑
+          </span>
+        </td>
+      </tr>
+    );
+  }
+
   function renderAmountCells(amount: number) {
     return (
       <>
@@ -271,7 +417,6 @@ export function TransactionTable({
     );
   }
 
-  const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -376,7 +521,9 @@ export function TransactionTable({
             // Wireframe alternates uncat-a/uncat-b backgrounds across
             // consecutive uncategorized rows; track the count while rendering.
             let uncatCounter = 0;
-            return items.map((txn) => {
+            return entries.map((entry) => {
+            if (entry.kind === "pair") return renderPairRow(entry);
+            const txn = entry.txn;
             const account = accountById.get(txn.account_id);
             const accountColor = account?.color ?? DEFAULT_ACCOUNT_COLOR;
             const accountTag = account ? (
@@ -397,7 +544,7 @@ export function TransactionTable({
               return (
                 <tr key={txn.id} className={rowClass}>
                   <td>{txn.date}</td>
-                  <td>{txn.name}</td>
+                  <td>{renderName(txn)}</td>
                   {showAccountColumn && <td>{accountTag}</td>}
                   {renderCategoryCell(txn, split)}
                   {renderAmountCells(split.amount)}
@@ -441,7 +588,7 @@ export function TransactionTable({
               return (
                 <tr key={split.id} className={"grouped" + (last ? " last" : "")}>
                   <td>{i === 0 ? txn.date : ""}</td>
-                  <td className="name-cell">{i === 0 ? txn.name : "↳ split"}</td>
+                  <td className="name-cell">{i === 0 ? renderName(txn) : "↳ split"}</td>
                   {showAccountColumn && <td>{i === 0 ? accountTag : ""}</td>}
                   {renderCategoryCell(txn, split)}
                   {renderAmountCells(split.amount)}

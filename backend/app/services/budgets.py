@@ -8,7 +8,7 @@ from app.errors import NotFoundError, ValidationError
 from app.models.budget import Budget, BudgetAmount, BudgetCategory
 from app.models.category import Category
 from app.models.split import Split
-from app.models.transaction import Transaction, TransactionType
+from app.models.transaction import Transaction
 from app.services.budget_rollup import MonthlyAmounts, ReportRow, build_row, sum_monthly
 
 CategoryInput = tuple[int, dict[int, float]]  # (category_id, {month: amount})
@@ -155,7 +155,12 @@ def _actuals_for_category(
         .select_from(Split)
         .join(Transaction, Transaction.id == Split.transaction_id)
         .where(Split.category_id == category_id)
-        .where(Transaction.type == TransactionType.NORMAL)
+        # No transaction-type filter. A transfer between accounts normally
+        # carries no category on either leg, so it can't match category_id
+        # here and stays out of every budget on its own. A transfer someone
+        # deliberately categorized carries it on exactly one leg (see
+        # transactions.link_as_transfer), so it counts once rather than
+        # netting itself to zero across both legs.
         .where(func.strftime("%Y", Transaction.date) == str(year))
         .group_by(func.strftime("%m", Transaction.date))
     ).all()

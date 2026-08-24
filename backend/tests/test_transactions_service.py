@@ -1,11 +1,15 @@
 import datetime as dt
+from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from app.errors import NotFoundError, ValidationError
 from app.models.account import AccountType
+from app.models.change import TransactionChange
 from app.models.transaction import TransactionType
 from app.services import accounts as accounts_svc
+from app.services import budgets as budgets_svc
 from app.services import categories as categories_svc
 from app.services import transactions as txn_svc
 
@@ -95,12 +99,15 @@ def test_update_splits_rejects_total_mismatch(db_session, account, category):
         txn_svc.update_transaction_splits(db_session, txn.id, [(category.id, -50.0)])
 
 
-def test_update_splits_on_transfer_rejected(db_session, account, other_account):
+def test_splitting_a_transfer_across_categories_rejected(db_session, account, other_account, category):
     from_txn, _ = txn_svc.create_transfer(
         db_session, account.id, other_account.id, dt.date(2026, 1, 1), "Payment", 300.0
     )
+    c2 = categories_svc.create_category(db_session, "gifts")
     with pytest.raises(ValidationError):
-        txn_svc.update_transaction_splits(db_session, from_txn.id, [(None, -300.0)])
+        txn_svc.update_transaction_splits(
+            db_session, from_txn.id, [(category.id, -200.0), (c2.id, -100.0)]
+        )
 
 
 def test_update_splits_missing_transaction_404(db_session):
@@ -258,8 +265,11 @@ def test_list_transactions_categorized_only_includes_transfers(db_session, accou
     txn_svc.create_transfer(db_session, account.id, other_account.id, dt.date(2026, 1, 3), "Payment", 10.0)
 
     items, total = txn_svc.list_transactions(db_session, show_uncategorized=False)
-    # transfers count as categorized (wireframe: isCat includes status==='transfer')
-    assert total == 3  # "cat" + the transfer's two legs
+    # transfers count as categorized (wireframe: isCat includes status==='transfer'),
+    # and a linked pair is one entry, so: "cat" + the transfer.
+    assert total == 2
+    # Both legs still come back -- rendering the pair as one line needs both.
+    assert len(items) == 3
     assert all(t.name != "uncat" for t in items)
 
 
@@ -407,19 +417,57 @@ def test_link_as_transfer_pairs_both_legs(db_session, leg_pair):
     assert b.transfer_pair_id == a.id
 
 
-def test_link_as_transfer_clears_category_and_suggestion(db_session, account, other_account, category):
+def test_link_as_transfer_keeps_the_selected_legs_category(db_session, account, other_account, category):
+    """Linking must not throw away a categorization the user made — the
+    selected leg keeps it, so the pair counts once under that category."""
     out = txn_svc.create_transaction(
         db_session, account.id, dt.date(2026, 1, 19), "TFR out", [(category.id, -50.0)]
     )
     into = txn_svc.create_transaction(
-        db_session, other_account.id, dt.date(2026, 1, 19), "TFR in", [(None, 50.0)]
+        db_session, other_account.id, dt.date(2026, 1, 19), "TFR in", [(category.id, 50.0)]
     )
-    into.splits[0].suggested_category_id = category.id
-    db_session.commit()
 
-    a, b = txn_svc.link_as_transfer(db_session, out.id, into.id)
-    assert a.splits[0].category_id is None
-    assert b.splits[0].suggested_category_id is None
+    selected, other = txn_svc.link_as_transfer(db_session, out.id, into.id)
+    assert selected.splits[0].category_id == category.id
+    assert other.splits[0].category_id is None
+
+
+def test_link_as_transfer_leaves_a_lone_category_on_its_own_leg(
+    db_session, account, other_account, category
+):
+    """Only the non-selected leg is categorized: "at most one leg" already
+    holds, and moving it across would flip the sign it contributes."""
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "TFR out", [(None, -50.0)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 19), "TFR in", [(category.id, 50.0)]
+    )
+
+    selected, other = txn_svc.link_as_transfer(db_session, out.id, into.id)
+    assert selected.splits[0].category_id is None
+    assert other.splits[0].category_id == category.id
+
+
+def test_link_as_transfer_reports_the_category_it_had_to_drop(
+    db_session, account, other_account, category
+):
+    c2 = categories_svc.create_category(db_session, "gifts")
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "TFR out", [(category.id, -50.0)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 19), "TFR in", [(c2.id, 50.0)]
+    )
+
+    selected, other = txn_svc.link_as_transfer(db_session, out.id, into.id)
+    assert selected.splits[0].category_id == category.id
+    assert other.splits[0].category_id is None
+
+    summary = db_session.execute(
+        select(TransactionChange.summary).order_by(TransactionChange.id.desc())
+    ).scalars().first()
+    assert "gifts" in summary
 
 
 def test_link_as_transfer_rejects_mismatched_amounts(db_session, account, other_account):
@@ -503,3 +551,136 @@ def test_unlink_transfer_handles_orphan_leg(db_session, account, leg_pair):
     legs = txn_svc.unlink_transfer(db_session, out.id)
     assert [leg.id for leg in legs] == [out.id]
     assert legs[0].type == TransactionType.NORMAL
+
+
+# --- a linked pair is one entry ----------------------------------------
+
+
+@pytest.fixture()
+def linked_pair(db_session, account, other_account):
+    """The screenshot's shape: money left `account` and arrived in
+    `other_account`, linked from the withdrawal leg."""
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 5, 8), "PTS TO: 15096000884", [(None, -1024.0)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 5, 8), "PTS FRM: 17366263382", [(None, 1024.0)]
+    )
+    return txn_svc.link_as_transfer(db_session, out.id, into.id)
+
+
+def test_a_linked_pair_counts_as_one_entry(db_session, linked_pair):
+    items, total = txn_svc.list_transactions(db_session)
+    assert total == 1
+    assert len(items) == 2
+
+
+def test_both_legs_come_back_when_only_one_matches_the_filter(db_session, account, linked_pair):
+    """Filtering to one account must still yield the other leg, or the
+    collapsed line has no counterpart account or amount to show."""
+    selected, other = linked_pair
+    items, total = txn_svc.list_transactions(db_session, account_id=account.id)
+    assert total == 1
+    assert {t.id for t in items} == {selected.id, other.id}
+
+
+def test_both_legs_come_back_when_only_the_categorized_leg_matches(
+    db_session, category, linked_pair
+):
+    selected, other = linked_pair
+    txn_svc.update_transaction_splits(db_session, selected.id, [(category.id, -1024.0)])
+
+    items, total = txn_svc.list_transactions(db_session, category_id=category.id)
+    assert total == 1
+    assert {t.id for t in items} == {selected.id, other.id}
+
+
+def test_a_pair_never_straddles_a_page_boundary(db_session, account, other_account, linked_pair):
+    for i in range(3):
+        txn_svc.create_transaction(
+            db_session, account.id, dt.date(2026, 1, i + 1), f"plain {i}", [(None, -5.0)]
+        )
+
+    seen_ids: set[int] = set()
+    for page in (1, 2, 3, 4):
+        items, total = txn_svc.list_transactions(db_session, page=page, page_size=1)
+        assert total == 4  # 3 plain + the pair
+        # Whichever page the pair lands on carries both of its legs.
+        assert len(items) in (1, 2)
+        seen_ids.update(t.id for t in items)
+    assert len(seen_ids) == 5  # 3 plain + 2 legs
+
+
+def test_legs_of_a_pair_are_adjacent_in_the_returned_order(db_session, account, linked_pair):
+    selected, other = linked_pair
+    txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 5, 8), "unrelated", [(None, -5.0)]
+    )
+    items, _ = txn_svc.list_transactions(db_session)
+    positions = sorted(i for i, t in enumerate(items) if t.id in {selected.id, other.id})
+    assert positions[1] - positions[0] == 1
+
+
+def test_an_orphan_transfer_leg_is_its_own_entry(db_session, account, linked_pair):
+    selected, _ = linked_pair
+    txn_svc.unlink_transfer(db_session, selected.id)
+    selected.type = TransactionType.TRANSFER  # orphan: transfer with no pair
+    db_session.commit()
+
+    _, total = txn_svc.list_transactions(db_session)
+    assert total == 2
+
+
+# --- one category per pair, on the leg the user acted on ---------------
+
+
+def test_categorizing_one_leg_clears_the_other(db_session, category, linked_pair):
+    selected, other = linked_pair
+    txn_svc.update_transaction_splits(db_session, other.id, [(category.id, 1024.0)])
+    txn_svc.update_transaction_splits(db_session, selected.id, [(category.id, -1024.0)])
+
+    db_session.refresh(other)
+    assert selected.splits[0].category_id == category.id
+    assert other.splits[0].category_id is None
+
+
+def test_a_categorized_pair_counts_once_in_the_budget(db_session, category, linked_pair):
+    """The reported bug: both legs categorized netted the movement to zero.
+    One leg carrying it gives the movement its full weight."""
+    selected, _ = linked_pair  # the withdrawal leg, -1024
+    txn_svc.update_transaction_splits(db_session, selected.id, [(category.id, -1024.0)])
+
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Contributions", [(category.id, {5: 1000})], year=2026
+    )
+    rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=5)
+    row = next(r for r in rows if r.category_id == category.id)
+    _budgeted, actual = row.monthly[5]
+    assert actual == Decimal("1024")
+
+
+def test_categorizing_the_deposit_leg_credits_the_category_instead(
+    db_session, category, linked_pair
+):
+    """Which leg carries the category sets the sign the category sees --
+    that's how a movement can read as a refund rather than a charge."""
+    _selected, other = linked_pair  # the deposit leg, +1024
+    txn_svc.update_transaction_splits(db_session, other.id, [(category.id, 1024.0)])
+
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Contributions", [(category.id, {5: 1000})], year=2026
+    )
+    rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=5)
+    row = next(r for r in rows if r.category_id == category.id)
+    _budgeted, actual = row.monthly[5]
+    assert actual == Decimal("-1024")
+
+
+def test_an_uncategorized_pair_still_stays_out_of_budgets(db_session, category, linked_pair):
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Contributions", [(category.id, {5: 1000})], year=2026
+    )
+    rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=5)
+    row = next(r for r in rows if r.category_id == category.id)
+    _budgeted, actual = row.monthly[5]
+    assert actual == Decimal("0")
