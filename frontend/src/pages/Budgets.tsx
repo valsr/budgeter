@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { budgetsApi, overviewApi } from "../api/budgets";
 import { categoriesApi } from "../api/categories";
-import type { Budget, Category, ReportRow } from "../api/types";
+import type { Budget, Category, DroppedCategory, ReportRow } from "../api/types";
 import { Modal } from "../components/Modal";
 import { formatMoney } from "../format";
 
@@ -26,6 +26,7 @@ export function Budgets() {
   const [report, setReport] = useState<ReportRow[]>([]);
   const [modalMode, setModalMode] = useState<null | "new" | "edit">(null);
   const [avgByCategory, setAvgByCategory] = useState<Record<number, number>>({});
+  const [dropped, setDropped] = useState<DroppedCategory[]>([]);
 
   function loadBudgets() {
     budgetsApi.list().then((list) => {
@@ -99,6 +100,22 @@ export function Budgets() {
         </select>
       </div>
 
+      {dropped.length > 0 && (
+        <div className="notice" style={{ marginBottom: 16 }}>
+          <b>Some categories were dropped from this budget.</b>{" "}
+          {dropped.map((d) => describeDropped(d)).join(" ")} Their budgeted amounts are gone; the
+          spending itself still counts, under whichever category it now belongs to.
+          <button
+            type="button"
+            className="btn ghost sm"
+            style={{ marginLeft: 8 }}
+            onClick={() => setDropped([])}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {currentBudget && (
         <>
           <div className="section-title">
@@ -162,8 +179,9 @@ export function Budgets() {
           categories={categories}
           avgByCategory={avgByCategory}
           onClose={() => setModalMode(null)}
-          onSaved={(id) => {
+          onSaved={(id, droppedCategories) => {
             setModalMode(null);
+            setDropped(droppedCategories);
             loadBudgets();
             // setCurrentBudgetId is a no-op when editing the already-selected
             // budget (same id in, same id out), which would otherwise leave
@@ -177,13 +195,22 @@ export function Budgets() {
   );
 }
 
+/** Why a category couldn't stay in the budget, in the user's terms — a
+ * budget outlives the category tree it was built against. */
+function describeDropped(d: DroppedCategory): string {
+  const name = d.name === null ? `Category #${d.category_id}` : `"${d.name}"`;
+  if (d.reason === "broken_down") return `${name} was split into subcategories — budget those instead.`;
+  if (d.reason === "archived") return `${name} was archived.`;
+  return `${name} was deleted.`;
+}
+
 interface BudgetModalProps {
   mode: "new" | "edit";
   budget: Budget | null;
   categories: Category[];
   avgByCategory: Record<number, number>;
   onClose: () => void;
-  onSaved: (budgetId: number) => void;
+  onSaved: (budgetId: number, dropped: DroppedCategory[]) => void;
 }
 
 function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved }: BudgetModalProps) {
@@ -279,10 +306,10 @@ function BudgetModal({ mode, budget, categories, avgByCategory, onClose, onSaved
 
     if (mode === "new") {
       const created = await budgetsApi.create({ name: name || "Untitled budget", year: CURRENT_YEAR, categories: categoryPayload });
-      onSaved(created.id);
+      onSaved(created.id, created.dropped_categories);
     } else if (budget) {
-      await budgetsApi.update(budget.id, { name, year: CURRENT_YEAR, categories: categoryPayload });
-      onSaved(budget.id);
+      const saved = await budgetsApi.update(budget.id, { name, year: CURRENT_YEAR, categories: categoryPayload });
+      onSaved(budget.id, saved.dropped_categories);
     }
   }
 

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -33,12 +35,24 @@ class BudgetCategoryRead(BaseModel):
     amounts: list[BudgetAmountRead]
 
 
+class DroppedCategoryRead(BaseModel):
+    """A category the save request listed that is no longer budgetable and was
+    left out. `name` is null when the category has been deleted outright."""
+
+    category_id: int
+    name: str | None
+    reason: Literal["removed", "archived", "broken_down"]
+
+
 class BudgetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
     budget_categories: list[BudgetCategoryRead]
+    # Only ever non-empty on a create/update response; reads never drop
+    # anything, so it defaults empty rather than being optional.
+    dropped_categories: list[DroppedCategoryRead] = []
 
 
 class MonthCell(BaseModel):

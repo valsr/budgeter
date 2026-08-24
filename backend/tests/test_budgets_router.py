@@ -40,22 +40,30 @@ def test_create_and_list_budgets(client, auth_headers, groceries_id):
     assert len(resp.json()) == 1
 
 
-def test_create_budget_non_leaf_rejected(client, auth_headers, shared_id, groceries_id):
+def test_create_budget_drops_non_leaf_category(client, auth_headers, shared_id, groceries_id):
     resp = client.post(
         "/api/budgets",
         json={"name": "Bad", "year": 2026, "categories": [{"category_id": shared_id, "monthly_amounts": {"1": 100}}]},
         headers=auth_headers,
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["budget_categories"] == []
+    assert body["dropped_categories"] == [
+        {"category_id": shared_id, "name": "shared", "reason": "broken_down"}
+    ]
 
 
-def test_create_budget_unknown_category_404(client, auth_headers):
+def test_create_budget_drops_unknown_category(client, auth_headers):
     resp = client.post(
         "/api/budgets",
         json={"name": "x", "year": 2026, "categories": [{"category_id": 999, "monthly_amounts": {"1": 100}}]},
         headers=auth_headers,
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 201
+    assert resp.json()["dropped_categories"] == [
+        {"category_id": 999, "name": None, "reason": "removed"}
+    ]
 
 
 def test_get_budget(client, auth_headers, groceries_id):
@@ -111,18 +119,41 @@ def test_update_missing_budget_404(client, auth_headers):
     assert resp.status_code == 404
 
 
-def test_update_budget_bad_category_422(client, auth_headers, groceries_id, shared_id):
+def test_update_budget_drops_a_category_that_was_broken_down(client, auth_headers, groceries_id, shared_id):
+    """The reported bug: saving an existing budget whose category has since
+    gained children used to 422 with no way out, because the editor renders a
+    broken-down category as an unselectable section header."""
     created = client.post(
         "/api/budgets",
         json={"name": "Household", "year": 2026, "categories": [{"category_id": groceries_id, "monthly_amounts": {"1": 400}}]},
         headers=auth_headers,
     ).json()
+    client.post(
+        "/api/categories", json={"name": "alcohol", "parent_id": groceries_id}, headers=auth_headers
+    )
+
     resp = client.patch(
         f"/api/budgets/{created['id']}",
-        json={"year": 2026, "categories": [{"category_id": shared_id, "monthly_amounts": {"1": 100}}]},
+        json={"year": 2026, "categories": [{"category_id": groceries_id, "monthly_amounts": {"1": 400}}]},
         headers=auth_headers,
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["budget_categories"] == []
+    assert body["dropped_categories"] == [
+        {"category_id": groceries_id, "name": "groceries", "reason": "broken_down"}
+    ]
+
+
+def test_read_endpoints_report_no_dropped_categories(client, auth_headers, groceries_id):
+    created = client.post(
+        "/api/budgets",
+        json={"name": "Household", "year": 2026, "categories": [{"category_id": groceries_id, "monthly_amounts": {"1": 400}}]},
+        headers=auth_headers,
+    ).json()
+    assert created["dropped_categories"] == []
+    resp = client.get(f"/api/budgets/{created['id']}", headers=auth_headers)
+    assert resp.json()["dropped_categories"] == []
 
 
 def test_delete_budget(client, auth_headers, groceries_id):

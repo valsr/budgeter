@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -20,22 +21,56 @@ def _get_budget_or_404(db: Session, budget_id: int) -> Budget:
     return budget
 
 
+@dataclass(frozen=True)
+class DroppedCategory:
+    """A category the caller asked to budget that is no longer budgetable.
+    `name` is None when the category has been deleted outright."""
+
+    category_id: int
+    name: str | None
+    reason: str  # "removed" | "archived" | "broken_down"
+
+
 def _is_leaf_category(db: Session, category_id: int) -> bool:
+    """Archived children don't count. The category picker hides them, so a
+    category whose every child is archived renders as a selectable leaf --
+    and must therefore be budgetable here, or the editor would offer a
+    category that saving then silently discards."""
     child_count = db.execute(
-        select(func.count()).select_from(Category).where(Category.parent_id == category_id)
+        select(func.count())
+        .select_from(Category)
+        .where(Category.parent_id == category_id)
+        .where(Category.archived_at.is_(None))
     ).scalar_one()
     return child_count == 0
 
 
-def _validate_categories(db: Session, categories: list[CategoryInput]) -> None:
-    for category_id, _monthly in categories:
+def _partition_categories(
+    db: Session, categories: list[CategoryInput]
+) -> tuple[list[CategoryInput], list[DroppedCategory]]:
+    """Split the submitted categories into those still budgetable and those
+    that aren't any more.
+
+    A budget outlives the category tree it was built against: a leaf that was
+    budgeted last year may since have been deleted, archived, or broken down
+    into subcategories. The editor can't deselect any of those -- a broken-down
+    category renders as a plain section header and an archived one doesn't
+    render at all -- so rejecting the save left the budget permanently
+    unsaveable. Drop them instead, and report which, so the caller can say what
+    happened rather than losing a line silently."""
+    kept: list[CategoryInput] = []
+    dropped: list[DroppedCategory] = []
+    for category_id, monthly in categories:
         category = db.get(Category, category_id)
         if category is None:
-            raise NotFoundError(f"Category {category_id} not found")
-        if not _is_leaf_category(db, category_id):
-            raise ValidationError(
-                f"Category {category_id} has children; only leaf categories can be directly budgeted"
-            )
+            dropped.append(DroppedCategory(category_id, None, "removed"))
+        elif category.archived_at is not None:
+            dropped.append(DroppedCategory(category_id, category.name, "archived"))
+        elif not _is_leaf_category(db, category_id):
+            dropped.append(DroppedCategory(category_id, category.name, "broken_down"))
+        else:
+            kept.append((category_id, monthly))
+    return kept, dropped
 
 
 def _build_budget_categories(categories: list[CategoryInput], year: int) -> list[BudgetCategory]:
@@ -49,14 +84,16 @@ def _build_budget_categories(categories: list[CategoryInput], year: int) -> list
     return result
 
 
-def create_budget(db: Session, name: str, categories: list[CategoryInput], year: int) -> Budget:
-    _validate_categories(db, categories)
+def create_budget(
+    db: Session, name: str, categories: list[CategoryInput], year: int
+) -> tuple[Budget, list[DroppedCategory]]:
+    categories, dropped = _partition_categories(db, categories)
     budget = Budget(name=name)
     budget.budget_categories = _build_budget_categories(categories, year)
     db.add(budget)
     db.commit()
     db.refresh(budget)
-    return budget
+    return budget, dropped
 
 
 def update_budget(
@@ -65,14 +102,15 @@ def update_budget(
     name: str | None = None,
     categories: list[CategoryInput] | None = None,
     year: int | None = None,
-) -> Budget:
+) -> tuple[Budget, list[DroppedCategory]]:
     budget = _get_budget_or_404(db, budget_id)
+    dropped: list[DroppedCategory] = []
     if name is not None:
         budget.name = name
     if categories is not None:
         if year is None:
             raise ValidationError("year is required when replacing budget categories")
-        _validate_categories(db, categories)
+        categories, dropped = _partition_categories(db, categories)
         for bc in list(budget.budget_categories):
             db.delete(bc)
         # Flush the deletes before adding replacement rows -- otherwise a
@@ -84,7 +122,7 @@ def update_budget(
         budget.budget_categories = _build_budget_categories(categories, year)
     db.commit()
     db.refresh(budget)
-    return budget
+    return budget, dropped
 
 
 def delete_budget(db: Session, budget_id: int) -> None:

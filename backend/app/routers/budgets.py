@@ -4,7 +4,14 @@ from sqlalchemy.orm import Session
 from app.auth import require_api_key
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
-from app.schemas.budget import BudgetCreate, BudgetRead, BudgetUpdate, MonthCell, ReportRowRead
+from app.schemas.budget import (
+    BudgetCreate,
+    BudgetRead,
+    BudgetUpdate,
+    DroppedCategoryRead,
+    MonthCell,
+    ReportRowRead,
+)
 from app.services import budgets as budgets_service
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"], dependencies=[Depends(require_api_key)])
@@ -12,6 +19,17 @@ router = APIRouter(prefix="/api/budgets", tags=["budgets"], dependencies=[Depend
 
 def _categories_as_tuples(categories):
     return [(c.category_id, c.monthly_amounts) for c in categories]
+
+
+def _saved_budget_read(budget, dropped) -> BudgetRead:
+    """A save response also reports the categories the request listed that
+    are no longer budgetable -- see budgets_service._partition_categories."""
+    read = BudgetRead.model_validate(budget)
+    read.dropped_categories = [
+        DroppedCategoryRead(category_id=d.category_id, name=d.name, reason=d.reason)
+        for d in dropped
+    ]
+    return read
 
 
 def row_to_read(row) -> ReportRowRead:
@@ -35,9 +53,10 @@ def list_budgets(db: Session = Depends(get_db)):
 @router.post("", response_model=BudgetRead, status_code=201)
 def create_budget(payload: BudgetCreate, db: Session = Depends(get_db)):
     try:
-        return budgets_service.create_budget(
+        budget, dropped = budgets_service.create_budget(
             db, name=payload.name, categories=_categories_as_tuples(payload.categories), year=payload.year
         )
+        return _saved_budget_read(budget, dropped)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValidationError as e:
@@ -55,13 +74,14 @@ def get_budget(budget_id: int, db: Session = Depends(get_db)):
 @router.patch("/{budget_id}", response_model=BudgetRead)
 def update_budget(budget_id: int, payload: BudgetUpdate, db: Session = Depends(get_db)):
     try:
-        return budgets_service.update_budget(
+        budget, dropped = budgets_service.update_budget(
             db,
             budget_id,
             name=payload.name,
             categories=_categories_as_tuples(payload.categories) if payload.categories is not None else None,
             year=payload.year,
         )
+        return _saved_budget_read(budget, dropped)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValidationError as e:

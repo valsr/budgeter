@@ -203,10 +203,21 @@ export interface BudgetCategory {
   amounts: BudgetAmount[];
 }
 
+/** A category a save request listed that is no longer budgetable — deleted,
+ * archived, or broken down into subcategories since the budget was built.
+ * `name` is null when the category no longer exists at all. */
+export interface DroppedCategory {
+  category_id: number;
+  name: string | null;
+  reason: "removed" | "archived" | "broken_down";
+}
+
 export interface Budget {
   id: number;
   name: string;
   budget_categories: BudgetCategory[];
+  /** Only ever non-empty on a create/update response. */
+  dropped_categories: DroppedCategory[];
 }
 
 export interface MonthCell {
