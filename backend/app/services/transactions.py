@@ -524,17 +524,38 @@ def _descendant_category_ids(db: Session, category_id: int) -> list[int]:
 
 
 def _is_uncategorized_clause():
-    """A transaction is "uncategorized" when it's a normal (non-transfer)
-    transaction with at least one split lacking a confirmed category. The
-    wireframe's Categorized/Uncategorized filter toggles treat transfers as
-    categorized, matching this."""
+    """A transaction is "uncategorized" when it has a split lacking a
+    confirmed category and nothing else in its entry supplies one.
+
+    Transfers are included. They used to be excluded as categorized-by-
+    definition, which was right while a transfer *couldn't* carry a category
+    -- but a linked pair now takes one (see link_as_transfer), so a pair
+    with none is genuinely outstanding work and belongs in the filter.
+
+    The pair check is what keeps a *categorized* pair out: its category sits
+    on one leg by design, so the other leg's NULL split is not a missing
+    categorization, it's the model working."""
     uncat_split_exists = (
         select(Split.id)
         .where(Split.transaction_id == Transaction.id)
         .where(Split.category_id.is_(None))
+        # Correlate Transaction only. An amount or category filter joins Split
+        # into the outer query too, and without this SQLAlchemy auto-correlates
+        # that away as well -- leaving this subquery with no FROM at all and
+        # raising rather than running.
+        .correlate(Transaction)
         .exists()
     )
-    return and_(Transaction.type == TransactionType.NORMAL, uncat_split_exists)
+    # Matches nothing when transfer_pair_id is NULL, so an ordinary
+    # transaction reduces to the plain "has an uncategorized split" test.
+    pair_carries_category = (
+        select(Split.id)
+        .where(Split.transaction_id == Transaction.transfer_pair_id)
+        .where(Split.category_id.is_not(None))
+        .correlate(Transaction)
+        .exists()
+    )
+    return and_(uncat_split_exists, ~pair_carries_category)
 
 
 def _entry_key_expr():
@@ -666,12 +687,12 @@ def list_transactions(
 
 
 def count_uncategorized(db: Session) -> int:
+    """Counted by entry, matching the list: a linked pair is one thing to
+    categorize, not two."""
     stmt = (
-        select(func.count(func.distinct(Transaction.id)))
+        select(func.count(func.distinct(_entry_key_expr())))
         .select_from(Transaction)
-        .join(Split, Split.transaction_id == Transaction.id)
-        .where(Transaction.type == TransactionType.NORMAL)
-        .where(Split.category_id.is_(None))
+        .where(_is_uncategorized_clause())
     )
     return db.execute(stmt).scalar_one()
 

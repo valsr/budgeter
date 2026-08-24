@@ -184,10 +184,23 @@ def test_count_uncategorized(db_session, account, category):
     assert txn_svc.count_uncategorized(db_session) == 1
 
 
-def test_count_uncategorized_excludes_transfers(db_session, account, other_account):
+def test_count_uncategorized_includes_an_uncategorized_transfer(db_session, account, other_account):
+    """A pair with no category on either leg is real outstanding work now
+    that a pair can carry one — and it counts once, not once per leg."""
     txn_svc.create_transfer(
-        db_session, account.id, other_account.id, dt.date(2026, 1, 1), "Payment", 300.0
+        db_session, account.id, other_account.id, dt.date(2026, 1, 1), "Payment", 100.0
     )
+    assert txn_svc.count_uncategorized(db_session) == 1
+
+
+def test_count_uncategorized_excludes_a_categorized_transfer(
+    db_session, account, other_account, category
+):
+    """The other leg's NULL split is the model working, not a gap."""
+    from_txn, _ = txn_svc.create_transfer(
+        db_session, account.id, other_account.id, dt.date(2026, 1, 1), "Payment", 100.0
+    )
+    txn_svc.update_transaction_splits(db_session, from_txn.id, [(category.id, -100.0)])
     assert txn_svc.count_uncategorized(db_session) == 0
 
 
@@ -259,18 +272,30 @@ def test_list_transactions_uncategorized_only(db_session, account, category):
     assert items[0].name == "uncat"
 
 
-def test_list_transactions_categorized_only_includes_transfers(db_session, account, other_account, category):
+def test_list_transactions_uncategorized_only_includes_an_uncategorized_transfer(
+    db_session, account, other_account, category
+):
     txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -1.0)])
     txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 2), "cat", [(category.id, -2.0)])
     txn_svc.create_transfer(db_session, account.id, other_account.id, dt.date(2026, 1, 3), "Payment", 10.0)
 
-    items, total = txn_svc.list_transactions(db_session, show_uncategorized=False)
-    # transfers count as categorized (wireframe: isCat includes status==='transfer'),
-    # and a linked pair is one entry, so: "cat" + the transfer.
-    assert total == 2
-    # Both legs still come back -- rendering the pair as one line needs both.
-    assert len(items) == 3
-    assert all(t.name != "uncat" for t in items)
+    _items, total = txn_svc.list_transactions(db_session, show_categorized=False)
+    assert total == 2  # "uncat" + the uncategorized transfer, counted once
+
+    _items, total = txn_svc.list_transactions(db_session, show_uncategorized=False)
+    assert total == 1  # just "cat"
+
+
+def test_a_categorized_transfer_lists_as_categorized(db_session, account, other_account, category):
+    from_txn, _ = txn_svc.create_transfer(
+        db_session, account.id, other_account.id, dt.date(2026, 1, 3), "Payment", 10.0
+    )
+    txn_svc.update_transaction_splits(db_session, from_txn.id, [(category.id, -10.0)])
+
+    _items, total = txn_svc.list_transactions(db_session, show_categorized=False)
+    assert total == 0
+    _items, total = txn_svc.list_transactions(db_session, show_uncategorized=False)
+    assert total == 1
 
 
 def test_list_transactions_partially_categorized_split_counts_as_uncategorized(db_session, account, category):
@@ -520,11 +545,12 @@ def test_link_as_transfer_rejects_split_leg(db_session, account, other_account, 
         txn_svc.link_as_transfer(db_session, out.id, into.id)
 
 
-def test_linked_transfer_leaves_uncategorized_count(db_session, leg_pair):
+def test_linking_two_uncategorized_legs_leaves_one_thing_to_categorize(db_session, leg_pair):
     out, into = leg_pair
     assert txn_svc.count_uncategorized(db_session) == 2
     txn_svc.link_as_transfer(db_session, out.id, into.id)
-    assert txn_svc.count_uncategorized(db_session) == 0
+    # Still outstanding, but it's one movement to categorize now, not two.
+    assert txn_svc.count_uncategorized(db_session) == 1
 
 
 def test_unlink_transfer_restores_both_legs(db_session, leg_pair):
@@ -684,3 +710,64 @@ def test_an_uncategorized_pair_still_stays_out_of_budgets(db_session, category, 
     row = next(r for r in rows if r.category_id == category.id)
     _budgeted, actual = row.monthly[5]
     assert actual == Decimal("0")
+
+
+# --- the uncategorized filter alongside a Split-joining filter ---------
+
+
+def test_uncategorized_filter_with_an_amount_filter(db_session, account, category):
+    """These two filters were never combined in a test. The uncategorized
+    clause is a correlated EXISTS over Split, and an amount filter joins Split
+    into the outer query too -- without an explicit correlate that subquery
+    loses its FROM and the query raises instead of running."""
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -5.0)])
+    txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 2), "cat", [(category.id, -9.0)]
+    )
+
+    items, total = txn_svc.list_transactions(
+        db_session, amount_max=0.0, show_categorized=False
+    )
+    assert total == 1
+    assert [t.name for t in items] == ["uncat"]
+
+
+def test_categorized_filter_with_an_amount_filter(db_session, account, category):
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -5.0)])
+    txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 2), "cat", [(category.id, -9.0)]
+    )
+
+    items, total = txn_svc.list_transactions(
+        db_session, amount_max=0.0, show_uncategorized=False
+    )
+    assert total == 1
+    assert [t.name for t in items] == ["cat"]
+
+
+def test_uncategorized_filter_with_a_category_filter(db_session, account, category):
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -5.0)])
+    txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 2), "cat", [(category.id, -9.0)]
+    )
+
+    # Contradictory by nature — a confirmed category can't also be missing one
+    # — but it must return nothing rather than raise.
+    _items, total = txn_svc.list_transactions(
+        db_session, category_id=category.id, show_categorized=False
+    )
+    assert total == 0
+
+
+def test_uncategorized_filter_with_an_amount_filter_and_a_linked_pair(
+    db_session, account, category, linked_pair
+):
+    txn_svc.create_transaction(db_session, account.id, dt.date(2026, 1, 1), "uncat", [(None, -5.0)])
+
+    items, total = txn_svc.list_transactions(
+        db_session, amount_max=0.0, show_categorized=False
+    )
+    # The pair has no category on either leg, so it's outstanding too — and
+    # its withdrawal leg is what the amount filter matches.
+    assert total == 2
+    assert {t.name for t in items} == {"uncat", "PTS TO: 15096000884", "PTS FRM: 17366263382"}

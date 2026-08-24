@@ -213,3 +213,35 @@ it("writes a pair's category to the withdrawal leg when neither leg carries one"
   // Leg 1 is the −1024 withdrawal leg; the server clears the other.
   await waitFor(() => expect(updateSplits).toHaveBeenCalledWith(1, [{ category_id: 6, amount: -1024 }]));
 });
+
+it("marks an uncategorized pair as outstanding, like any other uncategorized row", async () => {
+  list.mockResolvedValue({ items: PAIR, total: 1, page: 1, page_size: 100 });
+  renderTable();
+
+  const row = (await screen.findByText("PTS TO: 15096000884")).closest("tr")!;
+  expect(row.className).toMatch(/uncat-[ab]/);
+});
+
+it("does not mark a pair whose category sits on the other leg", async () => {
+  list.mockResolvedValue({
+    items: [
+      txn({ id: 1, account_id: 1, amount: -1024, name: "PTS TO", type: "transfer", transfer_pair_id: 2 }),
+      {
+        ...txn({ id: 2, account_id: 2, amount: 1024, name: "PTS FRM", type: "transfer", transfer_pair_id: 1 }),
+        splits: [{ id: 20, category_id: 6, amount: 1024, suggested_category_id: null, suggestion_source: null }],
+      },
+    ],
+    total: 1,
+    page: 1,
+    page_size: 100,
+  });
+  render(
+    <ToastProvider>
+      <TransactionTable categories={CATEGORIES} accounts={accounts} />
+    </ToastProvider>,
+  );
+
+  // The withdrawal leg's empty split is the model working, not a gap.
+  const row = (await screen.findByText("PTS TO")).closest("tr")!;
+  expect(row.className).not.toMatch(/uncat-[ab]/);
+});

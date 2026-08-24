@@ -73,6 +73,19 @@ function carryingLeg(from: Transaction, to: Transaction): Transaction {
   return to.splits.some((s) => s.category_id !== null) ? to : from;
 }
 
+/** Whether the entry still needs categorizing — mirrors the server's
+ * _is_uncategorized_clause. A pair counts as uncategorized only when neither
+ * leg carries a category: the non-carrying leg's empty split is the model
+ * working, not a gap. */
+function isEntryUncategorized(entry: Entry): boolean {
+  if (entry.kind === "pair") {
+    return ![entry.from, entry.to].some((leg) =>
+      leg.splits.some((s) => s.category_id !== null),
+    );
+  }
+  return entry.txn.splits.some((s) => s.category_id === null);
+}
+
 export function TransactionTable({
   categories,
   accounts,
@@ -353,7 +366,7 @@ export function TransactionTable({
 
   /** A linked pair on one line: where the money went, and the one category it
    * counts under. */
-  function renderPairRow(entry: Extract<Entry, { kind: "pair" }>) {
+  function renderPairRow(entry: Extract<Entry, { kind: "pair" }>, rowClass: string) {
     const { from, to, carrying } = entry;
     const amount = Math.abs(totalOf(from));
     // Deposit/Withdraw are account-relative, so they only mean something when
@@ -365,7 +378,7 @@ export function TransactionTable({
         : [from, to].find((leg) => leg.account_id === viewingAccountId);
 
     return (
-      <tr key={`pair-${from.id}-${to.id}`} className="transfer-row">
+      <tr key={`pair-${from.id}-${to.id}`} className={("transfer-row " + rowClass).trim()}>
         <td>{from.date}</td>
         <td title={`Other leg: ${to.name}`}>
           <span className="transfer-mark" aria-label="Linked transfer">
@@ -522,7 +535,12 @@ export function TransactionTable({
             // consecutive uncategorized rows; track the count while rendering.
             let uncatCounter = 0;
             return entries.map((entry) => {
-            if (entry.kind === "pair") return renderPairRow(entry);
+            let entryClass = "";
+            if (isEntryUncategorized(entry)) {
+              uncatCounter += 1;
+              entryClass = uncatCounter % 2 === 1 ? "uncat-a" : "uncat-b";
+            }
+            if (entry.kind === "pair") return renderPairRow(entry, entryClass);
             const txn = entry.txn;
             const account = accountById.get(txn.account_id);
             const accountColor = account?.color ?? DEFAULT_ACCOUNT_COLOR;
@@ -534,13 +552,10 @@ export function TransactionTable({
 
             if (txn.splits.length === 1) {
               const split = txn.splits[0];
-              const isUncat = txn.type === "normal" && split.category_id === null;
-              let rowClass = "";
-              if (isUncat) {
-                uncatCounter += 1;
-                rowClass = (uncatCounter % 2 === 1 ? "uncat-a" : "uncat-b") +
-                  (split.suggested_category_id !== null ? " suggest-row" : "");
-              }
+              const rowClass =
+                entryClass && split.suggested_category_id !== null
+                  ? entryClass + " suggest-row"
+                  : entryClass;
               return (
                 <tr key={txn.id} className={rowClass}>
                   <td>{txn.date}</td>
