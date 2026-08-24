@@ -162,6 +162,26 @@ def test_learn_check_conflict_when_existing_rule_matches_different_category(
     assert refreshed["splits"][0]["category_id"] == other
 
 
+def test_learn_check_conflict_summary_names_the_account(client, auth_headers, category_id, account_id):
+    other = client.post("/api/categories", json={"name": "other"}, headers=auth_headers).json()["id"]
+    client.post(
+        "/api/rules",
+        json={
+            "match_type": "all",
+            "conditions": [{"field": "account", "operator": "equals", "value": str(account_id)}],
+            "target_category_id": category_id,
+        },
+        headers=auth_headers,
+    )
+    txn = _categorized_txn(client, auth_headers, account_id, "GitHub Inc.", other)
+
+    resp = client.post("/api/rules/learn-check", json={"transaction_id": txn["id"]}, headers=auth_headers)
+    body = resp.json()
+    assert body["status"] == "conflict"
+    # An account condition stores an id; the summary must read as the name.
+    assert body["conflict"]["rule_summary"] == "account equals 'Main'"
+
+
 def test_learn_check_suggestion_tier1_happy_path(client, auth_headers, category_id, account_id):
     for i, suffix in enumerate(["775", "756", "123"]):
         _categorized_txn(

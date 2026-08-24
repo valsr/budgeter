@@ -1,12 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Category, Rule } from "../api/types";
+import type { Account, Category, Rule } from "../api/types";
 import { RuleModal } from "./RuleModal";
 
 const create = vi.fn();
 const update = vi.fn();
 const learn = vi.fn();
 const previewMatches = vi.fn();
+const listAccounts = vi.fn();
+
+vi.mock("../api/accounts", () => ({
+  accountsApi: { list: () => listAccounts() },
+}));
 
 vi.mock("../api/rules", () => ({
   rulesApi: {
@@ -29,6 +34,11 @@ const categories: Category[] = [
   },
 ];
 
+const accounts: Account[] = [
+  { id: 7, name: "Main checking", account_number: null, type: "asset", opening_balance: 0, color: "#111", balance: 0 },
+  { id: 8, name: "Visa", account_number: null, type: "liability", opening_balance: 0, color: "#222", balance: 0 },
+];
+
 const rule: Rule = {
   id: 5,
   match_type: "all",
@@ -43,6 +53,7 @@ describe("RuleModal", () => {
     update.mockReset().mockResolvedValue(rule);
     learn.mockReset().mockResolvedValue({ rule, confirmed_count: 0, confirmed_transaction_ids: [] });
     previewMatches.mockReset().mockResolvedValue({ count: 0, matches: [] });
+    listAccounts.mockReset().mockResolvedValue(accounts);
   });
 
   it("plain new mode calls create, not learn (regression guard for the extraction)", async () => {
@@ -147,6 +158,50 @@ describe("RuleModal", () => {
     expect(screen.getByText("McDonalds #12")).toBeInTheDocument();
     expect(screen.queryByText("McDonalds #1")).not.toBeInTheDocument();
     expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
+  });
+
+  it("picks an account by name for an account condition instead of asking for a raw id", async () => {
+    const onSaved = vi.fn();
+    render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={onSaved} />);
+    await waitFor(() => expect(listAccounts).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByDisplayValue("Name"), { target: { value: "account" } });
+
+    // Free-text value input is replaced by the account picker, and the
+    // operator collapses to the only one an account id supports.
+    expect(screen.queryByPlaceholderText("value")).not.toBeInTheDocument();
+    const picker = screen.getByLabelText("Account") as HTMLSelectElement;
+    expect(picker.value).toBe("7"); // defaulted, not left blank
+    expect(screen.getByText("Visa")).toBeInTheDocument();
+
+    fireEvent.change(picker, { target: { value: "8" } });
+    fireEvent.click(screen.getByText("Save rule"));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create).toHaveBeenCalledWith({
+      match_type: "all",
+      conditions: [{ field: "account", operator: "equals", value: "8" }],
+      target_category_id: 2,
+    });
+  });
+
+  it("clears a carried-over value when switching a condition away from account", async () => {
+    render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={() => {}} />);
+    await waitFor(() => expect(listAccounts).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByDisplayValue("Name"), { target: { value: "account" } });
+    fireEvent.change(screen.getByDisplayValue("Account"), { target: { value: "name" } });
+
+    // An account id left in a name condition would silently match nothing.
+    expect((screen.getByPlaceholderText("value") as HTMLInputElement).value).toBe("");
+  });
+
+  it("keeps Save disabled until every condition has a value", async () => {
+    render(<RuleModal mode="new" categories={categories} onClose={() => {}} onSaved={() => {}} />);
+    expect(screen.getByText("Save rule")).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText("value"), { target: { value: "spotify" } });
+    expect(screen.getByText("Save rule")).not.toBeDisabled();
   });
 
   it("does not call previewMatches while a condition value is empty", async () => {

@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
+import { accountsApi } from "../api/accounts";
 import { flattenLeafCategories } from "../api/categories";
 import { rulesApi } from "../api/rules";
-import type { Category, ConditionField, ConditionOperator, MatchType, PreviewMatchItem, Rule } from "../api/types";
+import type {
+  Account,
+  Category,
+  ConditionField,
+  ConditionOperator,
+  MatchType,
+  PreviewMatchItem,
+  Rule,
+} from "../api/types";
 import { Modal } from "./Modal";
 
 // 20% wider than the default 460px modal -- the condition row (two selects
@@ -32,9 +41,19 @@ const AMOUNT_OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
   { value: "is_deposit", label: "is a deposit/credit" },
   { value: "is_withdrawal", label: "is a withdrawal/debit" },
 ];
+// Account-only: the condition's value is an account *id* (rule_engine
+// compares TransactionContext.account_id), so the only operator with a
+// sensible meaning is equality -- substring and ordering comparisons on a
+// surrogate key are nonsense, and the coercion behind them (int(value))
+// rejects anything but a bare id.
+const ACCOUNT_OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
+  { value: "equals", label: "is" },
+];
 const DIRECTION_OPERATORS: ConditionOperator[] = ["is_deposit", "is_withdrawal"];
 function operatorOptionsFor(field: ConditionField) {
-  return field === "amount" ? AMOUNT_OPERATOR_OPTIONS : OPERATOR_OPTIONS;
+  if (field === "amount") return AMOUNT_OPERATOR_OPTIONS;
+  if (field === "account") return ACCOUNT_OPERATOR_OPTIONS;
+  return OPERATOR_OPTIONS;
 }
 function operatorNeedsValue(operator: ConditionOperator) {
   return !DIRECTION_OPERATORS.includes(operator);
@@ -44,6 +63,14 @@ interface RuleConditionInput {
   field: ConditionField;
   operator: ConditionOperator;
   value: string;
+}
+
+/** Pull a loaded condition onto an operator this editor still offers for its
+ * field -- older account conditions may carry a `contains`/`less_than`
+ * operator that only ever compared account ids by accident. */
+function normalizeCondition(c: RuleConditionInput): RuleConditionInput {
+  const valid = operatorOptionsFor(c.field).map((o) => o.value);
+  return valid.includes(c.operator) ? c : { ...c, operator: valid[0] };
 }
 
 interface RuleModalProps {
@@ -71,8 +98,10 @@ interface RuleModalProps {
 export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, learnedFlow, mergeSourceRules }: RuleModalProps) {
   const [matchType, setMatchType] = useState<MatchType>(rule?.match_type ?? initial?.matchType ?? "all");
   const [conditions, setConditions] = useState<RuleConditionInput[]>(
-    rule?.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value })) ??
-      initial?.conditions ?? [{ field: "name", operator: "contains", value: "" }],
+    (
+      rule?.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value })) ??
+      initial?.conditions ?? [{ field: "name", operator: "contains", value: "" }]
+    ).map(normalizeCondition),
   );
   const leafOptions = flattenLeafCategories(categories);
   const [targetCategoryId, setTargetCategoryId] = useState<number | "">(
@@ -80,6 +109,13 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
   );
   const [preview, setPreview] = useState<{ count: number; matches: PreviewMatchItem[] } | null>(null);
   const [previewPage, setPreviewPage] = useState(1);
+  // An `account` condition's value is an account id, so the picker needs the
+  // account list to turn that into something choosable and readable.
+  const [accounts, setAccounts] = useState<Account[]>([]);
+
+  useEffect(() => {
+    accountsApi.list().then(setAccounts);
+  }, []);
 
   function updateCondition(i: number, patch: Partial<RuleConditionInput>) {
     setConditions((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
@@ -111,8 +147,12 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
     ? preview.matches.slice((previewPage - 1) * PREVIEW_PAGE_SIZE, previewPage * PREVIEW_PAGE_SIZE)
     : [];
 
+  const incomplete =
+    targetCategoryId === "" ||
+    conditions.some((c) => operatorNeedsValue(c.operator) && c.value.trim() === "");
+
   async function save() {
-    if (targetCategoryId === "") return;
+    if (incomplete) return;
     const payload = { match_type: matchType, conditions, target_category_id: targetCategoryId };
     if (learnedFlow) {
       await rulesApi.learn(payload);
@@ -141,6 +181,7 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
       onClose={onClose}
       onSubmit={save}
       submitLabel={mergeSourceRules ? "Create merged rule" : learnedFlow ? "Add rule" : "Save rule"}
+      submitDisabled={incomplete}
       width={MODAL_WIDTH}
     >
       {mergeSourceRules && (
@@ -168,7 +209,18 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
               // back to the first still-valid operator instead of keeping
               // a now-meaningless one selected.
               const operator = validOperators.includes(c.operator) ? c.operator : validOperators[0];
-              updateCondition(i, { field, operator, value: operatorNeedsValue(operator) ? c.value : "" });
+              // Switching into or out of `account` changes what the value
+              // means (an account id vs. free text), so carrying the old one
+              // over would leave an id showing as a name, or a name that
+              // fails the server's int() coercion. Default a new account
+              // condition to the first account instead of an empty pick.
+              const switchesValueKind = (field === "account") !== (c.field === "account");
+              const value = switchesValueKind
+                ? field === "account"
+                  ? String(accounts[0]?.id ?? "")
+                  : ""
+                : c.value;
+              updateCondition(i, { field, operator, value: operatorNeedsValue(operator) ? value : "" });
             }}
           >
             {FIELD_OPTIONS.map((f) => (
@@ -190,7 +242,23 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
               </option>
             ))}
           </select>
-          {operatorNeedsValue(c.operator) ? (
+          {c.field === "account" ? (
+            <select
+              aria-label="Account"
+              style={{ flex: 1 }}
+              value={c.value}
+              onChange={(e) => updateCondition(i, { value: e.target.value })}
+            >
+              <option value="" disabled>
+                Select an account
+              </option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          ) : operatorNeedsValue(c.operator) ? (
             <input
               placeholder="value"
               style={{ flex: 1 }}

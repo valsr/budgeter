@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from app.auth import require_api_key
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
-from app.models.rule import MatchType
+from app.models.account import Account
+from app.models.rule import ConditionField, MatchType
 from app.schemas.rule import (
     LearnCheckRequest,
     LearnCheckResponse,
@@ -36,9 +37,22 @@ def _conditions_as_tuples(conditions):
     return [(c.field, c.operator, c.value) for c in conditions]
 
 
-def _summarize_rule(rule: RuleSpec) -> str:
+def _summarize_rule(db: Session, rule: RuleSpec) -> str:
+    """Human-readable one-liner for a rule, as shown in the learn-check
+    conflict toast. An ACCOUNT condition's value is an account id, so it is
+    resolved to the account's name rather than surfaced as a bare number."""
+
+    def _value(condition: Condition) -> str:
+        if condition.field == ConditionField.ACCOUNT:
+            account = db.get(Account, int(condition.value)) if condition.value.isdigit() else None
+            if account is not None:
+                return account.name
+        return condition.value
+
     joiner = " or " if rule.match_type == MatchType.ANY else " and "
-    return joiner.join(f"{c.field.value} {c.operator.value} '{c.value}'" for c in rule.conditions)
+    return joiner.join(
+        f"{c.field.value} {c.operator.value} '{_value(c)}'" for c in rule.conditions
+    )
 
 
 @router.get("", response_model=list[RuleRead])
@@ -123,7 +137,7 @@ def learn_check(payload: LearnCheckRequest, db: Session = Depends(get_db)):
             status="conflict",
             conflict=RuleConflictInfo(
                 rule_id=matched_rule.id,
-                rule_summary=_summarize_rule(matched_rule),
+                rule_summary=_summarize_rule(db, matched_rule),
                 matched_category_id=matched_rule.target_category_id,
                 assigned_category_id=split.category_id,
             ),

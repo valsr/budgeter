@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { accountsApi } from "../api/accounts";
 import { backupApi } from "../api/backup";
 import { categoriesApi, flattenAllCategories } from "../api/categories";
 import { setApiKey } from "../api/client";
 import { rulesApi } from "../api/rules";
 import { settingsApi } from "../api/settings";
-import type { Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
+import type { Account, Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
 import { Modal } from "../components/Modal";
 import { RuleModal } from "../components/RuleModal";
 import { RunRulesModal } from "../components/RunRulesModal";
@@ -325,10 +326,16 @@ function CategoryModal({
 /** One-line human-readable summary of a rule condition. is_deposit/
  * is_withdrawal carry no value (they match on the split's sign alone), so
  * they're worded as a plain statement instead of the usual field/operator/
- * value template -- which would otherwise print a bare empty "". */
-function conditionSummary(c: { field: ConditionField; operator: ConditionOperator; value: string }): string {
+ * value template -- which would otherwise print a bare empty "". An
+ * `account` condition stores an account id, so it's resolved to the account
+ * name rather than shown as a bare number. */
+function conditionSummary(
+  c: { field: ConditionField; operator: ConditionOperator; value: string },
+  accountName: (id: string) => string,
+): string {
   if (c.operator === "is_deposit") return `${c.field} is a deposit/credit`;
   if (c.operator === "is_withdrawal") return `${c.field} is a withdrawal/debit`;
+  if (c.field === "account") return `account is "${accountName(c.value)}"`;
   return `${c.field} ${c.operator} "${c.value}"`;
 }
 
@@ -362,6 +369,7 @@ function RulesTab() {
   const [mergeMode, setMergeMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [mergeModalRules, setMergeModalRules] = useState<Rule[] | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
   function load() {
     rulesApi.list().then(setRules);
@@ -384,6 +392,7 @@ function RulesTab() {
   useEffect(() => {
     load();
     categoriesApi.list().then(setCategories);
+    accountsApi.list().then(setAccounts);
   }, []);
 
   // Categories can nest to any depth (docs/requirements.md §2.2), so this
@@ -391,6 +400,7 @@ function RulesTab() {
   // -- flattenAllCategories already does that recursively.
   const categoryPaths = flattenAllCategories(categories);
   const categoryName = (id: number) => categoryPaths.find((o) => o.id === id)?.path ?? `#${id}`;
+  const accountName = (id: string) => accounts.find((a) => String(a.id) === id)?.name ?? `#${id}`;
 
   async function move(index: number, direction: -1 | 1) {
     const ids = rules.map((r) => r.id);
@@ -468,7 +478,7 @@ function RulesTab() {
               </>
             )}
             <b>{i + 1}.</b> if {rule.match_type.toUpperCase()}:{" "}
-            {rule.conditions.map(conditionSummary).join(" · ")} →{" "}
+            {rule.conditions.map((c) => conditionSummary(c, accountName)).join(" · ")} →{" "}
             <span className="tag" style={{ background: "#ece5f2", color: "#8a6aa0" }}>
               {categoryName(rule.target_category_id)}
             </span>

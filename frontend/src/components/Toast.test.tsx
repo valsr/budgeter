@@ -23,6 +23,12 @@ vi.mock("../api/rules", () => ({
   },
 }));
 
+// RuleModal (rendered by the learned-rule toast) loads accounts for its
+// account-condition picker.
+vi.mock("../api/accounts", () => ({
+  accountsApi: { list: vi.fn(() => Promise.resolve([])) },
+}));
+
 vi.mock("../api/categories", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/categories")>()),
   categoriesApi: {
