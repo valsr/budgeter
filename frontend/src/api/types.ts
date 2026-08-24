@@ -157,7 +157,18 @@ export interface DetectedAccount {
   parsed_name: string | null;
   transaction_count: number;
   matched_account_id: number | null;
+  match_reason: "name" | "account_number" | null;
   suggested_type: AccountType | null;
+  /** Account the counts below were computed against; null = a new account. */
+  target_account_id: number | null;
+  new_count: number;
+  duplicate_count: number;
+  needs_review_count: number;
+}
+
+export interface DetectAccountsOverride {
+  parsed_name: string | null;
+  account_id: number | null;
 }
 
 export interface DetectAccountsResponse {

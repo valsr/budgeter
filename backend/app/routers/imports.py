@@ -7,6 +7,7 @@ from app.db import get_db
 from app.errors import NotFoundError, ValidationError
 from app.models.account import AccountType
 from app.schemas.import_ import (
+    DetectAccountsRequest,
     DetectAccountsResponse,
     ImportBatchRead,
     ImportCommitRequest,
@@ -43,9 +44,24 @@ async def import_qif(
 
 
 @router.post("/detect-accounts", response_model=DetectAccountsResponse)
-async def detect_accounts(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def detect_accounts(
+    file: UploadFile = File(...),
+    overrides: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
     content = (await file.read()).decode("utf-8", errors="replace")
-    has_sections, accounts = imports_service.detect_accounts(db, file.filename or "import", content)
+
+    override_map: dict[str | None, int | None] | None = None
+    if overrides is not None:
+        try:
+            payload = DetectAccountsRequest.model_validate_json(overrides)
+        except PydanticValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        override_map = {o.parsed_name: o.account_id for o in payload.overrides}
+
+    has_sections, accounts = imports_service.detect_accounts(
+        db, file.filename or "import", content, overrides=override_map
+    )
     return DetectAccountsResponse(has_account_sections=has_sections, accounts=accounts)
 
 

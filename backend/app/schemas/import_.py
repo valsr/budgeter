@@ -40,12 +40,30 @@ class DetectedAccount(BaseModel):
     parsed_name: str | None
     transaction_count: int
     matched_account_id: int | None
+    match_reason: Literal["name", "account_number"] | None = None
     suggested_type: Literal["asset", "liability"] | None = None
+    # Which account the counts below were computed against — the auto-match
+    # unless the caller overrode it. None means "a new account", so every row
+    # counts as new.
+    target_account_id: int | None = None
+    new_count: int = 0
+    duplicate_count: int = 0
+    needs_review_count: int = 0
 
 
 class DetectAccountsResponse(BaseModel):
     has_account_sections: bool
     accounts: list[DetectedAccount]
+
+
+class DetectAccountsOverride(BaseModel):
+    parsed_name: str | None
+    # None = "the user chose to create a new account for this block".
+    account_id: int | None = None
+
+
+class DetectAccountsRequest(BaseModel):
+    overrides: list[DetectAccountsOverride] = []
 
 
 class NewAccountInput(BaseModel):

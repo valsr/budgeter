@@ -35,6 +35,7 @@ Replace the current workflow (bank statement → GnuCash import/classification a
 - Duplicate detection: exact match on **(account, date, amount, normalized name/memo)** → auto-skip.
 - Near-matches (same account/date/amount, differing memo — e.g. pending → posted) go to a **manual review queue**; user decides: new transaction / merge as update (overwrite memo, keep existing category & split) / skip.
 - Categorization runs **automatically, asynchronously**, immediately after import completes (import response is not blocked on it).
+- The file is chosen **first**; the app then previews it and asks for confirmation: the accounts it references, the existing account each one auto-matched to (by name or account number, user-overridable, or create a new account), and a per-account dry run of what will be imported / skipped as duplicate / flagged for review. Nothing is written until that is confirmed.
 
 ## 3. Categorization Engine
 

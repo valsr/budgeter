@@ -134,13 +134,49 @@ def import_qif(
     return _import_rows(db, account_id, filename, rows)
 
 
-def detect_accounts(db: Session, filename: str, content: str) -> tuple[bool, list[dict]]:
-    """Preview which accounts a file references before importing: which
-    match an existing account (by name or account number) and which are
-    new. `has_account_sections` is False for a classic single-account QIF
-    file (no `!Account` header) — the caller should fall back to letting
-    the user pick the target account manually rather than prompting for a
-    single unnamed "new account".
+def _dry_run_counts(
+    rows: list[QifTransaction], existing: list[ExistingTransaction]
+) -> tuple[int, int, int]:
+    """Classify rows the way `_import_rows` would, without writing anything.
+
+    `existing` is extended in place with the rows that would be imported, so
+    repeated calls against the same account (two file blocks resolving to one
+    account) see each other's rows, exactly as a real import would.
+    """
+    new_count = duplicate_count = review_count = 0
+    for row in rows:
+        match_type, _ = classify_match(row.date, row.amount, row.name, existing)
+        if match_type == MatchType.EXACT:
+            duplicate_count += 1
+        elif match_type == MatchType.NEAR:
+            review_count += 1
+        else:
+            new_count += 1
+            existing.append(
+                ExistingTransaction(id=-1, date=row.date, amount=row.amount, name=row.name)
+            )
+    return new_count, duplicate_count, review_count
+
+
+def detect_accounts(
+    db: Session,
+    filename: str,
+    content: str,
+    overrides: dict[str | None, int | None] | None = None,
+) -> tuple[bool, list[dict]]:
+    """Preview a file before importing it: which accounts it references,
+    which existing account each one matches (by name or account number), and
+    what would happen to its transactions — imported, skipped as duplicates,
+    or flagged for review.
+
+    `has_account_sections` is False for a classic single-account QIF file (no
+    `!Account` header); that file still yields one entry, with
+    `parsed_name` None, so the caller can prompt for its target account the
+    same way as for a named one.
+
+    `overrides` maps a parsed name to the account the user picked instead of
+    the auto-match — None meaning "create a new account", in which case every
+    row counts as new.
     """
     blocks = _parse_account_blocks(filename, content)
     has_sections = any(block.name is not None for block in blocks)
@@ -149,33 +185,53 @@ def detect_accounts(db: Session, filename: str, content: str) -> tuple[bool, lis
     order: list[str | None] = []
     for block in blocks:
         if block.name not in merged:
-            merged[block.name] = {"count": 0, "type_hint": block.account_type_hint}
+            merged[block.name] = {"rows": [], "type_hint": block.account_type_hint}
             order.append(block.name)
-        merged[block.name]["count"] += len(block.transactions)
+        merged[block.name]["rows"].extend(block.transactions)
 
     accounts = db.execute(select(Account)).scalars().all()
     by_name = {a.name.strip().lower(): a.id for a in accounts}
     by_number = {a.account_number.strip().lower(): a.id for a in accounts if a.account_number}
 
-    def _match(name: str | None) -> int | None:
+    def _match(name: str | None) -> tuple[int | None, str | None]:
         if name is None:
-            return None
+            return None, None
         key = name.strip().lower()
-        return by_name.get(key) or by_number.get(key)
+        if key in by_name:
+            return by_name[key], "name"
+        if key in by_number:
+            return by_number[key], "account_number"
+        return None, None
 
-    # A single-account file's one implicit (name=None) block isn't
-    # something to prompt about — the caller falls back to a manual account
-    # picker for it entirely, keyed off `has_account_sections` being False.
-    results = [
-        {
-            "parsed_name": name,
-            "transaction_count": merged[name]["count"],
-            "matched_account_id": _match(name),
-            "suggested_type": merged[name]["type_hint"],
-        }
-        for name in order
-        if name is not None
-    ]
+    existing_by_account: dict[int, list[ExistingTransaction]] = {}
+    results: list[dict] = []
+    for name in order:
+        rows: list[QifTransaction] = merged[name]["rows"]
+        matched_id, match_reason = _match(name)
+        target_id = overrides[name] if overrides is not None and name in overrides else matched_id
+
+        if target_id is None:
+            new_count, duplicate_count, review_count = len(rows), 0, 0
+        else:
+            if target_id not in existing_by_account:
+                existing_by_account[target_id] = _load_existing(db, target_id)
+            new_count, duplicate_count, review_count = _dry_run_counts(
+                rows, existing_by_account[target_id]
+            )
+
+        results.append(
+            {
+                "parsed_name": name,
+                "transaction_count": len(rows),
+                "matched_account_id": matched_id,
+                "match_reason": match_reason,
+                "suggested_type": merged[name]["type_hint"],
+                "target_account_id": target_id,
+                "new_count": new_count,
+                "duplicate_count": duplicate_count,
+                "needs_review_count": review_count,
+            }
+        )
     return has_sections, results
 
 

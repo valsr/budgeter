@@ -2,21 +2,29 @@ import type { DragEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { accountsApi } from "../api/accounts";
 import { importsApi } from "../api/imports";
-import type { Account, DetectAccountsResponse, ImportBatch, ImportResolutionInput, ReviewQueueItem } from "../api/types";
-import { DetectedAccountsModal } from "../components/DetectedAccountsModal";
+import type {
+  Account,
+  DetectAccountsOverride,
+  DetectAccountsResponse,
+  ImportBatch,
+  ImportResolutionInput,
+  ReviewQueueItem,
+} from "../api/types";
+import { ImportReviewModal } from "../components/ImportReviewModal";
 
 export function Import() {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [accountId, setAccountId] = useState<number | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [reviewItems, setReviewItems] = useState<ReviewQueueItem[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [detecting, setDetecting] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [detection, setDetection] = useState<DetectAccountsResponse | null>(null);
-  const [showAccountsModal, setShowAccountsModal] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<ImportBatch[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function load() {
@@ -25,10 +33,7 @@ export function Import() {
   }
 
   function loadAccounts() {
-    accountsApi.list().then((list) => {
-      setAccounts(list);
-      if (accountId === null && list.length > 0) setAccountId(list[0].id);
-    });
+    return accountsApi.list().then(setAccounts);
   }
 
   useEffect(() => {
@@ -40,45 +45,60 @@ export function Import() {
   function resetFile() {
     setFile(null);
     setDetection(null);
+    setShowReviewModal(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function handleFileSelected(selected: File) {
     setFile(selected);
     setDetection(null);
+    setError(null);
+    setLastResult(null);
     setDetecting(true);
     try {
       const result = await importsApi.detectAccounts(selected);
+      if (result.accounts.length === 0) {
+        setError("No transactions were found in this file.");
+        resetFile();
+        return;
+      }
       setDetection(result);
-      if (result.has_account_sections) setShowAccountsModal(true);
+      setShowReviewModal(true);
     } catch {
+      setError("That file could not be read. Only .qif, .qfx, and .ofx exports are supported.");
       resetFile();
     } finally {
       setDetecting(false);
     }
   }
 
-  async function doImport() {
-    if (!file || accountId === null) return;
-    setUploading(true);
+  /** Re-run the dry run when the user retargets a detected account, so the
+   * imported/duplicate/needs-attention counts match the new destination. */
+  async function refreshPreview(overrides: DetectAccountsOverride[]) {
+    if (!file) return;
+    setPreviewing(true);
     try {
-      await importsApi.upload(accountId, file);
-      resetFile();
-      load();
+      setDetection(await importsApi.detectAccounts(file, overrides));
+    } catch {
+      // Keep the stale counts on screen rather than losing the modal; the
+      // commit itself is what actually matters.
     } finally {
-      setUploading(false);
+      setPreviewing(false);
     }
   }
 
-  async function commitDetected(resolutions: ImportResolutionInput[]) {
+  async function commit(resolutions: ImportResolutionInput[]) {
     if (!file) return;
     setCommitting(true);
+    setError(null);
     try {
-      await importsApi.commit(file, resolutions);
-      setShowAccountsModal(false);
+      const result = await importsApi.commit(file, resolutions);
+      setLastResult(result);
       resetFile();
       load();
       loadAccounts(); // any accounts created via "new_account" resolutions
+    } catch {
+      setError("The import failed. Nothing was changed.");
     } finally {
       setCommitting(false);
     }
@@ -108,12 +128,22 @@ export function Import() {
 
   const accountName = (id: number) => accounts.find((a) => a.id === id)?.name ?? `#${id}`;
 
+  const resultTotals = (lastResult ?? []).reduce(
+    (acc, b) => ({
+      imported: acc.imported + b.imported_count,
+      skipped: acc.skipped + b.skipped_duplicate_count,
+      review: acc.review + b.needs_review_count,
+    }),
+    { imported: 0, skipped: 0, review: 0 },
+  );
+
   return (
     <div>
       <h1>Import</h1>
       <p className="sub">
-        Import a QIF, QFX, or OFX statement export. Duplicates are skipped automatically; near-matches are
-        flagged for review; new accounts referenced in the file are detected and prompted for before import.
+        Import a QIF, QFX, or OFX statement export. Pick a file first — the accounts it references
+        are matched against your own, and you confirm where everything goes (and what will be
+        imported, skipped, or flagged) before anything is written.
       </p>
 
       <div
@@ -141,40 +171,48 @@ export function Import() {
           Choose file
         </button>
 
-        {detecting && <span className="sub">Scanning file for accounts…</span>}
+        {detecting && <span className="sub">Scanning file…</span>}
 
-        {!detecting && detection?.has_account_sections && (
+        {!detecting && detection && !showReviewModal && (
           <span className="sub">
-            {detection.accounts.length} account{detection.accounts.length === 1 ? "" : "s"} detected —{" "}
-            <span className="toast-link" onClick={() => setShowAccountsModal(true)}>
-              review before importing
+            <span className="toast-link" onClick={() => setShowReviewModal(true)}>
+              Review and import {file?.name}
             </span>
           </span>
         )}
 
-        {!detecting && (!detection || !detection.has_account_sections) && (
-          <>
-            <select value={accountId ?? ""} onChange={(e) => setAccountId(Number(e.target.value))}>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-            <button className="btn" onClick={doImport} disabled={!file || accountId === null || uploading}>
-              {uploading ? "Importing…" : "Import"}
-            </button>
-          </>
-        )}
+        {error && <span className="status warn">{error}</span>}
       </div>
 
-      {showAccountsModal && detection && (
-        <DetectedAccountsModal
-          accounts={detection.accounts}
+      {lastResult && lastResult.length > 0 && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 8 }}>
+            <b>Import complete</b>{" "}
+            <span className="sub">
+              — {resultTotals.imported} imported · {resultTotals.skipped} duplicate
+              {resultTotals.skipped === 1 ? "" : "s"} skipped · {resultTotals.review} need
+              {resultTotals.review === 1 ? "s" : ""} attention
+            </span>
+          </div>
+          {lastResult.map((b) => (
+            <div key={b.id} className="sub">
+              {accountName(b.account_id)}: {b.imported_count} of {b.row_count} imported,{" "}
+              {b.skipped_duplicate_count} skipped, {b.needs_review_count} needing attention
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showReviewModal && detection && file && (
+        <ImportReviewModal
+          filename={file.name}
+          detection={detection}
           existingAccounts={accounts}
+          previewing={previewing}
           submitting={committing}
-          onClose={() => setShowAccountsModal(false)}
-          onConfirm={commitDetected}
+          onTargetsChange={refreshPreview}
+          onClose={() => setShowReviewModal(false)}
+          onConfirm={commit}
         />
       )}
 
@@ -185,6 +223,7 @@ export function Import() {
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Account</th>
                 <th>Name</th>
                 <th className="right">Amount</th>
                 <th></th>
@@ -194,6 +233,7 @@ export function Import() {
               {reviewItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.date}</td>
+                  <td>{accountName(item.account_id)}</td>
                   <td>{item.name}</td>
                   <td className="right">${Math.abs(item.amount).toFixed(2)}</td>
                   <td className="ctrl-cell">
@@ -221,6 +261,7 @@ export function Import() {
             <th>File</th>
             <th>Account</th>
             <th>Rows</th>
+            <th>Imported</th>
             <th>Skipped (dup)</th>
             <th>Needs review</th>
             <th>Status</th>
@@ -232,6 +273,7 @@ export function Import() {
               <td>{b.filename}</td>
               <td>{accountName(b.account_id)}</td>
               <td>{b.row_count}</td>
+              <td>{b.imported_count}</td>
               <td>{b.skipped_duplicate_count}</td>
               <td>{b.needs_review_count}</td>
               <td>

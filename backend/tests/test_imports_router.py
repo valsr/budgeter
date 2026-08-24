@@ -213,7 +213,11 @@ def test_detect_accounts_single_account_file_has_no_sections(client, auth_header
     assert resp.status_code == 200
     body = resp.json()
     assert body["has_account_sections"] is False
-    assert body["accounts"] == []
+    # A single-account file still yields one (unnamed) entry so the UI can
+    # prompt for its target account the same way as for a named block.
+    assert len(body["accounts"]) == 1
+    assert body["accounts"][0]["parsed_name"] is None
+    assert body["accounts"][0]["matched_account_id"] is None
 
 
 def test_detect_accounts_multi_account_file(client, auth_headers, account_id):
@@ -243,6 +247,109 @@ def test_detect_accounts_matches_existing_account_by_name(client, auth_headers):
     body = resp.json()
     checking = next(a for a in body["accounts"] if a["parsed_name"] == "Checking")
     assert checking["matched_account_id"] is not None
+
+
+def test_detect_accounts_reports_match_reason_for_account_number(client, auth_headers):
+    client.post(
+        "/api/accounts",
+        json={"name": "Everyday", "type": "asset", "account_number": "Checking"},
+        headers=auth_headers,
+    )
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        files={"file": ("test.qif", io.BytesIO(QIF_MULTI_ACCOUNT), "application/octet-stream")},
+    )
+    checking = next(a for a in resp.json()["accounts"] if a["parsed_name"] == "Checking")
+    assert checking["match_reason"] == "account_number"
+
+
+def test_detect_accounts_previews_new_duplicate_and_review_counts(client, auth_headers, account_id):
+    # Import once so the same file re-detected shows a duplicate, plus a
+    # same-date/same-amount row with a different payee to force a near match.
+    client.post(
+        "/api/import",
+        headers=auth_headers,
+        data={"account_id": account_id},
+        files={"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")},
+    )
+    qif = b"""!Account
+NMain checking
+TBank
+^
+!Type:Bank
+D07/19/2026
+T-88.40
+PCostco
+^
+D07/19/2026
+T-88.40
+PCostco Wholesale #42
+^
+D07/21/2026
+T-12.00
+PCoffee
+^
+"""
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        files={"file": ("test.qif", io.BytesIO(qif), "application/octet-stream")},
+    )
+    detected = resp.json()["accounts"][0]
+    assert detected["matched_account_id"] == account_id
+    assert detected["target_account_id"] == account_id
+    assert detected["transaction_count"] == 3
+    assert detected["duplicate_count"] == 1
+    assert detected["needs_review_count"] == 1
+    assert detected["new_count"] == 1
+
+
+def test_detect_accounts_override_recomputes_counts(client, auth_headers, account_id):
+    client.post(
+        "/api/import",
+        headers=auth_headers,
+        data={"account_id": account_id},
+        files={"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")},
+    )
+    files = {"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")}
+    # Unnamed block, explicitly pointed at the account that already has the row.
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        data={
+            "overrides": json.dumps(
+                {"overrides": [{"parsed_name": None, "account_id": account_id}]}
+            )
+        },
+        files=files,
+    )
+    detected = resp.json()["accounts"][0]
+    assert detected["target_account_id"] == account_id
+    assert detected["duplicate_count"] == 1
+    assert detected["new_count"] == 0
+
+    # Overriding to "create a new account" (null) makes every row new again.
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        data={"overrides": json.dumps({"overrides": [{"parsed_name": None, "account_id": None}]})},
+        files={"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")},
+    )
+    detected = resp.json()["accounts"][0]
+    assert detected["target_account_id"] is None
+    assert detected["new_count"] == 1
+    assert detected["duplicate_count"] == 0
+
+
+def test_detect_accounts_rejects_malformed_overrides(client, auth_headers):
+    resp = client.post(
+        "/api/import/detect-accounts",
+        headers=auth_headers,
+        data={"overrides": "{"},
+        files={"file": ("test.qif", io.BytesIO(QIF_BASIC), "application/octet-stream")},
+    )
+    assert resp.status_code == 422
 
 
 def test_commit_import_creates_new_accounts_and_imports(client, auth_headers):
@@ -379,7 +486,12 @@ def test_detect_accounts_qfx_file(client, auth_headers):
             "parsed_name": "1234567890",
             "transaction_count": 1,
             "matched_account_id": None,
+            "match_reason": None,
             "suggested_type": "asset",
+            "target_account_id": None,
+            "new_count": 1,
+            "duplicate_count": 0,
+            "needs_review_count": 0,
         }
     ]
 
