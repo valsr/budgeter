@@ -226,6 +226,169 @@ def create_transfer(
     return from_txn, to_txn
 
 
+TRANSFER_DAY_WINDOW = 5
+
+
+def _single_split_amount(txn: Transaction) -> float:
+    """The signed amount of a transaction that can take part in a transfer.
+    A transfer is one movement of money, so each leg must be a single split —
+    a transaction split across categories has no single amount to match on."""
+    if len(txn.splits) != 1:
+        return 0.0
+    return float(txn.splits[0].amount)
+
+
+def find_transfer_candidates(
+    db: Session, transaction_id: int, day_window: int = TRANSFER_DAY_WINDOW
+) -> list[Transaction]:
+    """Transactions that could be the other leg of `transaction_id`: a normal,
+    single-split transaction on a *different* account whose amount is the exact
+    negation of this one, dated within `day_window` days either side.
+
+    Ordered by date proximity so the likeliest match sorts first — banks post
+    the two legs a day or two apart at least as often as on the same day."""
+    txn = _get_transaction_or_404(db, transaction_id)
+    if txn.type != TransactionType.NORMAL:
+        raise ValidationError("Only normal transactions can be linked as a transfer")
+    amount = _single_split_amount(txn)
+    if amount == 0:
+        raise ValidationError("Only single-split, non-zero transactions can be linked as a transfer")
+
+    split_count = (
+        select(func.count(Split.id))
+        .where(Split.transaction_id == Transaction.id)
+        .correlate(Transaction)
+        .scalar_subquery()
+    )
+    candidate_total = (
+        select(func.sum(Split.amount))
+        .where(Split.transaction_id == Transaction.id)
+        .correlate(Transaction)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(Transaction)
+        .options(selectinload(Transaction.splits))
+        .where(Transaction.id != txn.id)
+        .where(Transaction.type == TransactionType.NORMAL)
+        .where(Transaction.account_id != txn.account_id)
+        .where(Transaction.date >= txn.date - dt.timedelta(days=day_window))
+        .where(Transaction.date <= txn.date + dt.timedelta(days=day_window))
+        .where(split_count == 1)
+        .where(candidate_total == -amount)
+    )
+    candidates = list(db.execute(stmt).scalars().unique().all())
+    candidates.sort(key=lambda c: (abs((c.date - txn.date).days), c.date, c.id))
+    return candidates
+
+
+def link_as_transfer(
+    db: Session, transaction_id: int, other_transaction_id: int
+) -> tuple[Transaction, Transaction]:
+    """Mark two existing transactions as the two legs of one transfer.
+
+    Needed when both legs were imported independently — each account's own
+    statement carries one side — so neither came from create_transfer."""
+    if transaction_id == other_transaction_id:
+        raise ValidationError("A transaction can't be linked to itself")
+
+    txn = _get_transaction_or_404(db, transaction_id)
+    other = _get_transaction_or_404(db, other_transaction_id)
+
+    for leg in (txn, other):
+        if leg.type != TransactionType.NORMAL:
+            raise ValidationError(f"'{leg.name}' is already part of a transfer")
+        if len(leg.splits) != 1:
+            raise ValidationError(f"'{leg.name}' is split across categories — remove the split first")
+    if txn.account_id == other.account_id:
+        raise ValidationError("A transfer must be between two different accounts")
+
+    amount = _single_split_amount(txn)
+    if amount == 0:
+        raise ValidationError("Transfer amount must be non-zero")
+    if _single_split_amount(other) != -amount:
+        raise ValidationError("The two legs must be equal and opposite amounts")
+
+    before_txn = change_log.serialize_transaction(txn)
+    before_other = change_log.serialize_transaction(other)
+
+    # A transfer isn't spending, so any category or pending suggestion on
+    # either leg is dropped — _is_uncategorized_clause and the budget rollups
+    # both assume a transfer carries no category.
+    for leg, pair in ((txn, other), (other, txn)):
+        leg.type = TransactionType.TRANSFER
+        leg.transfer_pair_id = pair.id
+        leg.splits[0].category_id = None
+        leg.splits[0].suggested_category_id = None
+        leg.splits[0].suggestion_source = None
+    db.commit()
+    db.refresh(txn)
+    db.refresh(other)
+
+    summary = f"Linked '{txn.name}' and '{other.name}' as a transfer (${abs(amount):.2f})"
+    group_id = change_log.record_change(
+        db,
+        TransactionChange,
+        txn.id,
+        ChangeOperation.UPDATE,
+        before=before_txn,
+        after=change_log.serialize_transaction(txn),
+        summary=summary,
+    )
+    change_log.record_change(
+        db,
+        TransactionChange,
+        other.id,
+        ChangeOperation.UPDATE,
+        before=before_other,
+        after=change_log.serialize_transaction(other),
+        summary=summary,
+        group_id=group_id,
+        is_primary=False,
+    )
+    db.commit()
+    return txn, other
+
+
+def unlink_transfer(db: Session, transaction_id: int) -> list[Transaction]:
+    """Turn a transfer back into ordinary transactions on both accounts.
+
+    The reverse of link_as_transfer. Unlike delete_transaction it keeps both
+    rows — the money did move, only the pairing was wrong — so the legs come
+    back uncategorized and available for categorization again."""
+    txn = _get_transaction_or_404(db, transaction_id)
+    if txn.type != TransactionType.TRANSFER:
+        raise ValidationError("This transaction is not a transfer")
+
+    pair = db.get(Transaction, txn.transfer_pair_id) if txn.transfer_pair_id is not None else None
+    legs = [txn] if pair is None else [txn, pair]
+    befores = [change_log.serialize_transaction(leg) for leg in legs]
+
+    for leg in legs:
+        leg.type = TransactionType.NORMAL
+        leg.transfer_pair_id = None
+    db.commit()
+    for leg in legs:
+        db.refresh(leg)
+
+    summary = f"Unlinked transfer '{txn.name}'"
+    group_id = None
+    for leg, before in zip(legs, befores):
+        group_id = change_log.record_change(
+            db,
+            TransactionChange,
+            leg.id,
+            ChangeOperation.UPDATE,
+            before=before,
+            after=change_log.serialize_transaction(leg),
+            summary=summary,
+            group_id=group_id,
+            is_primary=group_id is None,
+        )
+    db.commit()
+    return legs
+
+
 def get_transaction(db: Session, transaction_id: int) -> Transaction:
     return _get_transaction_or_404(db, transaction_id)
 
@@ -413,6 +576,11 @@ def apply_transaction_snapshot(db: Session, transaction_id: int, snapshot: dict)
 
     txn.date = dt.date.fromisoformat(snapshot["date"])
     txn.name = snapshot["name"]
+    # type/transfer_pair_id are restored too — link_as_transfer and
+    # unlink_transfer log UPDATEs that change nothing else, so an undo that
+    # skipped these fields would be a no-op for them.
+    txn.type = TransactionType(snapshot["type"])
+    txn.transfer_pair_id = snapshot["transfer_pair_id"]
     for split in list(txn.splits):
         db.delete(split)
     txn.splits = [

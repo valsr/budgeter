@@ -45,6 +45,10 @@ class TransferCreate(BaseModel):
     amount: float
 
 
+class TransferLink(BaseModel):
+    other_transaction_id: int
+
+
 class TransactionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

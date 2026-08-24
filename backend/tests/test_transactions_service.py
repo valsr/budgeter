@@ -4,6 +4,7 @@ import pytest
 
 from app.errors import NotFoundError, ValidationError
 from app.models.account import AccountType
+from app.models.transaction import TransactionType
 from app.services import accounts as accounts_svc
 from app.services import categories as categories_svc
 from app.services import transactions as txn_svc
@@ -327,3 +328,178 @@ def test_update_splits_logs_full_before_after_snapshot(db_session, account, cate
     )
     assert row.before["splits"][0]["category_id"] is None
     assert row.after["splits"][0]["category_id"] == other_category.id
+
+
+# --- linking existing transactions as a transfer -----------------------
+
+
+@pytest.fixture()
+def leg_pair(db_session, account, other_account):
+    """The shape the import flow produces: each account's own statement
+    carried one side of the same movement, a day apart."""
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "UU500 TFR-TO 6000884", [(None, -6594.96)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 20), "UU500 TFR-FR 6263382", [(None, 6594.96)]
+    )
+    return out, into
+
+
+def test_find_transfer_candidates_matches_opposite_leg(db_session, leg_pair):
+    out, into = leg_pair
+    candidates = txn_svc.find_transfer_candidates(db_session, out.id)
+    assert [c.id for c in candidates] == [into.id]
+
+
+def test_find_transfer_candidates_orders_by_date_proximity(db_session, account, other_account, leg_pair):
+    out, into = leg_pair
+    same_day = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 19), "Other refund", [(None, 6594.96)]
+    )
+    candidates = txn_svc.find_transfer_candidates(db_session, out.id)
+    assert [c.id for c in candidates] == [same_day.id, into.id]
+
+
+def test_find_transfer_candidates_excludes_same_account(db_session, account, leg_pair):
+    out, _ = leg_pair
+    txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "Same account", [(None, 6594.96)]
+    )
+    candidates = txn_svc.find_transfer_candidates(db_session, out.id)
+    assert all(c.account_id != out.account_id for c in candidates)
+
+
+def test_find_transfer_candidates_excludes_out_of_window(db_session, other_account, leg_pair):
+    out, into = leg_pair
+    far = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 2, 19), "Much later", [(None, 6594.96)]
+    )
+    assert far.id not in {c.id for c in txn_svc.find_transfer_candidates(db_session, out.id)}
+
+
+def test_find_transfer_candidates_excludes_split_transactions(db_session, other_account, category, leg_pair):
+    out, into = leg_pair
+    c2 = categories_svc.create_category(db_session, "gifts")
+    split_txn = txn_svc.create_transaction(
+        db_session,
+        other_account.id,
+        dt.date(2026, 1, 19),
+        "Split deposit",
+        [(category.id, 6000.0), (c2.id, 594.96)],
+    )
+    assert split_txn.id not in {c.id for c in txn_svc.find_transfer_candidates(db_session, out.id)}
+
+
+def test_find_transfer_candidates_rejects_transfer_source(db_session, leg_pair):
+    out, into = leg_pair
+    txn_svc.link_as_transfer(db_session, out.id, into.id)
+    with pytest.raises(ValidationError):
+        txn_svc.find_transfer_candidates(db_session, out.id)
+
+
+def test_link_as_transfer_pairs_both_legs(db_session, leg_pair):
+    out, into = leg_pair
+    a, b = txn_svc.link_as_transfer(db_session, out.id, into.id)
+    assert a.type == TransactionType.TRANSFER
+    assert b.type == TransactionType.TRANSFER
+    assert a.transfer_pair_id == b.id
+    assert b.transfer_pair_id == a.id
+
+
+def test_link_as_transfer_clears_category_and_suggestion(db_session, account, other_account, category):
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "TFR out", [(category.id, -50.0)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 19), "TFR in", [(None, 50.0)]
+    )
+    into.splits[0].suggested_category_id = category.id
+    db_session.commit()
+
+    a, b = txn_svc.link_as_transfer(db_session, out.id, into.id)
+    assert a.splits[0].category_id is None
+    assert b.splits[0].suggested_category_id is None
+
+
+def test_link_as_transfer_rejects_mismatched_amounts(db_session, account, other_account):
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "out", [(None, -50.0)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 19), "in", [(None, 49.0)]
+    )
+    with pytest.raises(ValidationError):
+        txn_svc.link_as_transfer(db_session, out.id, into.id)
+
+
+def test_link_as_transfer_rejects_same_account(db_session, account):
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "out", [(None, -50.0)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "in", [(None, 50.0)]
+    )
+    with pytest.raises(ValidationError):
+        txn_svc.link_as_transfer(db_session, out.id, into.id)
+
+
+def test_link_as_transfer_rejects_self(db_session, leg_pair):
+    out, _ = leg_pair
+    with pytest.raises(ValidationError):
+        txn_svc.link_as_transfer(db_session, out.id, out.id)
+
+
+def test_link_as_transfer_rejects_already_linked(db_session, other_account, leg_pair):
+    out, into = leg_pair
+    txn_svc.link_as_transfer(db_session, out.id, into.id)
+    third = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 19), "third", [(None, 6594.96)]
+    )
+    with pytest.raises(ValidationError):
+        txn_svc.link_as_transfer(db_session, out.id, third.id)
+
+
+def test_link_as_transfer_rejects_split_leg(db_session, account, other_account, category):
+    c2 = categories_svc.create_category(db_session, "gifts")
+    out = txn_svc.create_transaction(
+        db_session, account.id, dt.date(2026, 1, 19), "out", [(category.id, -30.0), (c2.id, -20.0)]
+    )
+    into = txn_svc.create_transaction(
+        db_session, other_account.id, dt.date(2026, 1, 19), "in", [(None, 50.0)]
+    )
+    with pytest.raises(ValidationError):
+        txn_svc.link_as_transfer(db_session, out.id, into.id)
+
+
+def test_linked_transfer_leaves_uncategorized_count(db_session, leg_pair):
+    out, into = leg_pair
+    assert txn_svc.count_uncategorized(db_session) == 2
+    txn_svc.link_as_transfer(db_session, out.id, into.id)
+    assert txn_svc.count_uncategorized(db_session) == 0
+
+
+def test_unlink_transfer_restores_both_legs(db_session, leg_pair):
+    out, into = leg_pair
+    txn_svc.link_as_transfer(db_session, out.id, into.id)
+    legs = txn_svc.unlink_transfer(db_session, out.id)
+    assert {leg.id for leg in legs} == {out.id, into.id}
+    assert all(leg.type == TransactionType.NORMAL for leg in legs)
+    assert all(leg.transfer_pair_id is None for leg in legs)
+
+
+def test_unlink_transfer_rejects_normal_transaction(db_session, leg_pair):
+    out, _ = leg_pair
+    with pytest.raises(ValidationError):
+        txn_svc.unlink_transfer(db_session, out.id)
+
+
+def test_unlink_transfer_handles_orphan_leg(db_session, account, leg_pair):
+    """A leg marked as a transfer with no pair — the shape an import leaves
+    when only one account's statement was loaded."""
+    out, _ = leg_pair
+    out.type = TransactionType.TRANSFER
+    db_session.commit()
+    legs = txn_svc.unlink_transfer(db_session, out.id)
+    assert [leg.id for leg in legs] == [out.id]
+    assert legs[0].type == TransactionType.NORMAL

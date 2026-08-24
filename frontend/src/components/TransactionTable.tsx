@@ -5,6 +5,7 @@ import { activeCategories, flattenAllCategories } from "../api/categories";
 import type { Account, Category, Split, Transaction } from "../api/types";
 import { CategoryCombobox } from "./CategoryCombobox";
 import { CategoryTag, hexToRgba } from "./CategoryTag";
+import { LinkTransferModal } from "./LinkTransferModal";
 import { NewTransactionModal } from "./NewTransactionModal";
 import { useLearnCheck } from "./Toast";
 
@@ -69,6 +70,7 @@ export function TransactionTable({
   const [data, setData] = useState<{ items: Transaction[]; total: number } | null>(null);
   const [editingSplit, setEditingSplit] = useState<{ txnId: number; splitId: number } | null>(null);
   const [showNewTxnModal, setShowNewTxnModal] = useState(false);
+  const [linkingTxn, setLinkingTxn] = useState<Transaction | null>(null);
   const runLearnCheck = useLearnCheck();
 
   const activeTree = useMemo(() => activeCategories(categories), [categories]);
@@ -136,6 +138,19 @@ export function TransactionTable({
 
   async function reject(transactionId: number, splitId: number) {
     await transactionsApi.rejectSuggestion(transactionId, splitId);
+    load();
+    onDataChanged?.();
+  }
+
+  async function unlinkTransfer(txn: Transaction) {
+    if (
+      !confirm(
+        `Unlink this transfer — "${txn.name}"? Both transactions stay, but become ordinary uncategorized transactions again.`,
+      )
+    ) {
+      return;
+    }
+    await transactionsApi.unlinkTransfer(txn.id);
     load();
     onDataChanged?.();
   }
@@ -396,6 +411,23 @@ export function TransactionTable({
                         ✂
                       </span>
                     )}
+                    {txn.type === "normal" ? (
+                      <span
+                        className="icon-btn link"
+                        title="Link as transfer — pair this with its other leg on another account"
+                        onClick={() => setLinkingTxn(txn)}
+                      >
+                        🔗
+                      </span>
+                    ) : (
+                      <span
+                        className="icon-btn unlink"
+                        title="Unlink transfer — turn both legs back into ordinary transactions"
+                        onClick={() => unlinkTransfer(txn)}
+                      >
+                        ⛓
+                      </span>
+                    )}
                     <span className="icon-btn remove" title="Delete transaction" onClick={() => deleteTransaction(txn)}>
                       🗑
                     </span>
@@ -448,6 +480,19 @@ export function TransactionTable({
           <span onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>›</span>
         </div>
       </div>
+
+      {linkingTxn && (
+        <LinkTransferModal
+          transaction={linkingTxn}
+          accounts={accounts}
+          onClose={() => setLinkingTxn(null)}
+          onLinked={() => {
+            setLinkingTxn(null);
+            load();
+            onDataChanged?.();
+          }}
+        />
+      )}
 
       {showNewTxnModal && (
         <NewTransactionModal

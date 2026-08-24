@@ -56,6 +56,18 @@ export const transactionsApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  transferCandidates: (id: number, dayWindow?: number) =>
+    apiFetch<Transaction[]>(
+      `/api/transactions/${id}/transfer-candidates` +
+        (dayWindow === undefined ? "" : `?day_window=${dayWindow}`),
+    ),
+  linkTransfer: (id: number, otherTransactionId: number) =>
+    apiFetch<Transaction[]>(`/api/transactions/${id}/link-transfer`, {
+      method: "POST",
+      body: JSON.stringify({ other_transaction_id: otherTransactionId }),
+    }),
+  unlinkTransfer: (id: number) =>
+    apiFetch<Transaction[]>(`/api/transactions/${id}/unlink-transfer`, { method: "POST" }),
   uncategorizedCount: () => apiFetch<{ count: number }>("/api/transactions/uncategorized-count"),
   acceptSuggestion: (transactionId: number, splitId: number) =>
     apiFetch<Split>(`/api/transactions/${transactionId}/splits/${splitId}/accept-suggestion`, {

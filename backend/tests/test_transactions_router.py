@@ -273,3 +273,103 @@ def test_account_balance_reflects_transactions(client, auth_headers, account_id)
     )
     resp = client.get(f"/api/accounts/{account_id}", headers=auth_headers)
     assert resp.json()["balance"] == 900.0
+
+
+# --- linking existing transactions as a transfer -----------------------
+
+
+@pytest.fixture()
+def transfer_legs(client, auth_headers, account_id, other_account_id):
+    def make(account, date, name, amount):
+        return client.post(
+            "/api/transactions",
+            json={
+                "account_id": account,
+                "date": date,
+                "name": name,
+                "splits": [{"amount": amount}],
+            },
+            headers=auth_headers,
+        ).json()["id"]
+
+    out = make(account_id, "2026-01-19", "UU500 TFR-TO 6000884", -6594.96)
+    into = make(other_account_id, "2026-01-20", "UU500 TFR-FR 6263382", 6594.96)
+    return out, into
+
+
+def test_transfer_candidates_lists_matching_leg(client, auth_headers, transfer_legs):
+    out, into = transfer_legs
+    resp = client.get(f"/api/transactions/{out}/transfer-candidates", headers=auth_headers)
+    assert resp.status_code == 200
+    assert [c["id"] for c in resp.json()] == [into]
+
+
+def test_transfer_candidates_respects_day_window(client, auth_headers, transfer_legs):
+    out, _ = transfer_legs
+    resp = client.get(
+        f"/api/transactions/{out}/transfer-candidates?day_window=0", headers=auth_headers
+    )
+    assert resp.json() == []
+
+
+def test_transfer_candidates_unknown_transaction_404(client, auth_headers):
+    resp = client.get("/api/transactions/999/transfer-candidates", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+def test_link_and_unlink_transfer(client, auth_headers, transfer_legs):
+    out, into = transfer_legs
+    resp = client.post(
+        f"/api/transactions/{out}/link-transfer",
+        json={"other_transaction_id": into},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    legs = resp.json()
+    assert {leg["type"] for leg in legs} == {"transfer"}
+    assert {leg["transfer_pair_id"] for leg in legs} == {out, into}
+
+    resp = client.post(f"/api/transactions/{out}/unlink-transfer", headers=auth_headers)
+    assert resp.status_code == 200
+    assert {leg["type"] for leg in resp.json()} == {"normal"}
+    assert client.get(f"/api/transactions/{into}", headers=auth_headers).json()["type"] == "normal"
+
+
+def test_link_transfer_mismatched_amounts_422(client, auth_headers, account_id, other_account_id):
+    def make(account, amount):
+        return client.post(
+            "/api/transactions",
+            json={"account_id": account, "date": "2026-01-19", "name": "x", "splits": [{"amount": amount}]},
+            headers=auth_headers,
+        ).json()["id"]
+
+    resp = client.post(
+        f"/api/transactions/{make(account_id, -50.0)}/link-transfer",
+        json={"other_transaction_id": make(other_account_id, 49.0)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+
+def test_unlink_transfer_on_normal_transaction_422(client, auth_headers, transfer_legs):
+    out, _ = transfer_legs
+    resp = client.post(f"/api/transactions/{out}/unlink-transfer", headers=auth_headers)
+    assert resp.status_code == 422
+
+
+def test_link_transfer_is_undoable(client, auth_headers, transfer_legs):
+    out, into = transfer_legs
+    client.post(
+        f"/api/transactions/{out}/link-transfer",
+        json={"other_transaction_id": into},
+        headers=auth_headers,
+    )
+    entries = client.get("/api/history", headers=auth_headers).json()["items"]
+    group_id = entries[0]["group_id"]
+    resp = client.post("/api/history/undo", json={"group_ids": [group_id]}, headers=auth_headers)
+    assert resp.status_code == 200
+
+    for txn_id in (out, into):
+        txn = client.get(f"/api/transactions/{txn_id}", headers=auth_headers).json()
+        assert txn["type"] == "normal"
+        assert txn["transfer_pair_id"] is None

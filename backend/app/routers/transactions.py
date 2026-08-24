@@ -14,6 +14,7 @@ from app.schemas.transaction import (
     TransactionRead,
     TransactionUpdate,
     TransferCreate,
+    TransferLink,
 )
 from app.services import transactions as txn_service
 
@@ -132,6 +133,43 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
         txn_service.delete_transaction(db, transaction_id)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/{transaction_id}/transfer-candidates", response_model=list[TransactionRead])
+def transfer_candidates(
+    transaction_id: int,
+    day_window: int = txn_service.TRANSFER_DAY_WINDOW,
+    db: Session = Depends(get_db),
+):
+    try:
+        return txn_service.find_transfer_candidates(db, transaction_id, day_window=day_window)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.post("/{transaction_id}/link-transfer", response_model=list[TransactionRead])
+def link_transfer(transaction_id: int, payload: TransferLink, db: Session = Depends(get_db)):
+    try:
+        from_txn, to_txn = txn_service.link_as_transfer(
+            db, transaction_id, payload.other_transaction_id
+        )
+        return [from_txn, to_txn]
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.post("/{transaction_id}/unlink-transfer", response_model=list[TransactionRead])
+def unlink_transfer(transaction_id: int, db: Session = Depends(get_db)):
+    try:
+        return txn_service.unlink_transfer(db, transaction_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @router.post("/{transaction_id}/splits/{split_id}/accept-suggestion", response_model=SplitRead)
