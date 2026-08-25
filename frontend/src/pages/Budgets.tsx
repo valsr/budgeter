@@ -5,6 +5,7 @@ import type { BudgetCategoryInput } from "../api/budgets";
 import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
 import type { Account, Budget, Category, DroppedCategory, ReportRow } from "../api/types";
+import { AccountFilter } from "../components/AccountFilter";
 import { Modal } from "../components/Modal";
 import { formatMoney } from "../format";
 
@@ -30,9 +31,16 @@ export function Budgets() {
   const [avgByCategory, setAvgByCategory] = useState<Record<number, number>>({});
   const [dropped, setDropped] = useState<DroppedCategory[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // Empty means every account. Narrows the report to a subset of sources, for
+  // working out a budget over just those.
+  const [accountFilter, setAccountFilter] = useState<number[]>([]);
   // Report rows are read off one at a time when copying figures into another
   // system, so the row under the eye stays marked until another is picked.
   const [highlightedRow, setHighlightedRow] = useState<string | null>(null);
+  // Categories whose per-source breakdown is showing. Collapsed by default —
+  // the summary is the primary view and the table is already twelve months
+  // wide, so the breakdown is opened for the category being worked on.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   function loadBudgets() {
     budgetsApi.list().then((list) => {
@@ -59,9 +67,9 @@ export function Budgets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function loadReport(budgetId: number | null) {
+  function loadReport(budgetId: number | null, accountIds: number[] = accountFilter) {
     if (budgetId !== null) {
-      budgetsApi.report(budgetId, CURRENT_YEAR, CURRENT_MONTH).then(setReport);
+      budgetsApi.report(budgetId, CURRENT_YEAR, CURRENT_MONTH, accountIds).then(setReport);
     } else {
       setReport([]);
     }
@@ -70,8 +78,16 @@ export function Budgets() {
   useEffect(() => {
     loadReport(currentBudgetId);
     setHighlightedRow(null);
+    setExpanded(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBudgetId]);
+
+  // Live filtering: changing the account selection refetches straight away
+  // rather than waiting for an Apply.
+  useEffect(() => {
+    loadReport(currentBudgetId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountFilter]);
 
   // Escape clears it. Clicking the highlighted row again deliberately does
   // *not*, so a stray second click while reading figures across doesn't wipe
@@ -87,6 +103,32 @@ export function Budgets() {
 
   const currentBudget = budgets.find((b) => b.id === currentBudgetId);
   const months = useMemo(() => Array.from({ length: CURRENT_MONTH }, (_, i) => i + 1), []);
+
+  const categoriesWithBreakdown = useMemo(
+    () => new Set(report.filter((r) => r.account_id !== null).map((r) => r.category_id)),
+    [report],
+  );
+  const visibleRows = useMemo(
+    () => report.filter((r) => r.account_id === null || expanded.has(r.category_id)),
+    [report, expanded],
+  );
+
+  function toggleExpanded(categoryId: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+        // Don't leave the highlight on a row that just disappeared — move it
+        // up to the category the collapsed rows belong to.
+        setHighlightedRow((current) =>
+          current?.startsWith(`cat:${categoryId}:acct:`) ? `cat:${categoryId}` : current,
+        );
+      } else {
+        next.add(categoryId);
+      }
+      return next;
+    });
+  }
 
   return (
     <div>
@@ -107,7 +149,7 @@ export function Budgets() {
         </div>
       </div>
 
-      <div className="filters" style={{ marginBottom: 20 }}>
+      <div className="filters" style={{ marginBottom: 20, display: "flex", gap: 8, alignItems: "center" }}>
         <select
           value={currentBudgetId ?? ""}
           onChange={(e) => setCurrentBudgetId(e.target.value ? Number(e.target.value) : null)}
@@ -118,6 +160,13 @@ export function Budgets() {
             </option>
           ))}
         </select>
+        {accounts.length > 1 && (
+          <AccountFilter
+            accounts={accounts}
+            selectedIds={accountFilter}
+            onChange={setAccountFilter}
+          />
+        )}
       </div>
 
       {dropped.length > 0 && (
@@ -140,6 +189,15 @@ export function Budgets() {
         <>
           <div className="section-title">
             {currentBudget.name} · Jan → {MONTH_LABELS[CURRENT_MONTH - 1]}
+            {accountFilter.length > 0 && (
+              <span className="section-note">
+                {" · "}
+                {accountFilter
+                  .map((id) => accounts.find((a) => a.id === id)?.name ?? `#${id}`)
+                  .join(", ")}{" "}
+                only
+              </span>
+            )}
           </div>
           <table id="budget-report-table">
             <thead>
@@ -162,7 +220,7 @@ export function Budgets() {
               </tr>
             </thead>
             <tbody>
-              {report.map((row) => (
+              {visibleRows.map((row) => (
                 <tr
                   key={row.row_key}
                   className={
@@ -174,6 +232,25 @@ export function Budgets() {
                 >
                   <td style={row.depth > 0 ? { paddingLeft: 22 * row.depth, color: "var(--ink-2)" } : undefined}>
                     {row.account_id !== null && <span className="breakdown-mark">↳</span>}
+                    {row.account_id === null && categoriesWithBreakdown.has(row.category_id) && (
+                      <span
+                        className="expander"
+                        role="button"
+                        aria-expanded={expanded.has(row.category_id)}
+                        aria-label={
+                          (expanded.has(row.category_id) ? "Hide" : "Show") +
+                          ` ${row.name} breakdown by account`
+                        }
+                        // Stops the row's own click handler running, so
+                        // opening a breakdown doesn't also move the highlight.
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleExpanded(row.category_id);
+                        }}
+                      >
+                        {expanded.has(row.category_id) ? "▾" : "▸"}
+                      </span>
+                    )}
                     {row.name}
                   </td>
                   {months.map((m, i) => {

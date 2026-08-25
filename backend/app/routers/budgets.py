@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth import require_api_key
@@ -101,11 +103,22 @@ def delete_budget(budget_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{budget_id}/report", response_model=list[ReportRowRead])
-def get_report(budget_id: int, year: int, through_month: int, db: Session = Depends(get_db)):
+def get_report(
+    budget_id: int,
+    year: int,
+    through_month: int,
+    account_id: Annotated[list[int] | None, Query()] = None,
+    db: Session = Depends(get_db),
+):
+    """`account_id` may repeat, narrowing the report to those source accounts.
+    Omit it for every account -- an empty selection isn't a distinct state,
+    since a budget over no accounts has nothing to report."""
     if not (1 <= through_month <= 12):
         raise HTTPException(status_code=422, detail="through_month must be between 1 and 12")
     try:
-        rows = budgets_service.get_report(db, budget_id, year, through_month)
+        rows = budgets_service.get_report(
+            db, budget_id, year, through_month, account_ids=account_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

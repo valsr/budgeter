@@ -210,3 +210,38 @@ def test_get_report_invalid_through_month_422(client, auth_headers, groceries_id
     ).json()
     resp = client.get(f"/api/budgets/{created['id']}/report?year=2026&through_month=13", headers=auth_headers)
     assert resp.status_code == 422
+
+
+def test_report_accepts_repeated_account_id_filters(client, auth_headers, groceries_id, account_id):
+    created = client.post(
+        "/api/budgets",
+        json={"name": "Household", "year": 2026, "categories": [{"category_id": groceries_id, "monthly_amounts": {"1": 400}}]},
+        headers=auth_headers,
+    ).json()
+    other = client.post(
+        "/api/accounts", json={"name": "Visa", "type": "liability", "opening_balance": 0}, headers=auth_headers
+    ).json()["id"]
+    for account, amount in ((account_id, -240.0), (other, -140.0)):
+        client.post(
+            "/api/transactions",
+            json={
+                "account_id": account,
+                "date": "2026-01-05",
+                "name": "shop",
+                "splits": [{"category_id": groceries_id, "amount": amount}],
+            },
+            headers=auth_headers,
+        )
+
+    url = f"/api/budgets/{created['id']}/report?year=2026&through_month=1"
+    unfiltered = client.get(url, headers=auth_headers).json()
+    assert next(r for r in unfiltered if r["name"] == "groceries")["monthly"]["1"]["actual"] == 380.0
+
+    filtered = client.get(f"{url}&account_id={account_id}", headers=auth_headers).json()
+    row = next(r for r in filtered if r["name"] == "groceries")
+    assert row["monthly"]["1"]["actual"] == 240.0
+    # A whole-category plan has no attributable share while filtered.
+    assert row["has_budget"] is False
+
+    both = client.get(f"{url}&account_id={account_id}&account_id={other}", headers=auth_headers).json()
+    assert next(r for r in both if r["name"] == "groceries")["monthly"]["1"]["actual"] == 380.0

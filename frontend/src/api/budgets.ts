@@ -23,8 +23,13 @@ export const budgetsApi = {
   update: (id: number, input: Partial<BudgetInput>) =>
     apiFetch<Budget>(`/api/budgets/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   remove: (id: number) => apiFetch<void>(`/api/budgets/${id}`, { method: "DELETE" }),
-  report: (id: number, year: number, throughMonth: number) =>
-    apiFetch<ReportRow[]>(`/api/budgets/${id}/report?year=${year}&through_month=${throughMonth}`),
+  /** `accountIds` narrows the report to those source accounts; omit or pass an
+   * empty list for all of them. */
+  report: (id: number, year: number, throughMonth: number, accountIds?: number[]) => {
+    const params = new URLSearchParams({ year: String(year), through_month: String(throughMonth) });
+    for (const accountId of accountIds ?? []) params.append("account_id", String(accountId));
+    return apiFetch<ReportRow[]>(`/api/budgets/${id}/report?${params}`);
+  },
 };
 
 export const overviewApi = {

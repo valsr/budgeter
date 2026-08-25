@@ -253,6 +253,7 @@ def _assemble_rows(
     year: int,
     through_month: int,
     budgeted_by_account: dict[int, dict[int, MonthlyAmounts]] | None = None,
+    account_ids: set[int] | None = None,
 ) -> list[ReportRow]:
     """Build report rows for a set of budgeted leaves plus every one of
     their ancestors, at any depth — an ancestor's budgeted/actual amounts
@@ -263,6 +264,9 @@ def _assemble_rows(
     categories planned per source. Those categories get a breakdown row per
     account beneath the category row, and the category's own figures stay the
     sum of them — the same derived-parent rule, one level further down.
+
+    `account_ids` restricts every actual to those source accounts, so the
+    whole report reads as if only those accounts existed.
     """
     months = list(range(1, through_month + 1))
     if not leaf_ids:
@@ -295,6 +299,11 @@ def _assemble_rows(
     actual_by_account: dict[int, dict[int, MonthlyAmounts]] = {
         cat_id: _actuals_by_account(db, cat_id, year, through_month) for cat_id in leaf_ids
     }
+    if account_ids is not None:
+        actual_by_account = {
+            cat_id: {a: monthly for a, monthly in per_account.items() if a in account_ids}
+            for cat_id, per_account in actual_by_account.items()
+        }
     # The category total is the sum of its per-account slices, so it comes from
     # the same query rather than a second one that could disagree with it.
     actual_by_category = {
@@ -377,15 +386,15 @@ def _assemble_rows(
         rows wouldn't add up to the category above them."""
         budgeted_lines = budgeted_by_account.get(cat_id, {})
         actual_lines = actual_by_account.get(cat_id, {})
-        account_ids = set(budgeted_lines) | set(actual_lines)
-        if not budgeted_lines and len(account_ids) < 2:
+        sources = set(budgeted_lines) | set(actual_lines)
+        if not budgeted_lines and len(sources) < 2:
             return []
 
         # A category planned as a whole has no per-account plan to show, so
         # those rows carry actuals only and their diff reads "—".
         planned_per_account = bool(budgeted_lines)
         ordered = sorted(
-            account_ids,
+            sources,
             key=lambda a: (accounts_by_id[a].name.lower() if a in accounts_by_id else "", a),
         )
         return [
@@ -434,15 +443,39 @@ def _assemble_rows(
     return rows
 
 
-def get_report(db: Session, budget_id: int, year: int, through_month: int) -> list[ReportRow]:
+def get_report(
+    db: Session,
+    budget_id: int,
+    year: int,
+    through_month: int,
+    account_ids: list[int] | None = None,
+) -> list[ReportRow]:
+    """`account_ids` narrows the whole report to those source accounts, for
+    working out a budget over a subset of them.
+
+    Actuals filter exactly -- every split knows its account. Budgeted amounts
+    filter only where the plan is per account: a category planned as a whole
+    has no attributable share, so under a filter it reports no budgeted figure
+    at all (has_budget False -> "—") rather than its full amount, which would
+    read as underspend against partial actuals.
+    """
     budget = get_budget(db, budget_id)
     # A category planned per source has several lines; it's still one leaf.
     leaf_ids = list(dict.fromkeys(bc.category_id for bc in budget.budget_categories))
 
+    selected = set(account_ids) if account_ids else None
     budgeted_by_category: dict[int, MonthlyAmounts] = {}
     budgeted_by_account: dict[int, dict[int, MonthlyAmounts]] = {}
+    unattributable: set[int] = set()
     for bc in budget.budget_categories:
         monthly = {a.month: Decimal(str(a.amount)) for a in bc.amounts if a.year == year}
+        if bc.account_id is None:
+            if selected is not None:
+                # No share of this plan belongs to any one account.
+                unattributable.add(bc.category_id)
+                continue
+        elif selected is not None and bc.account_id not in selected:
+            continue
         # The category's budgeted figure is the sum of its lines, so a
         # per-source plan rolls up exactly the way a parent category does.
         budgeted_by_category[bc.category_id] = sum_monthly(
@@ -451,14 +484,17 @@ def get_report(db: Session, budget_id: int, year: int, through_month: int) -> li
         if bc.account_id is not None:
             budgeted_by_account.setdefault(bc.category_id, {})[bc.account_id] = monthly
 
+    has_budget_by_category = {cat_id: False for cat_id in unattributable}
+
     return _assemble_rows(
         db,
         leaf_ids,
         budgeted_by_category,
-        {},
+        has_budget_by_category,
         year,
         through_month,
         budgeted_by_account=budgeted_by_account,
+        account_ids=selected,
     )
 
 

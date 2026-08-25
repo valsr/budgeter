@@ -107,6 +107,13 @@ th.month-label{text-align:center}
 /* Per-source breakdown rows, in both the report and the editor. */
 .breakdown-row td{color:var(--ink-2)}
 .breakdown-mark{display:inline-block;margin-right:5px;color:var(--ink-3)}
+.expander{display:inline-block;width:14px;margin-right:4px;color:var(--ink-2);cursor:pointer;user-select:none;font-size:10px}
+.expander:hover{color:var(--accent)}
+/* Account multi-select for the budget report. */
+.account-filter{position:relative;display:inline-block}
+.account-filter-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:180px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);display:flex;flex-direction:column;gap:6px}
+.account-filter-item{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.section-note{font-weight:400;color:var(--ink-2)}
 .split-toggle{margin-top:4px;padding:2px 7px;font-size:11px}
 .split-toggle.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .month-total{display:block;text-align:right;font-size:12px;color:var(--ink-2);padding:4px 2px}

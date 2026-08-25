@@ -147,9 +147,15 @@ it("shows cents rather than rounding to the nearest dollar", async () => {
   expect(cells).toContain("$80.05");
 });
 
-it("gives a category and its breakdown rows independent highlights", async () => {
+async function renderWithBreakdown() {
   report.mockResolvedValue([row(1, "groceries"), accountRow(1, 7, "Main"), accountRow(1, 8, "Visa")]);
   render(<Budgets />);
+  await screen.findByText("groceries");
+}
+
+it("gives a category and its breakdown rows independent highlights", async () => {
+  await renderWithBreakdown();
+  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
   await screen.findByText("Main");
 
   // Same category_id across all three, so the highlight must key on row_key.
@@ -162,6 +168,8 @@ it("gives a category and its breakdown rows independent highlights", async () =>
 it("shows a dash for the diff on a row with no budget of its own", async () => {
   report.mockResolvedValue([row(1, "groceries"), accountRow(1, 7, "Main")]);
   render(<Budgets />);
+  await screen.findByText("groceries");
+  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
   await screen.findByText("Main");
 
   const cells = Array.from(rowFor("Main").querySelectorAll("td")).map((c) => c.textContent);
@@ -243,4 +251,132 @@ it("keeps the category budgeted when broken down but left empty", async () => {
   // Falls back to a category-level line rather than dropping the selection.
   expect(lines).toHaveLength(1);
   expect(lines[0].account_id).toBeNull();
+});
+
+
+// --- collapsing the per-source breakdown -------------------------------
+
+it("hides the breakdown until the category is expanded", async () => {
+  await renderWithBreakdown();
+
+  expect(screen.queryByText("Main")).toBeNull();
+  expect(screen.queryByText("Visa")).toBeNull();
+
+  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
+  expect(screen.getByText("Main")).toBeInTheDocument();
+  expect(screen.getByText("Visa")).toBeInTheDocument();
+});
+
+it("collapses the breakdown again", async () => {
+  await renderWithBreakdown();
+
+  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
+  fireEvent.click(screen.getByLabelText("Hide groceries breakdown by account"));
+
+  expect(screen.queryByText("Main")).toBeNull();
+});
+
+it("offers no expander for a category with no breakdown", async () => {
+  report.mockResolvedValue([row(1, "groceries"), row(2, "utilities")]);
+  render(<Budgets />);
+  await screen.findByText("groceries");
+
+  expect(screen.queryByLabelText(/breakdown by account/)).toBeNull();
+});
+
+it("expanding does not move the highlight", async () => {
+  await renderWithBreakdown();
+
+  fireEvent.click(rowFor("groceries"));
+  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
+
+  expect(rowFor("groceries").className).toMatch(/row-highlight/);
+});
+
+it("moves a highlight up to the category when its row is collapsed away", async () => {
+  await renderWithBreakdown();
+
+  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
+  fireEvent.click(rowFor("Main"));
+  expect(rowFor("Main").className).toMatch(/row-highlight/);
+
+  fireEvent.click(screen.getByLabelText("Hide groceries breakdown by account"));
+
+  // Otherwise the highlight would vanish with the row and read as lost.
+  expect(rowFor("groceries").className).toMatch(/row-highlight/);
+});
+
+
+// --- filtering the report to a subset of accounts ----------------------
+
+it("requests the report unfiltered by default", async () => {
+  render(<Budgets />);
+  await screen.findByText("groceries");
+
+  await waitFor(() => expect(report).toHaveBeenCalled());
+  expect(report.mock.calls[0]).toEqual([1, expect.any(Number), expect.any(Number), []]);
+  expect(screen.getByText(/All accounts/)).toBeInTheDocument();
+});
+
+it("refetches immediately when an account is deselected", async () => {
+  render(<Budgets />);
+  await screen.findByText("groceries");
+  report.mockClear();
+
+  fireEvent.click(screen.getByText(/All accounts/));
+  fireEvent.click(screen.getByLabelText("Visa"));
+
+  // Live: no Apply step.
+  await waitFor(() => expect(report).toHaveBeenCalled());
+  expect(report.mock.calls[0][3]).toEqual([7]);
+});
+
+it("treats every account selected as no filter", async () => {
+  render(<Budgets />);
+  await screen.findByText("groceries");
+
+  fireEvent.click(screen.getByText(/All accounts/));
+  fireEvent.click(screen.getByLabelText("Visa"));
+  await waitFor(() => expect(report.mock.calls.at(-1)?.[3]).toEqual([7]));
+  report.mockClear();
+
+  fireEvent.click(screen.getByLabelText("Visa"));
+  await waitFor(() => expect(report.mock.calls.at(-1)?.[3]).toEqual([]));
+});
+
+it("says which accounts the figures cover while filtered", async () => {
+  render(<Budgets />);
+  await screen.findByText("groceries");
+
+  fireEvent.click(screen.getByText(/All accounts/));
+  fireEvent.click(screen.getByLabelText("Visa"));
+
+  expect(await screen.findByText(/Main only/)).toBeInTheDocument();
+});
+
+it("closes the account menu on Escape", async () => {
+  render(<Budgets />);
+  await screen.findByText("groceries");
+
+  fireEvent.click(screen.getByText(/All accounts/));
+  expect(screen.getByLabelText("Visa")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByLabelText("Visa")).toBeNull());
+});
+
+it("will not let every account be unticked", async () => {
+  render(<Budgets />);
+  await screen.findByText("groceries");
+
+  fireEvent.click(screen.getByText(/All accounts/));
+  fireEvent.click(screen.getByLabelText("Visa"));
+  await waitFor(() => expect(report.mock.calls.at(-1)?.[3]).toEqual([7]));
+  report.mockClear();
+
+  // A report over no accounts has nothing to show, so this is a no-op rather
+  // than silently flipping back to "all".
+  fireEvent.click(screen.getByLabelText("Main"));
+  expect(report).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Main")).toBeChecked();
 });

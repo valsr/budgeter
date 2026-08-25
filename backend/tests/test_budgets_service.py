@@ -513,3 +513,120 @@ def test_income_sign_flip_reaches_the_breakdown_rows(db_session, account, card, 
     # rows exactly as on the category row.
     assert _row(rows, "Main", account.id).monthly[1][1] == Decimal("900")
     assert _row(rows, "Visa", card.id).monthly[1][1] == Decimal("100")
+
+
+# --- filtering the report to a subset of source accounts ---------------
+
+
+def test_filter_narrows_actuals_to_the_selected_accounts(
+    db_session, account, card, shared, groceries
+):
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Household", [(groceries.id, None, {1: 400})], year=2026
+    )
+    _spend(db_session, account, groceries, 240)
+    _spend(db_session, card, groceries, 140)
+
+    rows = budgets_svc.get_report(
+        db_session, budget.id, year=2026, through_month=1, account_ids=[account.id]
+    )
+    assert _row(rows, "groceries").monthly[1][1] == Decimal("240")
+
+
+def test_filter_narrows_per_account_plans_too(db_session, account, card, shared, groceries):
+    budget, _ = budgets_svc.create_budget(
+        db_session,
+        "Household",
+        [(groceries.id, account.id, {1: 250}), (groceries.id, card.id, {1: 150})],
+        year=2026,
+    )
+    _spend(db_session, account, groceries, 240)
+    _spend(db_session, card, groceries, 140)
+
+    rows = budgets_svc.get_report(
+        db_session, budget.id, year=2026, through_month=1, account_ids=[account.id]
+    )
+    assert _row(rows, "groceries").monthly[1] == (Decimal("250"), Decimal("240"))
+    # The filtered-out account leaves no breakdown row behind.
+    assert [r.name for r in rows if r.account_id is not None] == ["Main"]
+
+
+def test_a_whole_category_plan_reports_no_budgeted_figure_when_filtered(
+    db_session, account, card, shared, groceries
+):
+    """Its planned amount has no attributable share, and showing it in full
+    against partial actuals would read as underspend that isn't real."""
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Household", [(groceries.id, None, {1: 100})], year=2026
+    )
+    _spend(db_session, account, groceries, 60)
+    _spend(db_session, card, groceries, 30)
+
+    rows = budgets_svc.get_report(
+        db_session, budget.id, year=2026, through_month=1, account_ids=[account.id]
+    )
+    row = _row(rows, "groceries")
+    assert row.has_budget is False
+    assert row.monthly[1] == (Decimal("0"), Decimal("60"))
+
+
+def test_an_unfiltered_report_is_unchanged(db_session, account, card, shared, groceries):
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Household", [(groceries.id, None, {1: 100})], year=2026
+    )
+    _spend(db_session, account, groceries, 60)
+    _spend(db_session, card, groceries, 30)
+
+    rows = budgets_svc.get_report(db_session, budget.id, year=2026, through_month=1)
+    row = _row(rows, "groceries")
+    assert row.has_budget is True
+    assert row.monthly[1] == (Decimal("100"), Decimal("90"))
+
+
+def test_filtering_several_accounts_sums_them(db_session, account, card, shared, groceries):
+    third = accounts_svc.create_account(
+        db_session, name="Amex", type=AccountType.LIABILITY, opening_balance=0
+    )
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Household", [(groceries.id, None, {1: 400})], year=2026
+    )
+    _spend(db_session, account, groceries, 240)
+    _spend(db_session, card, groceries, 140)
+    _spend(db_session, third, groceries, 20)
+
+    rows = budgets_svc.get_report(
+        db_session, budget.id, year=2026, through_month=1, account_ids=[account.id, card.id]
+    )
+    assert _row(rows, "groceries").monthly[1][1] == Decimal("380")
+
+
+def test_parent_rollups_follow_the_filter(db_session, account, card, shared, groceries, utilities):
+    budget, _ = budgets_svc.create_budget(
+        db_session,
+        "Household",
+        [(groceries.id, None, {1: 400}), (utilities.id, None, {1: 100})],
+        year=2026,
+    )
+    _spend(db_session, account, groceries, 240)
+    _spend(db_session, card, groceries, 140)
+    _spend(db_session, account, utilities, 80)
+
+    rows = budgets_svc.get_report(
+        db_session, budget.id, year=2026, through_month=1, account_ids=[account.id]
+    )
+    assert _row(rows, "shared").monthly[1][1] == Decimal("320")
+
+
+def test_an_empty_account_list_means_no_filter(db_session, account, card, shared, groceries):
+    """A budget over no accounts has nothing to report, so an empty selection
+    isn't a distinct state -- it reads as "all"."""
+    budget, _ = budgets_svc.create_budget(
+        db_session, "Household", [(groceries.id, None, {1: 400})], year=2026
+    )
+    _spend(db_session, account, groceries, 240)
+    _spend(db_session, card, groceries, 140)
+
+    rows = budgets_svc.get_report(
+        db_session, budget.id, year=2026, through_month=1, account_ids=[]
+    )
+    assert _row(rows, "groceries").monthly[1] == (Decimal("400"), Decimal("380"))
