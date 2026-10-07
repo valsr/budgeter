@@ -168,38 +168,56 @@ def delete_user(db: Session, user_id: int) -> None:
 def create_session(db: Session, user: User) -> str:
     token = new_token()
     now = utcnow()
+    user_id = user.id
     db.add(
         UserSession(
-            user_id=user.id,
+            user_id=user_id,
             token_hash=hash_token(token),
             created_at=now,
             expires_at=now + SESSION_LIFETIME,
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The account was deleted between the password check and here (the
+        # foreign key is enforced -- see server_db). No session for a ghost.
+        db.rollback()
+        raise AuthError(_BAD_CREDENTIALS) from None
     return token
 
 
-def resolve_session(db: Session, token: str, now: datetime | None = None) -> User | None:
+def resolve_session_renewing(
+    db: Session, token: str, now: datetime | None = None
+) -> tuple[User | None, bool]:
+    """(the session's user or None, whether its expiry was just extended).
+    The caller re-issues the cookie on a renewal, so the browser's copy
+    slides forward together with the server's."""
     if not token:
-        return None
+        return None, False
     now = now or utcnow()
     row = db.execute(
         select(UserSession).where(UserSession.token_hash == hash_token(token))
     ).scalar_one_or_none()
     if row is None:
-        return None
-    if row.expires_at <= now:
+        return None, False
+    user = db.get(User, row.user_id)
+    if row.expires_at <= now or user is None:
+        # Expired, or pointing at nobody: either way it must never resolve again.
         db.delete(row)
         db.commit()
-        return None
-    user = db.get(User, row.user_id)
-    if user is None or user.is_disabled:
-        return None
-    if row.expires_at - now < _RENEW_WHEN_LEFT_BELOW:
+        return None, False
+    if user.is_disabled:
+        return None, False
+    renewed = row.expires_at - now < _RENEW_WHEN_LEFT_BELOW
+    if renewed:
         row.expires_at = now + SESSION_LIFETIME
         db.commit()
-    return user
+    return user, renewed
+
+
+def resolve_session(db: Session, token: str, now: datetime | None = None) -> User | None:
+    return resolve_session_renewing(db, token, now)[0]
 
 
 def delete_session(db: Session, token: str) -> None:
