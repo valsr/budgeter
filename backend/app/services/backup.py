@@ -81,3 +81,61 @@ def write_backup_bytes(db_path: str, data: bytes) -> None:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
+
+
+def _inspect_sqlite_bytes(data: bytes) -> tuple[set[str], str | None]:
+    """(table names, Alembic revision or None) of a validated SQLite image."""
+    fd, tmp_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        Path(tmp_path).write_bytes(data)
+        conn = sqlite3.connect(tmp_path)
+        try:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            revision = None
+            if "alembic_version" in tables:
+                row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+                revision = row[0] if row else None
+        finally:
+            conn.close()
+        return tables, revision
+    finally:
+        os.unlink(tmp_path)
+
+
+def _known_revision(revision: str, ini_section: str) -> bool:
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from alembic.util import CommandError
+
+    ini = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
+    script = ScriptDirectory.from_config(Config(str(ini), ini_section=ini_section))
+    try:
+        return script.get_revision(revision) is not None
+    except CommandError:
+        return False
+
+
+def _validate_schema(data: bytes, *, kind: str, required: str, forbidden: str, ini_section: str) -> None:
+    validate_sqlite_bytes(data)
+    tables, revision = _inspect_sqlite_bytes(data)
+    if required not in tables or forbidden in tables:
+        raise ValidationError(f"Uploaded file is not a budgeter {kind} database")
+    if revision is None:
+        raise ValidationError(f"Uploaded {kind} database has no schema version")
+    if not _known_revision(revision, ini_section):
+        # Typically a backup taken from a newer version of the app: there is
+        # no migration path from a revision this build has never heard of.
+        raise ValidationError(
+            f"Uploaded {kind} database is at schema version {revision}, which this version of the app doesn't know"
+        )
+
+
+def validate_books_bytes(data: bytes) -> None:
+    """A SQLite image that is one user's books, at a revision this build
+    can migrate from -- not a server database, not some other app's file."""
+    _validate_schema(data, kind="books", required="accounts", forbidden="users", ini_section="alembic")
+
+
+def validate_server_bytes(data: bytes) -> None:
+    _validate_schema(data, kind="server", required="users", forbidden="accounts", ini_section="server")

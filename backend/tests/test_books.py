@@ -166,3 +166,21 @@ def test_legacy_database_at_an_old_revision_is_upgraded_on_claim(files, sdb):
     assert books.claim_legacy_books(sdb, first) is True
     assert account_names(first.id) == ["Main"]
     assert "app_settings" in tables(books.books_path(first.id))
+
+
+def test_a_new_user_never_inherits_a_stale_books_file(files):
+    # A file left behind under an id that is later reused (a delete that
+    # died halfway, a file copied in by hand) must not become someone's books.
+    with books.session_for(5) as db:
+        db.add(Account(name="Somebody else's", type=AccountType.ASSET))
+        db.commit()
+    books.create_books(5)
+    assert account_names(5) == []
+
+
+def test_ensure_books_keeps_existing_data(files):
+    with books.session_for(6) as db:
+        db.add(Account(name="Mine", type=AccountType.ASSET))
+        db.commit()
+    books.ensure_books(6)
+    assert account_names(6) == ["Mine"]
