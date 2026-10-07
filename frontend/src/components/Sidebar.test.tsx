@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Sidebar } from "./Sidebar";
 
 describe("Sidebar", () => {
-  it("renders all six nav items linking to their screens", () => {
+  it("renders the nav items linking to their screens", () => {
     render(
       <MemoryRouter>
         <Sidebar />
@@ -13,6 +13,7 @@ describe("Sidebar", () => {
     const expected = [
       ["Overview", "/"],
       ["Accounts", "/accounts"],
+      ["Categories", "/categories"],
       ["Transactions", "/transactions"],
       ["Budgets", "/budgets"],
       ["Import", "/import"],

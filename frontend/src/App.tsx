@@ -3,6 +3,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ToastProvider } from "./components/Toast";
 import { Overview } from "./pages/Overview";
 import { Accounts } from "./pages/Accounts";
+import { Categories } from "./pages/Categories";
 import { Transactions } from "./pages/Transactions";
 import { Budgets } from "./pages/Budgets";
 import { Import } from "./pages/Import";
@@ -18,6 +19,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/accounts" element={<Accounts />} />
+            <Route path="/categories" element={<Categories />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/budgets" element={<Budgets />} />
             <Route path="/import" element={<Import />} />

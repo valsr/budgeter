@@ -26,6 +26,16 @@ const NAV_ITEMS = [
     ),
   },
   {
+    to: "/categories",
+    label: "Categories",
+    icon: (
+      <svg viewBox="0 0 24 24">
+        <path d="M3.5 12.5V4.5h8l9 9-8 8z" />
+        <circle cx="8" cy="9" r="1.5" />
+      </svg>
+    ),
+  },
+  {
     to: "/transactions",
     label: "Transactions",
     icon: (

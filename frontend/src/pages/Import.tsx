@@ -10,6 +10,7 @@ import type {
   ImportResolutionInput,
   ReviewQueueItem,
 } from "../api/types";
+import { formatTimestamp } from "../format";
 import { ImportReviewModal } from "../components/ImportReviewModal";
 
 export function Import() {
@@ -258,6 +259,7 @@ export function Import() {
       <table className="import-log">
         <thead>
           <tr>
+            <th>When</th>
             <th>File</th>
             <th>Account</th>
             <th>Rows</th>
@@ -270,6 +272,7 @@ export function Import() {
         <tbody>
           {batches.map((b) => (
             <tr key={b.id}>
+              <td>{formatTimestamp(b.imported_at)}</td>
               <td>{b.filename}</td>
               <td>{accountName(b.account_id)}</td>
               <td>{b.row_count}</td>
