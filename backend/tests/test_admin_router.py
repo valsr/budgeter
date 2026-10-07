@@ -154,10 +154,11 @@ def test_deleted_users_session_and_key_get_401_and_no_books_reappear(make_client
 
 
 def test_closing_registration_blocks_register_but_not_admin_create(make_client, admin):
-    assert admin.get("/api/admin/settings").json() == {"registration_open": True}
+    assert admin.get("/api/admin/settings").json()["registration_open"] is True
     resp = admin.patch("/api/admin/settings", json={"registration_open": False})
     assert resp.status_code == 200
-    assert resp.json() == {"registration_open": False}
+    assert resp.json()["registration_open"] is False
+    assert resp.json()["port"] == 8000  # untouched by a registration-only update
 
     anonymous = make_client()
     assert anonymous.get("/api/auth/status").json() == {"registration_open": False, "has_users": True}
@@ -183,3 +184,55 @@ def test_an_admin_cannot_remove_their_own_admin_rights(make_client, admin):
 
     # Another admin can do it.
     assert bob.patch(me, json={"is_admin": False}).status_code == 200
+
+
+def test_server_settings_cover_port_and_ssl(make_client, admin, tmp_path, monkeypatch):
+    from app import runtime
+    from tests.test_server_config import make_cert
+
+    monkeypatch.setattr(runtime, "current", None)
+    assert admin.get("/api/admin/settings").json() == {
+        "registration_open": True,
+        "port": 8000,
+        "ssl_enabled": False,
+        "ssl_certfile": None,
+        "ssl_keyfile": None,
+        "managed": False,
+        "restart_required": False,
+        "port_override": None,
+        "ssl_disabled_override": False,
+    }
+
+    # A partial update leaves everything else alone.
+    resp = admin.patch("/api/admin/settings", json={"port": 8443})
+    assert resp.status_code == 200
+    assert resp.json()["port"] == 8443 and resp.json()["registration_open"] is True
+
+    resp = admin.patch("/api/admin/settings", json={"port": 70000})
+    assert resp.status_code == 422
+    resp = admin.patch(
+        "/api/admin/settings",
+        json={"ssl_enabled": True, "ssl_certfile": str(tmp_path / "no.crt"), "ssl_keyfile": str(tmp_path / "no.key")},
+    )
+    assert resp.status_code == 422
+    assert "Certificate file not found" in resp.json()["detail"]
+    assert admin.get("/api/admin/settings").json()["ssl_enabled"] is False
+
+    cert, key = make_cert(tmp_path)
+    resp = admin.patch(
+        "/api/admin/settings", json={"ssl_enabled": True, "ssl_certfile": str(cert), "ssl_keyfile": str(key)}
+    )
+    assert resp.status_code == 200 and resp.json()["ssl_enabled"] is True
+
+
+def test_server_settings_say_when_a_restart_is_needed(admin, monkeypatch):
+    from app import runtime
+
+    monkeypatch.setattr(runtime, "current", runtime.Runtime(port=8000, ssl_certfile=None, ssl_keyfile=None))
+    body = admin.get("/api/admin/settings").json()
+    assert body["managed"] is True and body["restart_required"] is False
+
+    body = admin.patch("/api/admin/settings", json={"port": 8443}).json()
+    assert body["restart_required"] is True
+    body = admin.patch("/api/admin/settings", json={"port": 8000}).json()
+    assert body["restart_required"] is False

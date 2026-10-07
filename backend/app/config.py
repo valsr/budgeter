@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./budgeter.db"
     """Where the pre-accounts, single-user database lives. It is only ever
     read: the first registered user gets a copy of it (see app/books.py)."""
+    host: str = "127.0.0.1"
+    """Interface the launcher (app/serve.py) binds. The container sets 0.0.0.0."""
+    port: int | None = None
+    """Overrides the port saved in Settings → Server -- for when the port is
+    dictated from outside, e.g. a container's published port mapping."""
+    ssl_disabled: bool = False
+    """Escape hatch: start on plain HTTP even though SSL is enabled in
+    Settings → Server. The way back in when the certificate has gone missing
+    and the server therefore refuses to start."""
     data_dir: str | None = None
     """Holds server.db and books/<user_id>.db. Defaults to the directory of
     the database_url file -- see resolve_data_dir."""

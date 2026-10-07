@@ -36,6 +36,9 @@ COPY --from=frontend-build /app/frontend/dist ./app/static
 # The data directory is this file's directory (/data). The file itself is
 # only read, and only on volumes that predate user accounts.
 ENV BUDGETER_DATABASE_URL=sqlite:////data/budgeter.db
+# Listen on all interfaces inside the container; the port and HTTPS come from
+# Settings → Server (default: plain HTTP on 8000).
+ENV BUDGETER_HOST=0.0.0.0
 RUN mkdir -p /data && chown budgeter:budgeter /data
 VOLUME ["/data"]
 

@@ -42,6 +42,15 @@ Then open http://localhost:8000 — the API and frontend are both served from th
 
 Useful overrides (env vars on the scripts, not container env vars): `IMAGE_NAME`, `IMAGE_TAG`, `CONTAINER_NAME`, `HOST_PORT`, `VOLUME_NAME`.
 
+## Port and HTTPS
+
+The app serves plain HTTP on port 8000 until an admin changes that in Settings → Server. Both settings are read at container start, so restart the container after saving them.
+
+- **Port:** the container's published port must follow. If you set the port to 8443, start with `CONTAINER_PORT=8443 HOST_PORT=8443 scripts/podman-run.sh`. Alternatively pin the in-container port with `--env BUDGETER_PORT=8000`, which overrides the saved value.
+- **HTTPS:** the certificate and key paths are paths *inside the container*. Mount them, e.g. `CERTS_DIR=/etc/letsencrypt/live/example.org scripts/podman-run.sh`, and enter `/certs/fullchain.pem` and `/certs/privkey.pem`. The files must be readable by uid 1000 and the key must not be passphrase-protected.
+- **If the certificate goes missing** the container exits at start instead of serving plain HTTP. Put the files back, or start once with `--env BUDGETER_SSL_DISABLED=true` to get in over HTTP and fix the settings.
+- **Health check:** `GET /health` returns 200 when the server is up and its database reachable, 503 otherwise — suitable for `podman run --health-cmd`. Use `https://` and the configured port once those are changed.
+
 ## What happens at container start
 
 The app migrates its own schemas to head on startup (`main.py`'s FastAPI lifespan hook: the server database first, then every user's books file) — no separate migration step runs in `entrypoint.sh`. This applies on every container start, including the first one, which creates `/data/server.db`. A user's books file is created when their account is. See [CLAUDE.md](../CLAUDE.md) for the policy this follows.

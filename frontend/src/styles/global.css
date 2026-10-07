@@ -225,3 +225,9 @@ th.month-label{text-align:center}
 .sidebar-user{margin-top:auto;padding:14px 20px 0;border-top:1px solid var(--line);font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sidebar-user .name{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-user .logout{color:var(--accent);cursor:pointer;white-space:nowrap;background:none;border:none;padding:0;font:inherit}
+
+/* Settings → Server: label/value pairs in the health card */
+.health-table{width:100%;font-size:12.5px}
+.health-table td{padding:4px 0;border:none;vertical-align:top}
+.health-table td:first-child{color:var(--ink-2);width:130px;white-space:nowrap}
+.health-table td:last-child{word-break:break-word}
