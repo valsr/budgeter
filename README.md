@@ -84,4 +84,4 @@ scripts/podman-build.sh
 scripts/podman-run.sh
 ```
 
-All data (the server database and every user's books) lives on a named volume (`budgeter-data`) mounted at `/data`, so it survives container restarts/rebuilds.
+All data (the server database and every user's books) lives in one directory, `/data` in the container. By default that is a named volume (`budgeter-data`), so it survives container restarts/rebuilds; to keep it on storage of your choosing — for backups, say — run with `DATA_DIR=/some/host/dir scripts/podman-run.sh`. See [docs/container.md](docs/container.md#where-the-data-lives).

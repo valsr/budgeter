@@ -192,3 +192,49 @@ def test_launcher_refuses_to_start_when_the_certificate_is_missing(files, certs,
     message = capsys.readouterr().err
     assert "Certificate file not found" in message and str(cert) in message
     assert "BUDGETER_SSL_DISABLED" in message  # says how to get back in
+
+
+# --- the data directory -------------------------------------------------
+
+
+def test_launcher_announces_where_the_data_lives(files, monkeypatch, capsys):
+    monkeypatch.setattr(serve.uvicorn, "run", lambda app, **kwargs: None)
+    serve.main()
+    assert f"budgeter: data directory: {files}" in capsys.readouterr().err
+
+
+def test_launcher_creates_a_missing_data_directory(tmp_path, monkeypatch):
+    target = tmp_path / "mounted" / "budgeter"
+    monkeypatch.setattr(settings, "data_dir", str(target))
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{target}/budgeter.db")
+    server_db.reset()
+    monkeypatch.setattr(serve.uvicorn, "run", lambda app, **kwargs: None)
+    try:
+        serve.main()
+        assert (target / "server.db").exists()
+    finally:
+        server_db.reset()
+
+
+def test_launcher_refuses_to_start_on_a_data_directory_it_cannot_write(tmp_path, monkeypatch, capsys):
+    # What a host directory mounted with the wrong ownership looks like.
+    target = tmp_path / "readonly"
+    target.mkdir()
+    target.chmod(0o555)
+    monkeypatch.setattr(settings, "data_dir", str(target))
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{target}/budgeter.db")
+    server_db.reset()
+    started = []
+    monkeypatch.setattr(serve.uvicorn, "run", lambda app, **kwargs: started.append(kwargs))
+    try:
+        with pytest.raises(SystemExit) as exit_info:
+            serve.main()
+    finally:
+        target.chmod(0o755)
+        server_db.reset()
+
+    assert exit_info.value.code == 1
+    assert started == []
+    message = capsys.readouterr().err
+    assert "can't write to the data directory" in message and str(target) in message
+    assert list(target.iterdir()) == []  # nothing half-created

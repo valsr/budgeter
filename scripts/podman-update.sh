@@ -8,6 +8,8 @@
 #
 # Usage:
 #   scripts/podman-update.sh
+#   DATA_DIR=/mnt/backed-up/budgeter scripts/podman-update.sh   # same DATA_DIR
+#                                    # as before, or the app starts on empty data
 set -euo pipefail
 
 IMAGE_NAME="${IMAGE_NAME:-com.valsr.budgeter}"
