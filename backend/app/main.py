@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import books, server_db
+from app.errors import ConflictError, NotFoundError, ValidationError
 from app.routers import (
     accounts,
     admin,
@@ -67,6 +68,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
+# Services raise these; each means the same HTTP status wherever it surfaces.
+_ERROR_STATUS = {NotFoundError: 404, ValidationError: 422, ConflictError: 409}
+
+
+def _domain_error_handler(status_code: int):
+    async def handler(_request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=status_code)
+
+    return handler
+
+
+for _error, _status in _ERROR_STATUS.items():
+    app.add_exception_handler(_error, _domain_error_handler(_status))
 
 
 @app.middleware("http")

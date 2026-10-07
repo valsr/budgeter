@@ -1,11 +1,10 @@
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import Response
 
 from app import books
 from app.auth import current_user
-from app.errors import ValidationError
 from app.server_models import User
 from app.services import backup as backup_service
 
@@ -27,10 +26,7 @@ def download_backup(user: User = Depends(current_user)):
 @router.post("/restore", status_code=204)
 def restore_backup(file: UploadFile, user: User = Depends(current_user)):
     data = file.file.read()
-    try:
-        # Validated, migrated and checked as a copy first: nothing touches
-        # the live books unless the upload is known to be usable.
-        staged = backup_service.stage_books(data, books.books_path(user.id).parent)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    # Validated, migrated and checked as a copy first: nothing touches
+    # the live books unless the upload is known to be usable.
+    staged = backup_service.stage_books(data, books.books_path(user.id).parent)
     books.replace_books(user.id, staged)

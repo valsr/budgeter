@@ -1,11 +1,10 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.errors import ValidationError
 from app.schemas.history import (
     ChangeGroup,
     ChangeItem,
@@ -29,17 +28,14 @@ def list_history(
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    try:
-        groups, total = history_service.list_changes(
-            db,
-            entity_type=entity_type,
-            date_from=date_from,
-            date_to=date_to,
-            page=page,
-            page_size=page_size,
-        )
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    groups, total = history_service.list_changes(
+        db,
+        entity_type=entity_type,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
 
     return HistoryPage(
         items=[

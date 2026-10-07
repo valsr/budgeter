@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app import books
 from app.auth import clear_session_cookie, current_user, set_session_cookie
-from app.errors import AuthError, ConflictError, ValidationError
+from app.errors import AuthError
 from app.schemas.auth import AuthStatus, Credentials, PasswordChange, PasswordConfirm, UserRead
 from app.server_db import get_server_db
 from app.server_models import User
@@ -31,10 +31,6 @@ def register(
 ):
     try:
         user = users_service.register(sdb, payload.username, payload.password)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    except ConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
     except AuthError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
     # A server's very first user inherits the data from before accounts
@@ -96,8 +92,6 @@ def change_password(
         # 403, not 401: the caller *is* authenticated. Clients treat a 401 as
         # "your session is gone", which a mistyped current password is not.
         raise HTTPException(status_code=403, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @router.delete("/me", status_code=204)
@@ -112,9 +106,6 @@ def delete_me(
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=403, detail="Password is incorrect")
     user_id = user.id
-    try:
-        users_service.delete_user(sdb, user_id)
-    except ConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    users_service.delete_user(sdb, user_id)
     books.delete_books(user_id)
     clear_session_cookie(response)
