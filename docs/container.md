@@ -1,6 +1,12 @@
 # Container (Podman)
 
-Single container, per `docs/requirements.md` §8: FastAPI serves both the REST API (under `/api/*`) and the built React static assets (everything else, with client-side routing fallback to `index.html`). SQLite lives on a named volume mounted at `/data` so it survives restarts and rebuilds.
+Single container, per `docs/requirements.md` §8: FastAPI serves both the REST API (under `/api/*`) and the built React static assets (everything else, with client-side routing fallback to `index.html`). All data lives on a named volume mounted at `/data` so it survives restarts and rebuilds:
+
+```
+/data/server.db            users, sessions, server settings
+/data/books/<user_id>.db   one user's books
+/data/budgeter.db          only on volumes from before user accounts: read once, never modified
+```
 
 ## Build
 
@@ -11,21 +17,10 @@ scripts/podman-build.sh
 Equivalent to:
 
 ```bash
-podman build --file Containerfile --build-arg API_KEY=dev-local-api-key --tag com.valsr.budgeter:latest .
+podman build --file Containerfile --tag com.valsr.budgeter:latest .
 ```
 
-### About the API key
-
-The key itself lives in the database (`api_key` table), not just in config — the backend checks incoming bearer tokens against that row, falling back to `BUDGETER_API_KEY` only when the row doesn't exist yet. The frontend is a static SPA, though, so its *first* request needs a key compiled in at `npm run build` time (via `VITE_API_KEY`); the build step and the run step need to agree on that initial value:
-
-```bash
-API_KEY=my-secret scripts/podman-build.sh
-API_KEY=my-secret scripts/podman-run.sh
-```
-
-If you don't pass one, both scripts default to `dev-local-api-key` (same default the dev servers use), so it works out of the box for local single-user use.
-
-You can regenerate the key later from Settings → API key without rebuilding — the new value is stored server-side and the browser that clicked "Regenerate" keeps working automatically (it caches the new key in `localStorage`). Two things to update by hand afterwards: any other browser/device hitting this instance (it has no way to recover from a stale compiled-in key except being given the new one), and the MCP adapter's `BUDGETER_MCP_API_KEY` env var, which is a separate client and won't pick up the change on its own.
+Nothing secret is baked into the image: the browser logs in with a username and password, and API keys are per user (Settings → Account).
 
 ## Run
 
@@ -39,22 +34,21 @@ Equivalent to:
 podman volume create budgeter-data
 podman run --rm --name budgeter \
   --publish 8000:8000 \
-  --env BUDGETER_API_KEY=dev-local-api-key \
   --volume budgeter-data:/data \
   com.valsr.budgeter:latest
 ```
 
-Then open http://localhost:8000 — the API and frontend are both served from that same port.
+Then open http://localhost:8000 — the API and frontend are both served from that same port. On a fresh volume, create the first account from the login screen; on a volume that already holds a pre-accounts `budgeter.db`, that first account takes over its data (as a copy — the original file is left in place).
 
 Useful overrides (env vars on the scripts, not container env vars): `IMAGE_NAME`, `IMAGE_TAG`, `CONTAINER_NAME`, `HOST_PORT`, `VOLUME_NAME`.
 
 ## What happens at container start
 
-The app migrates its own schema to head on startup (`upgrade_to_head()` in `backend/app/db.py`, run from `main.py`'s FastAPI lifespan hook, against `/data/budgeter.db` via `BUDGETER_DATABASE_URL=sqlite:////data/budgeter.db`) — no separate migration step runs in `entrypoint.sh`. This applies on every container start, including the first one, which creates the database file on the volume. See [CLAUDE.md](../CLAUDE.md) for the policy this follows.
+The app migrates its own schemas to head on startup (`main.py`'s FastAPI lifespan hook: the server database first, then every user's books file) — no separate migration step runs in `entrypoint.sh`. This applies on every container start, including the first one, which creates `/data/server.db`. A user's books file is created when their account is. See [CLAUDE.md](../CLAUDE.md) for the policy this follows.
 
 ## Backup/restore with the container
 
-The app's own backup/restore (Settings → Backup & restore, or `GET`/`POST /api/backup*`) works the same as in dev — it operates on whatever file `BUDGETER_DATABASE_URL` points to, which inside the container is `/data/budgeter.db` on the named volume. You can also back up the volume directly:
+The app's own backup/restore works the same as in dev. Each user can download and restore their own books (Settings → Backup & restore, or `GET`/`POST /api/backup*`). An admin can download and restore everything at once as a zip (Settings → Server, or `GET /api/admin/backup` / `POST /api/admin/backup/restore`) — restoring that replaces every user's login and data. You can also back up the volume directly:
 
 ```bash
 podman volume export budgeter-data > budgeter-backup.tar
@@ -77,7 +71,7 @@ podman rm -f budgeter   # only if it's currently running
 scripts/podman-run.sh
 ```
 
-Same env var overrides as the other scripts apply (`IMAGE_NAME`, `IMAGE_TAG`, `CONTAINER_NAME`, `HOST_PORT`, `API_KEY`, `VOLUME_NAME`) — `podman-update.sh` just forwards to `podman-run.sh` for the actual `podman run`, so pass them the same way.
+Same env var overrides as the other scripts apply (`IMAGE_NAME`, `IMAGE_TAG`, `CONTAINER_NAME`, `HOST_PORT`, `VOLUME_NAME`) — `podman-update.sh` just forwards to `podman-run.sh` for the actual `podman run`, so pass them the same way.
 
 ### Always start the container via these scripts
 

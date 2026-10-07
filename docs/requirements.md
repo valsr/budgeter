@@ -4,7 +4,7 @@
 
 Replace the current workflow (bank statement → GnuCash import/classification across 2 accounts → manual transcription into 2 Excel budget sheets) with a single self-hosted app that imports transactions, classifies them (rules + on-demand AI), tracks split transactions, and produces budget views/reports — fully retiring GnuCash and the Excel sheets.
 
-- **Users:** single user, no auth/multi-tenancy.
+- **Users:** multiple users, each with a username/password login and their own entirely separate books (accounts, categories, transactions, budgets, rules, imports, history). Every account is an admin by default; admins can enable/disable users, reset passwords, grant/revoke admin, delete users, and open or close self-registration. Admins cannot see other users' data. See `docs/superpowers/specs/2026-10-06-user-accounts-design.md`.
 - **Deployment:** single Docker container, local (e.g. on Lucius), SQLite for storage.
 - **Currency:** CAD only.
 - **Accounting period:** calendar year, hardcoded (Jan 1 reset).
@@ -79,12 +79,13 @@ Sidebar (left) + content area (right). Shared sidebar menu: **Overview, Accounts
 ## 6. API
 
 - **REST API** covering all entities and actions (accounts, transactions, splits, categories, rules, budgets, reports, import, backup/restore) — the system of record for all app logic.
-- Auth: **static API key / bearer token** (single shared secret; proportionate to single-user, trusted-network deployment with defense-in-depth).
+- Auth: the browser uses a **session cookie** obtained by logging in; scripts and the MCP adapter use a **per-user API key** as a bearer token (stored hashed, shown once when generated). Either way a request acts as exactly one user, on that user's books.
 - A separate, thin **MCP adapter** (or Claude skill) wraps the REST API for AI/skill-based access — the core app does not speak MCP natively.
 
 ## 7. Backup / Restore
 
-- Raw SQLite **file export** (download) and **import** (restore/replace) via the app — no structured/schema-portable dump format in v1.
+- Raw SQLite **file export** (download) and **import** (restore/replace) of the user's own books via the app — no structured/schema-portable dump format in v1.
+- Admins can additionally download and restore a **whole-server archive** (a zip of the server database and every user's books).
 
 ## 8. Non-Functional Requirements
 
@@ -96,7 +97,7 @@ Sidebar (left) + content area (right). Shared sidebar menu: **Overview, Accounts
 
 - GnuCash data migration / historical import.
 - CSV import (QIF only).
-- Multi-user access, authentication beyond a single static API key.
+- Sharing one set of books between users; roles beyond the admin flag; login rate limiting, e-mail password reset, two-factor authentication.
 - Balance reconciliation against bank-stated statement balances.
 - Multi-currency support.
 - Configurable/non-calendar fiscal year.
