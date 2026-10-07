@@ -1,4 +1,6 @@
-"""Shared by the tests that drive the app through a logged-in client."""
+"""Helpers shared across test modules."""
+
+import sqlite3
 
 
 def make_account(client, name: str) -> int:
@@ -9,3 +11,11 @@ def make_account(client, name: str) -> int:
 
 def account_names(client) -> list[str]:
     return [a["name"] for a in client.get("/api/accounts").json()]
+
+
+def tables(path) -> set[str]:
+    conn = sqlite3.connect(path)
+    try:
+        return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()

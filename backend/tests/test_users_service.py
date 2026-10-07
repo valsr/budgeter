@@ -99,23 +99,23 @@ def test_session_resolves_slides_and_expires(sdb):
     assert abs(row.expires_at - (t0 + timedelta(days=30))) < timedelta(seconds=5)
 
     # Within the first day nothing is rewritten...
-    assert users.resolve_session(sdb, token, now=t0 + timedelta(hours=1)).id == u.id
+    assert users.resolve_session(sdb, token, now=t0 + timedelta(hours=1))[0].id == u.id
     assert abs(row.expires_at - (t0 + timedelta(days=30))) < timedelta(seconds=5)
     # ...after that the expiry slides forward from the time of use.
-    assert users.resolve_session(sdb, token, now=t0 + timedelta(days=2)).id == u.id
+    assert users.resolve_session(sdb, token, now=t0 + timedelta(days=2))[0].id == u.id
     assert row.expires_at >= t0 + timedelta(days=32) - timedelta(seconds=5)
 
-    assert users.resolve_session(sdb, token, now=t0 + timedelta(days=33)) is None
-    assert users.resolve_session(sdb, "no-such-token") is None
-    assert users.resolve_session(sdb, "") is None
+    assert users.resolve_session(sdb, token, now=t0 + timedelta(days=33))[0] is None
+    assert users.resolve_session(sdb, "no-such-token")[0] is None
+    assert users.resolve_session(sdb, "")[0] is None
 
 
 def test_logout_deletes_only_that_session(sdb):
     u = users.create_user(sdb, "alice", "password1")
     a, b = users.create_session(sdb, u), users.create_session(sdb, u)
     users.delete_session(sdb, a)
-    assert users.resolve_session(sdb, a) is None
-    assert users.resolve_session(sdb, b).id == u.id
+    assert users.resolve_session(sdb, a)[0] is None
+    assert users.resolve_session(sdb, b)[0].id == u.id
 
 
 def test_purge_expired_sessions(sdb):
@@ -136,12 +136,12 @@ def test_disabling_ends_sessions_and_blocks_the_api_key(sdb):
     assert users.resolve_api_key(sdb, key).id == bob.id
 
     users.update_user(sdb, bob.id, is_disabled=True)
-    assert users.resolve_session(sdb, token) is None
+    assert users.resolve_session(sdb, token)[0] is None
     assert users.resolve_api_key(sdb, key) is None
 
     users.update_user(sdb, bob.id, is_disabled=False)
     assert users.resolve_api_key(sdb, key).id == bob.id
-    assert users.resolve_session(sdb, token) is None  # sessions were deleted, not suspended
+    assert users.resolve_session(sdb, token)[0] is None  # sessions were deleted, not suspended
 
 
 def test_regenerated_api_key_replaces_the_old_one(sdb):
@@ -164,8 +164,8 @@ def test_change_password_needs_current_and_ends_other_sessions(sdb):
         users.change_password(sdb, u, "password1", "short", keep_token=mine)
     users.change_password(sdb, u, "password1", "password2", keep_token=mine)
     assert users.authenticate(sdb, "alice", "password2").id == u.id
-    assert users.resolve_session(sdb, mine).id == u.id
-    assert users.resolve_session(sdb, other) is None
+    assert users.resolve_session(sdb, mine)[0].id == u.id
+    assert users.resolve_session(sdb, other)[0] is None
 
 
 def test_admin_password_reset_ends_that_users_sessions(sdb):
@@ -173,7 +173,7 @@ def test_admin_password_reset_ends_that_users_sessions(sdb):
     bob = users.create_user(sdb, "bob", "password1")
     token = users.create_session(sdb, bob)
     users.update_user(sdb, bob.id, password="new-password")
-    assert users.resolve_session(sdb, token) is None
+    assert users.resolve_session(sdb, token)[0] is None
     assert users.authenticate(sdb, "bob", "new-password").id == bob.id
 
 

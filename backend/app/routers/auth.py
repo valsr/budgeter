@@ -1,13 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
-from app import books
 from app.auth import clear_session_cookie, current_user, set_session_cookie
-from app.errors import AuthError
 from app.schemas.auth import AuthStatus, Credentials, PasswordChange, PasswordConfirm, UserRead
 from app.server_db import get_server_db
 from app.server_models import User
-from app.security import verify_password
+from app.services import lifecycle
 from app.services import users as users_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -29,14 +27,8 @@ def register(
     response: Response,
     sdb: Session = Depends(get_server_db),
 ):
-    try:
-        user = users_service.register(sdb, payload.username, payload.password)
-    except AuthError as e:
-        raise HTTPException(status_code=403, detail=str(e)) from e
-    # A server's very first user inherits the data from before accounts
-    # existed; everyone else starts with empty books.
-    if not books.claim_legacy_books(sdb, user):
-        books.create_books(user.id)
+    user = users_service.register(sdb, payload.username, payload.password)
+    lifecycle.provision(sdb, user, claim_legacy=True)
     set_session_cookie(response, request, users_service.create_session(sdb, user))
     return user
 
@@ -48,10 +40,7 @@ def login(
     response: Response,
     sdb: Session = Depends(get_server_db),
 ):
-    try:
-        user = users_service.authenticate(sdb, payload.username, payload.password)
-    except AuthError as e:
-        raise HTTPException(status_code=401, detail=str(e)) from e
+    user = users_service.authenticate(sdb, payload.username, payload.password)
     set_session_cookie(response, request, users_service.create_session(sdb, user))
     return user
 
@@ -80,18 +69,9 @@ def change_password(
     user: User = Depends(current_user),
     sdb: Session = Depends(get_server_db),
 ):
-    try:
-        users_service.change_password(
-            sdb,
-            user,
-            payload.current_password,
-            payload.new_password,
-            keep_token=request.state.session_token,
-        )
-    except AuthError as e:
-        # 403, not 401: the caller *is* authenticated. Clients treat a 401 as
-        # "your session is gone", which a mistyped current password is not.
-        raise HTTPException(status_code=403, detail=str(e)) from e
+    users_service.change_password(
+        sdb, user, payload.current_password, payload.new_password, keep_token=request.state.session_token
+    )
 
 
 @router.delete("/me", status_code=204)
@@ -101,11 +81,7 @@ def delete_me(
     user: User = Depends(current_user),
     sdb: Session = Depends(get_server_db),
 ):
-    """Delete the caller's own account and books. Irreversible, so it asks
-    for the password again rather than trusting a session alone."""
-    if not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=403, detail="Password is incorrect")
-    user_id = user.id
-    users_service.delete_user(sdb, user_id)
-    books.delete_books(user_id)
+    """Delete the caller's own account and books. Irreversible, so it asks for the password again."""
+    users_service.check_password(user, payload.password)
+    lifecycle.remove(sdb, user.id)
     clear_session_cookie(response)

@@ -25,8 +25,7 @@ def download_backup(user: User = Depends(current_user)):
 
 @router.post("/restore", status_code=204)
 def restore_backup(file: UploadFile, user: User = Depends(current_user)):
-    data = file.file.read()
-    # Validated, migrated and checked as a copy first: nothing touches
-    # the live books unless the upload is known to be usable.
-    staged = backup_service.stage_books(data, books.books_path(user.id).parent)
+    path = books.books_path(user.id)
+    # Validated, migrated and checked as a copy first; the live books are untouched unless it's usable.
+    staged = backup_service.stage_books(file.file.read(), path.with_suffix(".restore"))
     books.replace_books(user.id, staged)

@@ -5,7 +5,6 @@ import datetime as dt
 import io
 import re
 import shutil
-import sqlite3
 import tempfile
 import zipfile
 from pathlib import Path
@@ -47,8 +46,8 @@ def create_archive() -> bytes:
 
 
 def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
-    """Validate an uploaded archive in full and return (server image,
-    {user_id: books image}). Nothing is written to the data directory."""
+    """The archive's (server image, {user_id: books image}), after checking it holds exactly the
+    files this app writes. The images themselves are validated when staged."""
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as e:
@@ -58,14 +57,12 @@ def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
         names = archive.namelist()
         if len(set(names)) != len(names):
             raise ValidationError("Archive lists the same file twice")
-        # Names are matched whole against the two shapes this app writes -- never joined onto a path
-        # -- so "..", absolute paths and stray files are all refused here.
+        # Names are matched whole, never joined onto a path, so ".." and absolute paths are refused.
         unexpected = [n for n in names if n != _SERVER_MEMBER and not _BOOKS_MEMBER.fullmatch(n)]
         if unexpected:
             raise ValidationError(f"Archive contains an unexpected file: {unexpected[0]!r}")
         if _SERVER_MEMBER not in names:
             raise ValidationError("Archive has no server.db")
-
         try:
             server_bytes = archive.read(_SERVER_MEMBER)
             books_bytes = {
@@ -73,39 +70,22 @@ def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
             }
         except (zipfile.BadZipFile, OSError, RuntimeError) as e:
             raise ValidationError(f"Archive is damaged: {e}") from e
-
-    backup_service.validate_server_bytes(server_bytes)
-    for user_id, image in books_bytes.items():
-        try:
-            backup_service.validate_books_bytes(image)
-        except ValidationError as e:
-            raise ValidationError(f"books/{user_id}.db: {e}") from e
-
-    # Books with no account behind them would sit on disk until some future
-    # user was given that id -- and with it, somebody else's data.
-    orphans = sorted(set(books_bytes) - _user_ids_in(server_bytes))
-    if orphans:
-        raise ValidationError(f"Archive has books for a user that isn't in its server.db: books/{orphans[0]}.db")
     return server_bytes, books_bytes
 
 
-def _user_ids_in(server_bytes: bytes) -> set[int]:
-    with backup_service.open_image(server_bytes) as conn:
-        return {row[0] for row in conn.execute("SELECT id FROM users")}
-
-
-def _require_active_admin(server_file: Path) -> None:
-    """Refuse a server database that would lock everyone out of administration: it has users, but
-    none who is an enabled admin."""
-    conn = sqlite3.connect(server_file)
-    try:
-        users, active_admins = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(is_admin AND NOT is_disabled), 0) FROM users"
-        ).fetchone()
-    finally:
-        conn.close()
-    if users and not active_admins:
+def _check_users(server_file: Path, books_ids: set[int]) -> None:
+    """Refuse a server database that leaves nobody able to administer it, or books that belong to
+    no user in it (they would sit on disk waiting for a future user to inherit them)."""
+    with backup_service.open_db(server_file) as conn:
+        user_ids = {row[0] for row in conn.execute("SELECT id FROM users")}
+        active_admins = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE is_admin AND NOT is_disabled"
+        ).fetchone()[0]
+    if user_ids and not active_admins:
         raise ValidationError("Archive's server.db has no active admin: nobody could manage the server after restoring it")
+    orphans = sorted(books_ids - user_ids)
+    if orphans:
+        raise ValidationError(f"Archive has books for a user that isn't in its server.db: books/{orphans[0]}.db")
 
 
 def restore_archive(data: bytes) -> None:
@@ -117,11 +97,11 @@ def restore_archive(data: bytes) -> None:
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=data_dir))
     try:
         staged_server = backup_service.stage_server(server_bytes, staging / "server.db")
-        _require_active_admin(staged_server)
+        _check_users(staged_server, set(books_bytes))
         staged_books: dict[int, Path] = {}
         for user_id, image in books_bytes.items():
             try:
-                staged_books[user_id] = backup_service.stage_books(image, staging, name=f"{user_id}.db")
+                staged_books[user_id] = backup_service.stage_books(image, staging / f"{user_id}.db")
             except ValidationError as e:
                 raise ValidationError(f"books/{user_id}.db: {e}") from e
 

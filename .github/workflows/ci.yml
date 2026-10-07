@@ -41,7 +41,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
-      - run: npm run build
+      # Type-check only: the image job below does the real bundle.
+      - run: npx tsc -b
 
   image:
     name: Container image

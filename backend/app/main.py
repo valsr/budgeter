@@ -9,7 +9,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import books, server_db
-from app.errors import ConflictError, NotFoundError, ValidationError
+from app.errors import (
+    ConflictError,
+    InvalidCredentialsError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from app.routers import (
     accounts,
     admin,
@@ -71,7 +77,13 @@ app.add_middleware(
 
 
 # Services raise these; each means the same HTTP status wherever it surfaces.
-_ERROR_STATUS = {NotFoundError: 404, ValidationError: 422, ConflictError: 409}
+_ERROR_STATUS = {
+    NotFoundError: 404,
+    ValidationError: 422,
+    ConflictError: 409,
+    InvalidCredentialsError: 401,
+    PermissionDeniedError: 403,
+}
 
 
 def _domain_error_handler(status_code: int):

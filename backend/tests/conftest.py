@@ -9,8 +9,20 @@ from app import books, server_db
 from app.config import settings
 from app.db import get_db
 from app.main import app
+from app import runtime, security
 from app.security import hash_token
 from app.server_models import User
+
+
+# Real scrypt costs ~40ms per hash, on every registration and login the suite performs. The cost
+# travels inside each stored hash, so verification still works; test_security checks the real one.
+security._SCRYPT_N = 2
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime(monkeypatch):
+    """Tests run as if started outside the launcher, unless one says otherwise."""
+    monkeypatch.setattr(runtime, "current", None)
 
 
 @pytest.fixture()

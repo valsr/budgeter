@@ -8,7 +8,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.errors import AuthError, ConflictError, NotFoundError, ValidationError
+from app.errors import (
+    ConflictError,
+    InvalidCredentialsError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from app.security import hash_password, hash_token, new_token, verify_password
 from app.server_models import ServerSettings, User, UserSession, utcnow
 
@@ -88,7 +94,7 @@ def register(db: Session, username: str, password: str) -> User:
     """Self-service sign-up. Always allowed while there are no users at all,
     so a fresh (or emptied) server can't lock everyone out."""
     if not get_settings(db).registration_open and has_users(db):
-        raise AuthError("Registration is closed")
+        raise PermissionDeniedError("Registration is closed")
     return create_user(db, username, password)
 
 
@@ -96,26 +102,32 @@ def authenticate(db: Session, username: str, password: str) -> User:
     user = _find_by_username(db, username.strip().lower())
     password_ok = verify_password(password, user.password_hash if user else _DUMMY_HASH)
     if user is None or not password_ok or user.is_disabled:
-        raise AuthError(_BAD_CREDENTIALS)
+        raise InvalidCredentialsError(_BAD_CREDENTIALS)
     return user
 
 
+def check_password(user: User, password: str, message: str = "Password is incorrect") -> None:
+    """Confirm a logged-in user's password before something irreversible. A failure is a 403, not
+    a 401: clients read 401 as "your session is gone", which a typo is not."""
+    if not verify_password(password, user.password_hash):
+        raise PermissionDeniedError(message)
+
+
 def change_password(db: Session, user: User, current: str, new: str, keep_token: str | None) -> None:
-    if not verify_password(current, user.password_hash):
-        raise AuthError("Current password is incorrect")
+    check_password(user, current, "Current password is incorrect")
     _validate_password(new)
     user.password_hash = hash_password(new)
     delete_user_sessions(db, user.id, keep_token=keep_token)
 
 
-def _is_active_admin(user: User) -> bool:
+def is_active_admin(user: User) -> bool:
     return user.is_admin and not user.is_disabled
 
 
 def _guard_last_admin(db: Session, user: User) -> None:
     """Refuse a change that takes `user` out of the set of active admins
     when they're the only one in it."""
-    if not _is_active_admin(user):
+    if not is_active_admin(user):
         return
     active_admins = db.execute(
         select(func.count()).select_from(User).where(User.is_admin, ~User.is_disabled)
@@ -131,8 +143,12 @@ def update_user(
     is_admin: bool | None = None,
     is_disabled: bool | None = None,
     password: str | None = None,
+    acting_user_id: int | None = None,
 ) -> User:
     user = get_user(db, user_id)
+    if is_admin is False and user_id == acting_user_id:
+        # One click from locking yourself out of user management: it takes another admin.
+        raise ConflictError("You can't remove your own admin rights")
     if is_admin is False or is_disabled is True:
         _guard_last_admin(db, user)
     if password is not None:
@@ -182,11 +198,11 @@ def create_session(db: Session, user: User) -> str:
         # The account was deleted between the password check and here (the
         # foreign key is enforced -- see server_db). No session for a ghost.
         db.rollback()
-        raise AuthError(_BAD_CREDENTIALS) from None
+        raise InvalidCredentialsError(_BAD_CREDENTIALS) from None
     return token
 
 
-def resolve_session_renewing(
+def resolve_session(
     db: Session, token: str, now: datetime | None = None
 ) -> tuple[User | None, bool]:
     """(the session's user or None, whether its expiry was just extended)."""
@@ -211,10 +227,6 @@ def resolve_session_renewing(
         row.expires_at = now + SESSION_LIFETIME
         db.commit()
     return user, renewed
-
-
-def resolve_session(db: Session, token: str, now: datetime | None = None) -> User | None:
-    return resolve_session_renewing(db, token, now)[0]
 
 
 def delete_session(db: Session, token: str) -> None:
