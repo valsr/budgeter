@@ -3,7 +3,8 @@
 Nothing here reads a user's books -- an admin manages accounts, not data.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app import books
@@ -17,6 +18,7 @@ from app.schemas.admin import (
 )
 from app.schemas.auth import Credentials
 from app.server_db import get_server_db
+from app.services import server_backup
 from app.services import users as users_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -78,3 +80,27 @@ def get_settings(sdb: Session = Depends(get_server_db)):
 @router.patch("/settings", response_model=ServerSettingsRead)
 def update_settings(payload: ServerSettingsUpdate, sdb: Session = Depends(get_server_db)):
     return users_service.set_registration_open(sdb, payload.registration_open)
+
+
+@router.get("/backup")
+def download_server_backup():
+    try:
+        data = server_backup.create_archive()
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{server_backup.archive_filename()}"'},
+    )
+
+
+@router.post("/backup/restore", status_code=204)
+async def restore_server_backup(file: UploadFile):
+    """Replaces every user's account and books with the archive's. Sessions
+    come from the archive too, so callers may need to log in again."""
+    data = await file.read()
+    try:
+        server_backup.restore_archive(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e

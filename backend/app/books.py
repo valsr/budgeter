@@ -90,7 +90,19 @@ def session_for(user_id: int) -> Session:
     return Session(bind=_engine_for(user_id), autoflush=False)
 
 
+def ensure_books(user_id: int) -> None:
+    """Make sure the user's books exist, creating empty ones if not."""
+    _engine_for(user_id)
+
+
 def create_books(user_id: int) -> None:
+    """Fresh, empty books for a newly created user.
+
+    Anything already at that path is removed first: a new account can't
+    have legitimate books yet, and a file stranded under a reused id must
+    never be handed to whoever gets the id next.
+    """
+    delete_books(user_id)
     _engine_for(user_id)
 
 
