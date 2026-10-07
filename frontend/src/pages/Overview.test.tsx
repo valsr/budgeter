@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Budget, ReportRow } from "../api/types";
+import { TestAuth } from "../test/TestAuth";
 import { Overview } from "./Overview";
 
 const listBudgets = vi.fn();
@@ -21,7 +22,7 @@ vi.mock("../api/transactions", () => ({
   transactionsApi: { uncategorizedCount: () => Promise.resolve({ count: 0 }) },
 }));
 
-const STORAGE_KEY = "budgeter.overview.budget";
+const STORAGE_KEY = "budgeter.u1.overview.budget";
 
 function row(category_id: number, name: string, budgeted: number, actual: number): ReportRow {
   return {
@@ -46,7 +47,9 @@ const BUDGETS: Budget[] = [
 function renderOverview() {
   return render(
     <MemoryRouter>
-      <Overview />
+      <TestAuth>
+        <Overview />
+      </TestAuth>
     </MemoryRouter>,
   );
 }
@@ -126,4 +129,11 @@ it("leaves per-account breakdown rows out of the summary", async () => {
   renderOverview();
   await screen.findByText("groceries");
   await waitFor(() => expect(screen.queryByText("Visa")).not.toBeInTheDocument());
+});
+
+it("does not pick up another user's remembered budget", async () => {
+  localStorage.setItem("budgeter.u2.overview.budget", "2");
+  renderOverview();
+  expect(await screen.findByText("groceries")).toBeInTheDocument();
+  expect(screen.getByLabelText("Budget")).toHaveValue("1");
 });

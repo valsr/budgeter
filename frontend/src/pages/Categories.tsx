@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { accountsApi } from "../api/accounts";
 import { activeCategories, categoriesApi, flattenAllCategories } from "../api/categories";
 import type { Account, Category, Transaction } from "../api/types";
+import { useUserStorage } from "../auth/userStorage";
 import { CategoryCombobox } from "../components/CategoryCombobox";
 import { SplitModal } from "../components/SplitModal";
 import { TransactionTable } from "../components/TransactionTable";
@@ -10,13 +11,14 @@ import { TransactionTable } from "../components/TransactionTable";
 const ACCOUNTING_PERIOD_START = `${new Date().getFullYear()}-01-01`;
 
 // The last category picked here, so the screen reopens on it.
-const CATEGORY_STORAGE_KEY = "budgeter.categories.selected";
+const CATEGORY_STORAGE_KEY = "categories.selected";
 
 export function Categories() {
+  const storage = useUserStorage();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[] | null>(null);
   const [currentCategoryId, setCurrentCategoryId] = useState<number | null>(() => {
-    const stored = Number(localStorage.getItem(CATEGORY_STORAGE_KEY));
+    const stored = Number(storage.get(CATEGORY_STORAGE_KEY));
     return Number.isInteger(stored) && stored > 0 ? stored : null;
   });
   const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
@@ -35,8 +37,8 @@ export function Categories() {
 
   function selectCategory(categoryId: number | null) {
     setCurrentCategoryId(categoryId);
-    if (categoryId === null) localStorage.removeItem(CATEGORY_STORAGE_KEY);
-    else localStorage.setItem(CATEGORY_STORAGE_KEY, String(categoryId));
+    if (categoryId === null) storage.remove(CATEGORY_STORAGE_KEY);
+    else storage.set(CATEGORY_STORAGE_KEY, String(categoryId));
   }
 
   const tree = categories ?? [];

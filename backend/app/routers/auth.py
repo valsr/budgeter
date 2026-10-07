@@ -93,7 +93,9 @@ def change_password(
             keep_token=request.state.session_token,
         )
     except AuthError as e:
-        raise HTTPException(status_code=401, detail=str(e)) from e
+        # 403, not 401: the caller *is* authenticated. Clients treat a 401 as
+        # "your session is gone", which a mistyped current password is not.
+        raise HTTPException(status_code=403, detail=str(e)) from e
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
@@ -108,7 +110,7 @@ def delete_me(
     """Delete the caller's own account and books. Irreversible, so it asks
     for the password again rather than trusting a session alone."""
     if not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Password is incorrect")
+        raise HTTPException(status_code=403, detail="Password is incorrect")
     user_id = user.id
     try:
         users_service.delete_user(sdb, user_id)

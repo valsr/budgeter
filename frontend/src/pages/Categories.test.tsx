@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Category } from "../api/types";
+import { TestAuth } from "../test/TestAuth";
 import { Categories } from "./Categories";
 
 vi.mock("../api/accounts", () => ({
@@ -33,7 +34,13 @@ vi.mock("../components/TransactionTable", () => ({
   },
 }));
 
-const STORAGE_KEY = "budgeter.categories.selected";
+const STORAGE_KEY = "budgeter.u1.categories.selected";
+
+const page = (
+  <TestAuth>
+    <Categories />
+  </TestAuth>
+);
 
 beforeEach(() => {
   localStorage.clear();
@@ -41,13 +48,13 @@ beforeEach(() => {
 });
 
 it("shows no transactions until a category is picked", async () => {
-  render(<Categories />);
+  render(page);
   expect(await screen.findByText(/Pick a category/)).toBeInTheDocument();
   expect(screen.queryByTestId("txn-table")).not.toBeInTheDocument();
 });
 
 it("locks the transaction list to the picked category and remembers it", async () => {
-  render(<Categories />);
+  render(page);
   const input = await screen.findByPlaceholderText("Choose a category…");
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: "groceries" } });
@@ -59,13 +66,13 @@ it("locks the transaction list to the picked category and remembers it", async (
 
 it("restores the last picked category, parents included", async () => {
   localStorage.setItem(STORAGE_KEY, "1");
-  render(<Categories />);
+  render(page);
   expect(await screen.findByTestId("txn-table")).toHaveTextContent("category 1");
 });
 
 it("ignores a remembered category that no longer exists", async () => {
   localStorage.setItem(STORAGE_KEY, "99");
-  render(<Categories />);
+  render(page);
   expect(await screen.findByText(/Pick a category/)).toBeInTheDocument();
   expect(screen.queryByTestId("txn-table")).not.toBeInTheDocument();
 });

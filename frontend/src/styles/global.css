@@ -207,3 +207,16 @@ th.month-label{text-align:center}
 .toast-close{color:var(--ink-3);cursor:pointer;font-size:11px;line-height:1.6}
 .toast-error{border-color:var(--c5);background:var(--c5bg)}
 .toast-error>span:first-child{color:var(--c5)}
+
+/* login / register */
+.auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.auth-card{width:340px;margin:0;padding:24px 26px}
+.auth-title{font-size:18px;font-weight:600;margin-bottom:2px}
+.auth-switch{margin-top:14px;text-align:center}
+.auth-switch span{color:var(--accent);cursor:pointer;border-bottom:1px dashed var(--accent)}
+
+/* who is logged in, at the foot of the sidebar */
+.sidebar{display:flex;flex-direction:column}
+.sidebar-user{margin-top:auto;padding:14px 20px 0;border-top:1px solid var(--line);font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sidebar-user .name{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-user .logout{color:var(--accent);cursor:pointer;white-space:nowrap;background:none;border:none;padding:0;font:inherit}

@@ -123,7 +123,7 @@ def test_delete_me_needs_the_password(make_client, admin):
     path = books.books_path(bob.user_id)
 
     resp = delete_me(bob, "wrong-password")
-    assert resp.status_code == 401
+    assert resp.status_code == 403
     assert resp.json()["detail"] == "Password is incorrect"
     assert path.exists()
 
