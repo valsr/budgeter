@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app import books, runtime
 from app.auth import require_admin
 from app.config import settings as app_settings
-from app.errors import ConflictError, NotFoundError, ValidationError
 from app.schemas.admin import (
     AdminUserRead,
     AdminUserUpdate,
@@ -36,12 +35,7 @@ def list_users(sdb: Session = Depends(get_server_db)):
 @router.post("/users", response_model=AdminUserRead, status_code=201)
 def create_user(payload: Credentials, sdb: Session = Depends(get_server_db)):
     """Works whether or not self-registration is open."""
-    try:
-        user = users_service.create_user(sdb, payload.username, payload.password)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    except ConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    user = users_service.create_user(sdb, payload.username, payload.password)
     books.create_books(user.id)
     return user
 
@@ -57,30 +51,18 @@ def update_user(
         # Giving up admin is one click from locking yourself out of this very
         # screen; it takes another admin to do it.
         raise HTTPException(status_code=409, detail="You can't remove your own admin rights")
-    try:
-        return users_service.update_user(
-            sdb,
-            user_id,
-            is_admin=payload.is_admin,
-            is_disabled=payload.is_disabled,
-            password=payload.password,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    except ConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    return users_service.update_user(
+        sdb,
+        user_id,
+        is_admin=payload.is_admin,
+        is_disabled=payload.is_disabled,
+        password=payload.password,
+    )
 
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, sdb: Session = Depends(get_server_db)):
-    try:
-        users_service.delete_user(sdb, user_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    users_service.delete_user(sdb, user_id)
     # Only once the account is gone: nothing can open these books any more.
     books.delete_books(user_id)
 
@@ -107,16 +89,13 @@ def get_settings(sdb: Session = Depends(get_server_db)):
 @router.patch("/settings", response_model=ServerSettingsRead)
 def update_settings(payload: ServerSettingsUpdate, sdb: Session = Depends(get_server_db)):
     sent = payload.model_dump(exclude_unset=True)
-    try:
-        # Port and SSL first: if they're refused, nothing at all is saved.
-        server_config.update(
-            sdb,
-            port=sent.get("port"),
-            ssl_enabled=sent.get("ssl_enabled"),
-            **{k: sent[k] for k in ("ssl_certfile", "ssl_keyfile") if k in sent},
-        )
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    # Port and SSL first: if they're refused, nothing at all is saved.
+    server_config.update(
+        sdb,
+        port=sent.get("port"),
+        ssl_enabled=sent.get("ssl_enabled"),
+        **{k: sent[k] for k in ("ssl_certfile", "ssl_keyfile") if k in sent},
+    )
     if sent.get("registration_open") is not None:
         users_service.set_registration_open(sdb, sent["registration_open"])
     return _settings_read(users_service.get_settings(sdb))
@@ -131,10 +110,7 @@ def detailed_health(sdb: Session = Depends(get_server_db)):
 
 @router.get("/backup")
 def download_server_backup():
-    try:
-        data = server_backup.create_archive()
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    data = server_backup.create_archive()
     return Response(
         content=data,
         media_type="application/zip",
@@ -147,7 +123,4 @@ def restore_server_backup(file: UploadFile):
     """Replaces every user's account and books with the archive's. Sessions
     come from the archive too, so callers may need to log in again."""
     data = file.file.read()
-    try:
-        server_backup.restore_archive(data)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    server_backup.restore_archive(data)

@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.errors import NotFoundError, ValidationError
 from app.schemas.budget import (
     BudgetCreate,
     BudgetRead,
@@ -58,48 +57,32 @@ def list_budgets(db: Session = Depends(get_db)):
 
 @router.post("", response_model=BudgetRead, status_code=201)
 def create_budget(payload: BudgetCreate, db: Session = Depends(get_db)):
-    try:
-        budget, dropped = budgets_service.create_budget(
-            db, name=payload.name, categories=_categories_as_tuples(payload.categories), year=payload.year
-        )
-        return _saved_budget_read(budget, dropped)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    budget, dropped = budgets_service.create_budget(
+        db, name=payload.name, categories=_categories_as_tuples(payload.categories), year=payload.year
+    )
+    return _saved_budget_read(budget, dropped)
 
 
 @router.get("/{budget_id}", response_model=BudgetRead)
 def get_budget(budget_id: int, db: Session = Depends(get_db)):
-    try:
-        return budgets_service.get_budget(db, budget_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    return budgets_service.get_budget(db, budget_id)
 
 
 @router.patch("/{budget_id}", response_model=BudgetRead)
 def update_budget(budget_id: int, payload: BudgetUpdate, db: Session = Depends(get_db)):
-    try:
-        budget, dropped = budgets_service.update_budget(
-            db,
-            budget_id,
-            name=payload.name,
-            categories=_categories_as_tuples(payload.categories) if payload.categories is not None else None,
-            year=payload.year,
-        )
-        return _saved_budget_read(budget, dropped)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    budget, dropped = budgets_service.update_budget(
+        db,
+        budget_id,
+        name=payload.name,
+        categories=_categories_as_tuples(payload.categories) if payload.categories is not None else None,
+        year=payload.year,
+    )
+    return _saved_budget_read(budget, dropped)
 
 
 @router.delete("/{budget_id}", status_code=204)
 def delete_budget(budget_id: int, db: Session = Depends(get_db)):
-    try:
-        budgets_service.delete_budget(db, budget_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    budgets_service.delete_budget(db, budget_id)
 
 
 @router.get("/{budget_id}/report", response_model=list[ReportRowRead])
@@ -115,11 +98,8 @@ def get_report(
     since a budget over no accounts has nothing to report."""
     if not (1 <= through_month <= 12):
         raise HTTPException(status_code=422, detail="through_month must be between 1 and 12")
-    try:
-        rows = budgets_service.get_report(
-            db, budget_id, year, through_month, account_ids=account_id
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    rows = budgets_service.get_report(
+        db, budget_id, year, through_month, account_ids=account_id
+    )
 
     return [row_to_read(row) for row in rows]

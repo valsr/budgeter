@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 from app.auth import current_user
 from app.server_models import User
 from app.db import get_db
-from app.errors import NotFoundError, ValidationError
 from app.models.account import AccountType
 from app.schemas.import_ import (
     DetectAccountsRequest,
@@ -29,14 +28,9 @@ async def import_qif(
     user: User = Depends(current_user),
 ):
     content = (await file.read()).decode("utf-8", errors="replace")
-    try:
-        batch, imported_ids = imports_service.import_qif(
-            db, account_id, file.filename or "import.qif", content
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    batch, imported_ids = imports_service.import_qif(
+        db, account_id, file.filename or "import.qif", content
+    )
 
     # Categorization must not block the import response (docs/requirements.md §2.4).
     # Runs in its own DB session — the request's `db` is closed by the time
@@ -101,12 +95,7 @@ async def commit_import(
                 detail=f"Resolution for {r.parsed_name or 'this file'!r} needs an account_id or new_account",
             )
 
-    try:
-        batches, imported_ids = imports_service.import_multi(db, file.filename or "import", content, resolved)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    batches, imported_ids = imports_service.import_multi(db, file.filename or "import", content, resolved)
 
     background_tasks.add_task(categorization.run_categorization_in_background, user.id, imported_ids)
     return batches
@@ -119,10 +108,7 @@ def list_import_batches(db: Session = Depends(get_db)):
 
 @router.get("/{batch_id}", response_model=ImportBatchRead)
 def get_import_batch(batch_id: int, db: Session = Depends(get_db)):
-    try:
-        return imports_service.get_import_batch(db, batch_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    return imports_service.get_import_batch(db, batch_id)
 
 
 @router.get("/review-queue/items", response_model=list[ReviewQueueItemRead])
@@ -140,12 +126,7 @@ def resolve_review_item(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
-    try:
-        item = imports_service.resolve_review_item(db, item_id, payload.action)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    item = imports_service.resolve_review_item(db, item_id, payload.action)
 
     if payload.action == "new":
         background_tasks.add_task(categorization.run_categorization_in_background, user.id, [])

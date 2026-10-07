@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.errors import NotFoundError, ValidationError
 from app.models.account import Account
 from app.models.rule import ConditionField, MatchType
 from app.schemas.rule import (
@@ -76,17 +75,12 @@ def list_rules(db: Session = Depends(get_db)):
 
 @router.post("", response_model=RuleRead, status_code=201)
 def create_rule(payload: RuleCreate, db: Session = Depends(get_db)):
-    try:
-        rule = rules_service.create_rule(
-            db,
-            match_type=payload.match_type,
-            conditions=_conditions_as_tuples(payload.conditions),
-            target_category_id=payload.target_category_id,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    rule = rules_service.create_rule(
+        db,
+        match_type=payload.match_type,
+        conditions=_conditions_as_tuples(payload.conditions),
+        target_category_id=payload.target_category_id,
+    )
 
     # Creating a rule immediately re-triggers categorization against all
     # currently-uncategorized transactions (docs/requirements.md §3.1).
@@ -131,10 +125,7 @@ def run_preview(db: Session = Depends(get_db)):
 
 @router.post("/learn-check", response_model=LearnCheckResponse)
 def learn_check(payload: LearnCheckRequest, db: Session = Depends(get_db)):
-    try:
-        txn = txn_service.get_transaction(db, payload.transaction_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    txn = txn_service.get_transaction(db, payload.transaction_id)
 
     if len(txn.splits) != 1 or txn.splits[0].category_id is None:
         return LearnCheckResponse(status="none")
@@ -205,17 +196,12 @@ def preview_matches(payload: PreviewMatchesRequest, db: Session = Depends(get_db
 
 @router.post("/learn", response_model=LearnRuleResponse, status_code=201)
 def learn_rule(payload: LearnRuleRequest, db: Session = Depends(get_db)):
-    try:
-        rule = rules_service.create_rule(
-            db,
-            match_type=payload.match_type,
-            conditions=_conditions_as_tuples(payload.conditions),
-            target_category_id=payload.target_category_id,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    rule = rules_service.create_rule(
+        db,
+        match_type=payload.match_type,
+        conditions=_conditions_as_tuples(payload.conditions),
+        target_category_id=payload.target_category_id,
+    )
 
     # Learned rules get a one-time backfill (direct category_id assignment)
     # instead of the suggest-only pass plain rule creation triggers --
@@ -233,26 +219,18 @@ def learn_rule(payload: LearnRuleRequest, db: Session = Depends(get_db)):
 
 @router.get("/{rule_id}", response_model=RuleRead)
 def get_rule(rule_id: int, db: Session = Depends(get_db)):
-    try:
-        return rules_service.get_rule(db, rule_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    return rules_service.get_rule(db, rule_id)
 
 
 @router.patch("/{rule_id}", response_model=RuleRead)
 def update_rule(rule_id: int, payload: RuleUpdate, db: Session = Depends(get_db)):
-    try:
-        rule = rules_service.update_rule(
-            db,
-            rule_id,
-            match_type=payload.match_type,
-            conditions=_conditions_as_tuples(payload.conditions) if payload.conditions is not None else None,
-            target_category_id=payload.target_category_id,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    rule = rules_service.update_rule(
+        db,
+        rule_id,
+        match_type=payload.match_type,
+        conditions=_conditions_as_tuples(payload.conditions) if payload.conditions is not None else None,
+        target_category_id=payload.target_category_id,
+    )
 
     # Editing a rule also immediately re-triggers categorization.
     categorization.run_categorization(db, None)
@@ -262,15 +240,9 @@ def update_rule(rule_id: int, payload: RuleUpdate, db: Session = Depends(get_db)
 
 @router.delete("/{rule_id}", status_code=204)
 def delete_rule(rule_id: int, db: Session = Depends(get_db)):
-    try:
-        rules_service.delete_rule(db, rule_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    rules_service.delete_rule(db, rule_id)
 
 
 @router.post("/reorder", response_model=list[RuleRead])
 def reorder_rules(payload: RuleReorderRequest, db: Session = Depends(get_db)):
-    try:
-        return rules_service.reorder_rules(db, payload.ordered_ids)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    return rules_service.reorder_rules(db, payload.ordered_ids)

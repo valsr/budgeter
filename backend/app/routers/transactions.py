@@ -1,11 +1,10 @@
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.errors import NotFoundError, ValidationError
 from app.schemas.transaction import (
     SplitRead,
     SplitsUpdate,
@@ -62,77 +61,53 @@ def uncategorized_count(db: Session = Depends(get_db)):
 
 @router.post("", response_model=TransactionRead, status_code=201)
 def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)):
-    try:
-        txn = txn_service.create_transaction(
-            db,
-            account_id=payload.account_id,
-            date=payload.date,
-            name=payload.name,
-            splits=[(s.category_id, s.amount) for s in payload.splits],
-        )
-        return txn
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    txn = txn_service.create_transaction(
+        db,
+        account_id=payload.account_id,
+        date=payload.date,
+        name=payload.name,
+        splits=[(s.category_id, s.amount) for s in payload.splits],
+    )
+    return txn
 
 
 @router.post("/transfer", response_model=list[TransactionRead], status_code=201)
 def create_transfer(payload: TransferCreate, db: Session = Depends(get_db)):
-    try:
-        from_txn, to_txn = txn_service.create_transfer(
-            db,
-            from_account_id=payload.from_account_id,
-            to_account_id=payload.to_account_id,
-            date=payload.date,
-            name=payload.name,
-            amount=payload.amount,
-        )
-        return [from_txn, to_txn]
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    from_txn, to_txn = txn_service.create_transfer(
+        db,
+        from_account_id=payload.from_account_id,
+        to_account_id=payload.to_account_id,
+        date=payload.date,
+        name=payload.name,
+        amount=payload.amount,
+    )
+    return [from_txn, to_txn]
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
 def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
-    try:
-        return txn_service.get_transaction(db, transaction_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    return txn_service.get_transaction(db, transaction_id)
 
 
 @router.patch("/{transaction_id}", response_model=TransactionRead)
 def update_transaction(
     transaction_id: int, payload: TransactionUpdate, db: Session = Depends(get_db)
 ):
-    try:
-        return txn_service.update_transaction_details(
-            db, transaction_id, date=payload.date, name=payload.name
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    return txn_service.update_transaction_details(
+        db, transaction_id, date=payload.date, name=payload.name
+    )
 
 
 @router.put("/{transaction_id}/splits", response_model=TransactionRead)
 def update_splits(transaction_id: int, payload: SplitsUpdate, db: Session = Depends(get_db)):
-    try:
-        return txn_service.update_transaction_splits(
-            db, transaction_id, splits=[(s.category_id, s.amount) for s in payload.splits]
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    return txn_service.update_transaction_splits(
+        db, transaction_id, splits=[(s.category_id, s.amount) for s in payload.splits]
+    )
 
 
 @router.delete("/{transaction_id}", status_code=204)
 def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
-    try:
-        txn_service.delete_transaction(db, transaction_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    txn_service.delete_transaction(db, transaction_id)
 
 
 @router.get("/{transaction_id}/transfer-candidates", response_model=list[TransactionRead])
@@ -141,52 +116,27 @@ def transfer_candidates(
     day_window: int = txn_service.TRANSFER_DAY_WINDOW,
     db: Session = Depends(get_db),
 ):
-    try:
-        return txn_service.find_transfer_candidates(db, transaction_id, day_window=day_window)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    return txn_service.find_transfer_candidates(db, transaction_id, day_window=day_window)
 
 
 @router.post("/{transaction_id}/link-transfer", response_model=list[TransactionRead])
 def link_transfer(transaction_id: int, payload: TransferLink, db: Session = Depends(get_db)):
-    try:
-        from_txn, to_txn = txn_service.link_as_transfer(
-            db, transaction_id, payload.other_transaction_id
-        )
-        return [from_txn, to_txn]
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    from_txn, to_txn = txn_service.link_as_transfer(
+        db, transaction_id, payload.other_transaction_id
+    )
+    return [from_txn, to_txn]
 
 
 @router.post("/{transaction_id}/unlink-transfer", response_model=list[TransactionRead])
 def unlink_transfer(transaction_id: int, db: Session = Depends(get_db)):
-    try:
-        return txn_service.unlink_transfer(db, transaction_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    return txn_service.unlink_transfer(db, transaction_id)
 
 
 @router.post("/{transaction_id}/splits/{split_id}/accept-suggestion", response_model=SplitRead)
 def accept_suggestion(transaction_id: int, split_id: int, db: Session = Depends(get_db)):
-    try:
-        return txn_service.accept_suggestion(db, transaction_id, split_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    return txn_service.accept_suggestion(db, transaction_id, split_id)
 
 
 @router.post("/{transaction_id}/splits/{split_id}/reject-suggestion", response_model=SplitRead)
 def reject_suggestion(transaction_id: int, split_id: int, db: Session = Depends(get_db)):
-    try:
-        return txn_service.reject_suggestion(db, transaction_id, split_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    return txn_service.reject_suggestion(db, transaction_id, split_id)

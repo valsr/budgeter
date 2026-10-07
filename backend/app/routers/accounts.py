@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.errors import NotFoundError
 from app.schemas.account import AccountCreate, AccountRead, AccountUpdate
 from app.services import accounts as accounts_service
 from app.services.balances import compute_balance, compute_balances
@@ -59,24 +58,18 @@ def create_account(payload: AccountCreate, db: Session = Depends(get_db)):
 
 @router.get("/{account_id}", response_model=AccountRead)
 def get_account(account_id: int, db: Session = Depends(get_db)):
-    try:
-        return _to_read(db, accounts_service.get_account(db, account_id))
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    return _to_read(db, accounts_service.get_account(db, account_id))
 
 
 @router.patch("/{account_id}", response_model=AccountRead)
 def update_account(account_id: int, payload: AccountUpdate, db: Session = Depends(get_db)):
-    try:
-        account = accounts_service.update_account(
-            db,
-            account_id,
-            name=payload.name,
-            type=payload.type,
-            account_number=payload.account_number if "account_number" in payload.model_fields_set else ...,
-            opening_balance=payload.opening_balance,
-            color=payload.color,
-        )
-        return _to_read(db, account)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    account = accounts_service.update_account(
+        db,
+        account_id,
+        name=payload.name,
+        type=payload.type,
+        account_number=payload.account_number if "account_number" in payload.model_fields_set else ...,
+        opening_balance=payload.opening_balance,
+        color=payload.color,
+    )
+    return _to_read(db, account)

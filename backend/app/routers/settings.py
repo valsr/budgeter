@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
 from app.db import get_db
-from app.errors import ValidationError
 from app.schemas.auth import ApiKeyReveal, ApiKeyStatus
 from app.schemas.settings import RetentionSettings
 from app.server_db import get_server_db
@@ -32,8 +31,5 @@ def get_retention(db: Session = Depends(get_db)):
 
 @router.patch("/retention", response_model=RetentionSettings)
 def update_retention(payload: RetentionSettings, db: Session = Depends(get_db)):
-    try:
-        days = app_settings_service.set_retention_days(db, payload.retention_days)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    days = app_settings_service.set_retention_days(db, payload.retention_days)
     return RetentionSettings(retention_days=days)
