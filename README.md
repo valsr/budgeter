@@ -1,6 +1,6 @@
 # budgeter
 
-Single-user, local-only personal finance tracker (Python/FastAPI + SQLite backend, React SPA frontend). See [docs/requirements.md](docs/requirements.md) for the full spec and [docs/wireframes.html](docs/wireframes.html) for a clickable UI prototype (open it directly in a browser).
+Self-hosted personal finance tracker with per-user logins and separate books for each user (Python/FastAPI + SQLite backend, React SPA frontend). See [docs/requirements.md](docs/requirements.md) for the full spec and [docs/wireframes.html](docs/wireframes.html) for a clickable UI prototype (open it directly in a browser).
 
 ## Backend setup (Python venv)
 
@@ -19,7 +19,9 @@ Run the dev server:
 uvicorn app.main:app --reload --port 8000
 ```
 
-Config is read from environment variables (prefix `BUDGETER_`) or a `backend/.env` file — see `app/config.py`. Notably `BUDGETER_API_KEY` (the bearer token the frontend/MCP clients must send) and `BUDGETER_DATABASE_URL` (defaults to a local `budgeter.db` SQLite file).
+Config is read from environment variables (prefix `BUDGETER_`) or a `backend/.env` file — see `app/config.py`. Notably `BUDGETER_DATA_DIR`, the directory holding `server.db` (logins) and `books/<user_id>.db` (one SQLite file of books per user). It defaults to the directory of the file `BUDGETER_DATABASE_URL` names (a local `budgeter.db` by default) — that file is the database from before user accounts existed, and the first user to register gets a copy of it as their books.
+
+Open the app and create an account to get started: the first account on a server can always register, and every account is an admin until another admin says otherwise (Settings → Users / Server). Scripts and the MCP adapter authenticate with a per-user API key from Settings → Account.
 
 Run tests with coverage:
 
@@ -31,10 +33,7 @@ Coverage config lives in `pytest.ini` / `.coveragerc` and targets `app/`, with a
 
 Database migrations (Alembic):
 
-```bash
-alembic revision --autogenerate -m "message"
-alembic upgrade head
-```
+There are two migration trees — one for a user's books, one for the server database (users, sessions). See [CLAUDE.md](CLAUDE.md) for which is which and the exact commands; the app applies both automatically on startup.
 
 ## Frontend setup (Vite dev server)
 
@@ -44,7 +43,7 @@ npm install
 npm run dev
 ```
 
-Opens on http://localhost:5173 and expects the backend on http://localhost:8000 by default (override via `VITE_API_BASE_URL` / `VITE_API_KEY` env vars, e.g. in a `frontend/.env.local` file).
+Opens on http://localhost:5173 and expects the backend on http://localhost:8000 by default (override via the `VITE_API_BASE_URL` env var, e.g. in a `frontend/.env.local` file). The browser logs in with a username and password and holds a session cookie; there is no API key to configure for it.
 
 Build for production:
 
@@ -73,4 +72,4 @@ scripts/podman-build.sh
 scripts/podman-run.sh
 ```
 
-The SQLite database lives on a named volume (`budgeter-data`) mounted at `/data`, so it survives container restarts/rebuilds.
+All data (the server database and every user's books) lives on a named volume (`budgeter-data`) mounted at `/data`, so it survives container restarts/rebuilds.

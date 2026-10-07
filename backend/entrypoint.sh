@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-# Schema migrations run inside the app itself on startup (see
-# upgrade_to_head() in app/db.py, called from main.py's lifespan hook) —
+# Schema migrations run inside the app itself on startup (see main.py's
+# lifespan hook: server_db.upgrade_to_head(), then books.upgrade_all()) —
 # don't also run `alembic upgrade head` here as a separate process. Doing
 # both back-to-back against the same SQLite file was observed to deadlock
 # on this volume's locking behavior.

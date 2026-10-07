@@ -16,7 +16,7 @@ pip install -r requirements.txt
 Config is read from environment variables (prefix `BUDGETER_MCP_`) or a `mcp_adapter/.env` file:
 
 - `BUDGETER_MCP_API_BASE_URL` — where the Budgeter backend is running (defaults to `http://localhost:8000`)
-- `BUDGETER_MCP_API_KEY` — the backend's bearer token, i.e. whatever `BUDGETER_API_KEY` the backend is configured with (defaults to `dev-local-api-key`, matching the backend's dev default)
+- `BUDGETER_MCP_API_KEY` — a budgeter user's API key. Log in to the app as the user whose books the adapter should work on, go to Settings → Account → API key, and generate one (it is shown once). The adapter then acts as that user and sees only their books. Required: there is no default key.
 
 The Budgeter backend must be running (`uvicorn app.main:app` — see the top-level [README](../README.md)) for this adapter to do anything useful.
 
