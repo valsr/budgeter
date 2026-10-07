@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.server_db import ServerBase
@@ -53,3 +53,10 @@ class ServerSettings(ServerBase):
     legacy_books_claimed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     """Set once the pre-accounts database has been copied to a user, so it
     is never handed out twice (see books.claim_legacy_books)."""
+
+    # How the launcher (app/serve.py) serves the app. Read once at startup:
+    # changing any of these takes a restart. See services/server_config.py.
+    port: Mapped[int] = mapped_column(Integer, nullable=False, default=8000, server_default="8000")
+    ssl_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    ssl_certfile: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    ssl_keyfile: Mapped[str | None] = mapped_column(String(1000), nullable=True)

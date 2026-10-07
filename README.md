@@ -19,6 +19,16 @@ Run the dev server:
 uvicorn app.main:app --reload --port 8000
 ```
 
+That is the development command: it reloads on change, and its port and (lack of) TLS are whatever the command line says. To run the server the way Settings → Server configures it — the saved port, and HTTPS with the saved certificate and key — start it with the launcher instead, which is what the container does:
+
+```bash
+python -m app.serve
+```
+
+With HTTPS enabled the launcher refuses to start if the certificate or key can't be found. `BUDGETER_SSL_DISABLED=true` starts it on plain HTTP anyway (to get back in and fix the paths), `BUDGETER_PORT` overrides the saved port, and `BUDGETER_HOST` sets the bind address (default `127.0.0.1`).
+
+`GET /health` is a public liveness check (200, or 503 if the server database is unreachable); admins get the full picture at `GET /api/admin/health` and on Settings → Server.
+
 Config is read from environment variables (prefix `BUDGETER_`) or a `backend/.env` file — see `app/config.py`. Notably `BUDGETER_DATA_DIR`, the directory holding `server.db` (logins) and `books/<user_id>.db` (one SQLite file of books per user). It defaults to the directory of the file `BUDGETER_DATABASE_URL` names (a local `budgeter.db` by default) — that file is the database from before user accounts existed, and the first user to register gets a copy of it as their books.
 
 Open the app and create an account to get started: the first account on a server can always register, and every account is an admin until another admin says otherwise (Settings → Users / Server). Scripts and the MCP adapter authenticate with a per-user API key from Settings → Account.

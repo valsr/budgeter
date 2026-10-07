@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app import books
+from app import books, runtime
 from app.auth import require_admin
+from app.config import settings as app_settings
 from app.errors import ConflictError, NotFoundError, ValidationError
 from app.schemas.admin import (
     AdminUserRead,
@@ -18,7 +19,9 @@ from app.schemas.admin import (
 )
 from app.schemas.auth import Credentials
 from app.server_db import get_server_db
-from app.server_models import User
+from app.server_models import ServerSettings, User
+from app.services import health as health_service
+from app.services import server_config
 from app.services import server_backup
 from app.services import users as users_service
 
@@ -82,14 +85,48 @@ def delete_user(user_id: int, sdb: Session = Depends(get_server_db)):
     books.delete_books(user_id)
 
 
+def _settings_read(row: ServerSettings) -> ServerSettingsRead:
+    return ServerSettingsRead(
+        registration_open=row.registration_open,
+        port=row.port,
+        ssl_enabled=row.ssl_enabled,
+        ssl_certfile=row.ssl_certfile,
+        ssl_keyfile=row.ssl_keyfile,
+        managed=runtime.current is not None,
+        restart_required=server_config.restart_required(row),
+        port_override=app_settings.port,
+        ssl_disabled_override=app_settings.ssl_disabled,
+    )
+
+
 @router.get("/settings", response_model=ServerSettingsRead)
 def get_settings(sdb: Session = Depends(get_server_db)):
-    return users_service.get_settings(sdb)
+    return _settings_read(users_service.get_settings(sdb))
 
 
 @router.patch("/settings", response_model=ServerSettingsRead)
 def update_settings(payload: ServerSettingsUpdate, sdb: Session = Depends(get_server_db)):
-    return users_service.set_registration_open(sdb, payload.registration_open)
+    sent = payload.model_dump(exclude_unset=True)
+    try:
+        # Port and SSL first: if they're refused, nothing at all is saved.
+        server_config.update(
+            sdb,
+            port=sent.get("port"),
+            ssl_enabled=sent.get("ssl_enabled"),
+            **{k: sent[k] for k in ("ssl_certfile", "ssl_keyfile") if k in sent},
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    if sent.get("registration_open") is not None:
+        users_service.set_registration_open(sdb, sent["registration_open"])
+    return _settings_read(users_service.get_settings(sdb))
+
+
+@router.get("/health")
+def detailed_health(sdb: Session = Depends(get_server_db)):
+    """Everything the public /health leaves out: who and what is on this
+    server, and whether its pieces are in working order."""
+    return health_service.report(sdb)
 
 
 @router.get("/backup")

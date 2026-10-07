@@ -5,6 +5,7 @@
 Replace the current workflow (bank statement → GnuCash import/classification across 2 accounts → manual transcription into 2 Excel budget sheets) with a single self-hosted app that imports transactions, classifies them (rules + on-demand AI), tracks split transactions, and produces budget views/reports — fully retiring GnuCash and the Excel sheets.
 
 - **Users:** multiple users, each with a username/password login and their own entirely separate books (accounts, categories, transactions, budgets, rules, imports, history). Every account is an admin by default; admins can enable/disable users, reset passwords, grant/revoke admin, delete users, and open or close self-registration. Admins cannot see other users' data. See `docs/superpowers/specs/2026-10-06-user-accounts-design.md`.
+- **Serving:** the listening port and HTTPS (certificate and key file locations) are admin settings (Settings → Server), applied at start by the launcher (`python -m app.serve`). With HTTPS enabled the server refuses to start if the certificate or key can't be found.
 - **Deployment:** single Docker container, local (e.g. on Lucius), SQLite for storage.
 - **Currency:** CAD only.
 - **Accounting period:** calendar year, hardcoded (Jan 1 reset).
@@ -80,6 +81,7 @@ Sidebar (left) + content area (right). Shared sidebar menu: **Overview, Accounts
 
 - **REST API** covering all entities and actions (accounts, transactions, splits, categories, rules, budgets, reports, import, backup/restore) — the system of record for all app logic.
 - Auth: the browser uses a **session cookie** obtained by logging in; scripts and the MCP adapter use a **per-user API key** as a bearer token (stored hashed, shown once when generated). Either way a request acts as exactly one user, on that user's books.
+- **Health:** a public `GET /health` liveness check, and an admin-only `GET /api/admin/health` with details (what is being served, uptime, users, storage, schema revisions, and whether the saved SSL files and each books file are usable).
 - A separate, thin **MCP adapter** (or Claude skill) wraps the REST API for AI/skill-based access — the core app does not speak MCP natively.
 
 ## 7. Backup / Restore
