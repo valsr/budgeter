@@ -107,8 +107,13 @@ th.month-label{text-align:center}
 /* Per-source breakdown rows, in both the report and the editor. */
 .breakdown-row td{color:var(--ink-2)}
 .breakdown-mark{display:inline-block;margin-right:5px;color:var(--ink-3)}
-.expander{display:inline-block;width:14px;margin-right:4px;color:var(--ink-2);cursor:pointer;user-select:none;font-size:10px}
-.expander:hover{color:var(--accent)}
+/* Budget report: an amount made up of several accounts' shares. The dotted
+   underline says "hover me"; the bubble lists one pill per account. */
+.has-split{position:relative}
+.has-split .split-value{border-bottom:1px dotted var(--ink-3);cursor:help}
+.split-tip{display:none;position:absolute;top:calc(100% - 2px);right:0;z-index:40;flex-direction:column;align-items:flex-start;gap:5px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.12);padding:8px 10px;white-space:nowrap;font-weight:400}
+.has-split:hover .split-tip{display:flex}
+.split-line{display:block}
 /* Account multi-select for the budget report. */
 .account-filter{position:relative;display:inline-block}
 .account-filter-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:180px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);display:flex;flex-direction:column;gap:6px}

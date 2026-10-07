@@ -54,12 +54,20 @@ const budget: Budget = {
   dropped_categories: [],
 };
 
-function accountRow(category_id: number, account_id: number, name: string): ReportRow {
+function accountRow(
+  category_id: number,
+  account_id: number,
+  name: string,
+  cell: { budgeted: number; actual: number } = { budgeted: 0, actual: 0 },
+  ytd: number | null = null,
+): ReportRow {
   return {
     ...row(category_id, name),
     row_key: `cat:${category_id}:acct:${account_id}`,
     account_id,
-    has_budget: false,
+    monthly: { 1: cell },
+    has_budget: ytd !== null,
+    ytd_diff: ytd ?? 0,
     depth: 1,
   };
 }
@@ -148,36 +156,24 @@ it("shows cents rather than rounding to the nearest dollar", async () => {
 });
 
 async function renderWithBreakdown() {
-  report.mockResolvedValue([row(1, "groceries"), accountRow(1, 7, "Main"), accountRow(1, 8, "Visa")]);
+  report.mockResolvedValue([
+    row(1, "groceries"),
+    accountRow(1, 7, "Main", { budgeted: 60, actual: 10 }, 50),
+    accountRow(1, 8, "Visa", { budgeted: 40, actual: 9.95 }, 30.05),
+    row(2, "utilities"),
+  ]);
   render(<Budgets />);
   await screen.findByText("groceries");
 }
 
-it("gives a category and its breakdown rows independent highlights", async () => {
-  await renderWithBreakdown();
-  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
-  await screen.findByText("Main");
-
-  // Same category_id across all three, so the highlight must key on row_key.
-  fireEvent.click(rowFor("Main"));
-  expect(rowFor("Main").className).toMatch(/row-highlight/);
-  expect(rowFor("groceries").className).not.toMatch(/row-highlight/);
-  expect(rowFor("Visa").className).not.toMatch(/row-highlight/);
-});
-
-it("shows a dash for the diff on a row with no budget of its own", async () => {
-  report.mockResolvedValue([row(1, "groceries"), accountRow(1, 7, "Main")]);
-  render(<Budgets />);
-  await screen.findByText("groceries");
-  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
-  await screen.findByText("Main");
-
-  const cells = Array.from(rowFor("Main").querySelectorAll("td")).map((c) => c.textContent);
-  expect(cells[cells.length - 1]).toBe("—");
-  const catCells = Array.from(rowFor("groceries").querySelectorAll("td")).map((c) => c.textContent);
-  expect(catCells[catCells.length - 1]).toBe("$80.05");
-});
-
+/** The pills in the hover bubble of one of a row's cells, by column index
+ * (0 = category, then Budgeted/Actual per month to date; -1 = YTD diff). */
+function pills(rowName: string, column: number): string[] {
+  const cells = rowFor(rowName).querySelectorAll("td");
+  const cell = cells[column < 0 ? cells.length + column : column];
+  const bubble = cell.querySelector('[role="tooltip"]');
+  return bubble ? Array.from(bubble.querySelectorAll(".tag")).map((p) => p.textContent ?? "") : [];
+}
 
 // --- the editor's per-source breakdown ---------------------------------
 
@@ -254,55 +250,75 @@ it("keeps the category budgeted when broken down but left empty", async () => {
 });
 
 
-// --- collapsing the per-source breakdown -------------------------------
+// --- the per-account split, shown on hover ------------------------------
 
-it("hides the breakdown until the category is expanded", async () => {
+it("lists a category once, with no breakdown rows or expander", async () => {
   await renderWithBreakdown();
 
-  expect(screen.queryByText("Main")).toBeNull();
-  expect(screen.queryByText("Visa")).toBeNull();
-
-  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
-  expect(screen.getByText("Main")).toBeInTheDocument();
-  expect(screen.getByText("Visa")).toBeInTheDocument();
+  expect(document.querySelectorAll("#budget-report-table tbody tr")).toHaveLength(2);
+  expect(screen.queryByLabelText(/breakdown by account/)).toBeNull();
+  expect(rowFor("groceries").querySelector("td")!.textContent).toBe("groceries");
 });
 
-it("collapses the breakdown again", async () => {
+it("puts the split in a bubble on each amount: one pill per account", async () => {
   await renderWithBreakdown();
 
-  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
-  fireEvent.click(screen.getByLabelText("Hide groceries breakdown by account"));
-
-  expect(screen.queryByText("Main")).toBeNull();
+  expect(pills("groceries", 1)).toEqual(["Main: $60.00", "Visa: $40.00"]); // Jan budgeted
+  expect(pills("groceries", 2)).toEqual(["Main: $10.00", "Visa: $9.95"]); // Jan actual
+  expect(pills("groceries", -1)).toEqual(["Main: $50.00", "Visa: $30.05"]); // YTD diff
+  // The cell still reads as the category's own figure.
+  const budgeted = rowFor("groceries").querySelectorAll("td")[1];
+  expect(budgeted.querySelector(".split-value")!.textContent).toBe("$100.00");
+  expect(budgeted.className).toMatch(/has-split/);
 });
 
-it("offers no expander for a category with no breakdown", async () => {
-  report.mockResolvedValue([row(1, "groceries"), row(2, "utilities")]);
+it("puts each pill on its own line, in the account's colour", async () => {
+  await renderWithBreakdown();
+
+  const bubble = rowFor("groceries").querySelectorAll("td")[1].querySelector('[role="tooltip"]')!;
+  const [main, visa] = Array.from(bubble.children) as HTMLElement[];
+  expect(bubble.children).toHaveLength(2);
+  expect(main.className).toMatch(/split-line/);
+  expect(main.querySelector(".tag")).toHaveStyle({ color: "#111" }); // Main's colour
+  expect(visa.querySelector(".tag")).toHaveStyle({ color: "#222" });
+});
+
+it("shows a minus on a negative share, since the pill's colour is the account's", async () => {
+  report.mockResolvedValue([
+    row(1, "groceries"),
+    accountRow(1, 7, "Main", { budgeted: 60, actual: -12.5 }),
+    accountRow(1, 8, "Visa", { budgeted: 40, actual: 32.45 }),
+  ]);
   render(<Budgets />);
   await screen.findByText("groceries");
 
-  expect(screen.queryByLabelText(/breakdown by account/)).toBeNull();
+  expect(pills("groceries", 2)).toEqual(["Main: -$12.50", "Visa: $32.45"]);
 });
 
-it("expanding does not move the highlight", async () => {
+it("leaves the diff without a bubble when no account has a budget of its own", async () => {
+  report.mockResolvedValue([row(1, "groceries"), accountRow(1, 7, "Main", { budgeted: 0, actual: 19.95 })]);
+  render(<Budgets />);
+  await screen.findByText("groceries");
+
+  expect(pills("groceries", 2)).toEqual(["Main: $19.95"]);
+  expect(pills("groceries", -1)).toEqual([]);
+  const cells = Array.from(rowFor("groceries").querySelectorAll("td")).map((c) => c.textContent);
+  expect(cells[cells.length - 1]).toBe("$80.05");
+});
+
+it("offers no bubble for a category with no breakdown", async () => {
+  await renderWithBreakdown();
+
+  expect(rowFor("utilities").querySelector('[role="tooltip"]')).toBeNull();
+  expect(rowFor("utilities").querySelector(".has-split")).toBeNull();
+  const cells = Array.from(rowFor("utilities").querySelectorAll("td")).map((c) => c.textContent);
+  expect(cells).toContain("$19.95");
+});
+
+it("still highlights a category that has a split", async () => {
   await renderWithBreakdown();
 
   fireEvent.click(rowFor("groceries"));
-  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
-
-  expect(rowFor("groceries").className).toMatch(/row-highlight/);
-});
-
-it("moves a highlight up to the category when its row is collapsed away", async () => {
-  await renderWithBreakdown();
-
-  fireEvent.click(screen.getByLabelText("Show groceries breakdown by account"));
-  fireEvent.click(rowFor("Main"));
-  expect(rowFor("Main").className).toMatch(/row-highlight/);
-
-  fireEvent.click(screen.getByLabelText("Hide groceries breakdown by account"));
-
-  // Otherwise the highlight would vanish with the row and read as lost.
   expect(rowFor("groceries").className).toMatch(/row-highlight/);
 });
 
