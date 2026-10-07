@@ -105,6 +105,21 @@ def _user_ids_in(server_bytes: bytes) -> set[int]:
         os.unlink(tmp_path)
 
 
+def _require_active_admin(server_file: Path) -> None:
+    """Refuse a server database that would lock everyone out of
+    administration: it has users, but none who is an enabled admin. (One
+    with no users at all is fine -- registration is always open then.)"""
+    conn = sqlite3.connect(server_file)
+    try:
+        users, active_admins = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(is_admin AND NOT is_disabled), 0) FROM users"
+        ).fetchone()
+    finally:
+        conn.close()
+    if users and not active_admins:
+        raise ValidationError("Archive's server.db has no active admin: nobody could manage the server after restoring it")
+
+
 def restore_archive(data: bytes) -> None:
     """Replace the server database and all books with the archive's.
 
@@ -120,6 +135,7 @@ def restore_archive(data: bytes) -> None:
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=data_dir))
     try:
         staged_server = backup_service.stage_server(server_bytes, staging / "server.db")
+        _require_active_admin(staged_server)
         staged_books: dict[int, Path] = {}
         for user_id, image in books_bytes.items():
             try:

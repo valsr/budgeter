@@ -97,8 +97,10 @@ def test_last_admin_guards_return_409(make_client, admin):
     admin.patch(f"/api/admin/users/{bob.user_id}", json={"is_admin": False})
     me = f"/api/admin/users/{admin.user_id}"
     message = "The last active admin can't be demoted, disabled or deleted"
+    resp = admin.patch(me, json={"is_admin": False})
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "You can't remove your own admin rights"
     for resp in (
-        admin.patch(me, json={"is_admin": False}),
         admin.patch(me, json={"is_disabled": True}),
         admin.delete(me),
         delete_me(admin, "password1"),
@@ -164,3 +166,20 @@ def test_closing_registration_blocks_register_but_not_admin_create(make_client, 
 
     assert admin.post("/api/admin/users", json={"username": "dave", "password": "password1"}).status_code == 201
     assert login(make_client, "dave")[1].status_code == 200
+
+
+def test_an_admin_cannot_remove_their_own_admin_rights(make_client, admin):
+    bob = make_client("bob")  # a second admin, so this isn't the last-admin guard talking
+    me = f"/api/admin/users/{admin.user_id}"
+
+    resp = admin.patch(me, json={"is_admin": False})
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "You can't remove your own admin rights"
+    assert admin.get("/api/admin/users").status_code == 200  # still an admin
+
+    # Other changes to yourself still go through, as does setting it to what it already is.
+    assert admin.patch(me, json={"is_admin": True}).status_code == 200
+    assert admin.patch(me, json={"password": "another-password"}).status_code == 200
+
+    # Another admin can do it.
+    assert bob.patch(me, json={"is_admin": False}).status_code == 200

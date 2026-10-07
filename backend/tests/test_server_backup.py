@@ -170,3 +170,54 @@ def test_whole_server_backup_endpoints_are_admin_only(two_users, make_client):
 
     resp = alice.post("/api/admin/backup/restore", files={"file": ("backup.zip", b"junk", "application/zip")})
     assert resp.status_code == 422
+
+
+def _edit_server_db(archive: bytes, tmp_path, sql: str) -> bytes:
+    """The archive with `sql` applied to its server.db."""
+    path = tmp_path / "edited-server.db"
+    with zipfile.ZipFile(io.BytesIO(archive)) as z:
+        path.write_bytes(z.read("server.db"))
+    conn = sqlite3.connect(path)
+    conn.executescript(sql)
+    conn.commit()
+    conn.close()
+    return rezip(archive, drop=["server.db"], add={"server.db": path.read_bytes()})
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "UPDATE users SET is_admin = 0;",
+        "UPDATE users SET is_disabled = 1;",
+        # One admin, but disabled; the only active user isn't an admin.
+        "UPDATE users SET is_disabled = 1 WHERE username = 'alice'; UPDATE users SET is_admin = 0 WHERE username = 'bob';",
+    ],
+)
+def test_restore_rejects_an_archive_with_no_active_admin(two_users, files, tmp_path, sql):
+    archive = _edit_server_db(server_backup.create_archive(), tmp_path, sql)
+    before = snapshot(files)
+
+    with pytest.raises(ValidationError, match="no active admin"):
+        server_backup.restore_archive(archive)
+
+    assert snapshot(files) == before
+
+
+def test_restore_accepts_an_archive_with_one_active_admin_among_others(two_users, files, tmp_path):
+    alice, bob = two_users
+    archive = _edit_server_db(
+        server_backup.create_archive(), tmp_path, "UPDATE users SET is_admin = 0 WHERE username = 'bob';"
+    )
+    server_backup.restore_archive(archive)
+    assert alice.get("/api/admin/users").status_code == 200
+    assert bob.get("/api/admin/users").status_code == 403
+
+
+def test_restore_accepts_an_archive_from_a_server_nobody_registered_on(two_users, files, tmp_path):
+    # No users at all isn't a lock-out: registration is always open then.
+    archive = _edit_server_db(
+        server_backup.create_archive(), tmp_path, "DELETE FROM sessions; DELETE FROM users;"
+    )
+    archive = rezip(archive, drop=[n for n in zipfile.ZipFile(io.BytesIO(archive)).namelist() if n != "server.db"])
+    server_backup.restore_archive(archive)
+    assert sorted(p.name for p in (files / "books").iterdir()) == []
