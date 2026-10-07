@@ -20,6 +20,8 @@ Equivalent to:
 podman build --file Containerfile --tag com.valsr.budgeter:latest .
 ```
 
+The script stamps the image with the commit it was built from and the build time (`GIT_SHA`, `GIT_COMMIT_DATE`, `BUILD_DATE` build args; it uses `GITHUB_SHA` when run in GitHub Actions), which the app reports as its version. A bare `podman build` without those args still works; the app then reports its version as `unknown`. Commit before building, or the stamp names a commit that isn't quite what is in the image.
+
 Nothing secret is baked into the image: the browser logs in with a username and password, and API keys are per user (Settings → Account).
 
 ## Run

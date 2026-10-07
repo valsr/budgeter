@@ -1,8 +1,21 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TestAuth } from "../test/TestAuth";
 import { Sidebar } from "./Sidebar";
+
+const getVersion = vi.fn();
+vi.mock("../api/version", () => ({ versionApi: { get: () => getVersion() } }));
+
+beforeEach(() => {
+  getVersion.mockReset().mockResolvedValue({
+    version: "2026.10.07+5dcc9d3",
+    sha: "5dcc9d3a1b2c3d4e5f60718293a4b5c6d7e8f901",
+    commit_date: "2026-10-07T14:03:22-04:00",
+    build_date: "2026-10-08T09:15:00Z",
+    dirty: false,
+  });
+});
 
 describe("Sidebar", () => {
   it("renders the nav items linking to their screens", () => {
@@ -53,5 +66,32 @@ describe("Sidebar", () => {
     expect(screen.queryByText(/single user/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
     expect(logout).toHaveBeenCalled();
+  });
+
+  it("shows which version is running, with the full details on hover", async () => {
+    render(
+      <MemoryRouter>
+        <TestAuth>
+          <Sidebar />
+        </TestAuth>
+      </MemoryRouter>,
+    );
+    const version = await screen.findByText("2026.10.07+5dcc9d3");
+    expect(version.title).toContain("5dcc9d3a1b2c3d4e5f60718293a4b5c6d7e8f901");
+    expect(version.title).toContain("Committed");
+    expect(version.title).toContain("Built");
+  });
+
+  it("shows no version line when the server can't say", async () => {
+    getVersion.mockRejectedValue(new Error("nope"));
+    const { container } = render(
+      <MemoryRouter>
+        <TestAuth>
+          <Sidebar />
+        </TestAuth>
+      </MemoryRouter>,
+    );
+    await vi.waitFor(() => expect(getVersion).toHaveBeenCalled());
+    expect(container.querySelector(".sidebar-version")).toBeNull();
   });
 });

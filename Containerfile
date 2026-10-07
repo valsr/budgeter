@@ -33,6 +33,17 @@ RUN chmod +x ./entrypoint.sh
 
 COPY --from=frontend-build /app/frontend/dist ./app/static
 
+# Which commit this image was built from, and when -- shown in the app
+# (sidebar, Settings → Server). scripts/podman-build.sh fills these in from
+# git; the image itself has no repository to ask. Declared this late so a
+# new commit doesn't invalidate the dependency-install layers above.
+ARG GIT_SHA=unknown
+ARG GIT_COMMIT_DATE=unknown
+ARG BUILD_DATE=unknown
+ENV BUDGETER_BUILD_SHA=${GIT_SHA} \
+    BUDGETER_BUILD_COMMIT_DATE=${GIT_COMMIT_DATE} \
+    BUDGETER_BUILD_DATE=${BUILD_DATE}
+
 # The data directory is this file's directory (/data). The file itself is
 # only read, and only on volumes that predate user accounts.
 ENV BUDGETER_DATABASE_URL=sqlite:////data/budgeter.db

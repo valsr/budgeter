@@ -218,6 +218,19 @@ function NetworkCard({
   );
 }
 
+function describeVersion(v: ServerHealth["version"]): string {
+  if (!v.sha) return "unknown";
+  const parts = [
+    v.version,
+    `commit ${v.sha}`,
+    v.commit_date ? `committed ${formatTimestamp(v.commit_date)}` : null,
+    v.build_date
+      ? `built ${formatTimestamp(v.build_date)}`
+      : "running from source" + (v.dirty ? ", with uncommitted changes" : ""),
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
 const CHECK_LABELS: Record<string, string> = {
   server_db: "Server database",
   books: "Books files",
@@ -235,6 +248,7 @@ function HealthCard() {
 
   const rows: [string, string][] = health
     ? [
+        ["Version", describeVersion(health.version)],
         [
           "Serving",
           health.serving

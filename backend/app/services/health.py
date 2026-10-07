@@ -11,6 +11,7 @@ from app.errors import ValidationError
 from app.routers.health import uptime_seconds
 from app.services import server_config
 from app.services import users as users_service
+from app.version import get_version
 
 
 def _revision(connection) -> str | None:
@@ -75,6 +76,7 @@ def report(sdb: Session) -> dict:
     serving = runtime.current
     return {
         "status": "ok" if healthy else "degraded",
+        "version": get_version().as_dict(),
         "checks": checks,
         "started_at": runtime.STARTED_AT,
         "uptime_seconds": uptime_seconds(),
