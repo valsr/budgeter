@@ -27,6 +27,8 @@ python -m app.serve
 
 With HTTPS enabled the launcher refuses to start if the certificate or key can't be found. `BUDGETER_SSL_DISABLED=true` starts it on plain HTTP anyway (to get back in and fix the paths), `BUDGETER_PORT` overrides the saved port, and `BUDGETER_HOST` sets the bind address (default `127.0.0.1`).
 
+The app has no release numbers: a version is the commit's date plus its short hash, e.g. `2026.10.07+5dcc9d3` (with `.dirty` appended when running from a checkout with uncommitted changes). It is shown at the foot of the sidebar and, with the full hash, commit date and build date, on Settings → Server; `GET /api/version` returns the same for a logged-in caller. A source checkout reads it from git; a container image has it stamped in by `scripts/podman-build.sh`.
+
 `GET /health` is a public liveness check (200, or 503 if the server database is unreachable); admins get the full picture at `GET /api/admin/health` and on Settings → Server.
 
 Config is read from environment variables (prefix `BUDGETER_`) or a `backend/.env` file — see `app/config.py`. Notably `BUDGETER_DATA_DIR`, the directory holding `server.db` (logins) and `books/<user_id>.db` (one SQLite file of books per user). It defaults to the directory of the file `BUDGETER_DATABASE_URL` names (a local `budgeter.db` by default) — that file is the database from before user accounts existed, and the first user to register gets a copy of it as their books.

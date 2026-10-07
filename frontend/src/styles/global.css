@@ -231,3 +231,5 @@ th.month-label{text-align:center}
 .health-table td{padding:4px 0;border:none;vertical-align:top}
 .health-table td:first-child{color:var(--ink-2);width:130px;white-space:nowrap}
 .health-table td:last-child{word-break:break-word}
+.sidebar-version{padding:8px 20px 0;font-size:10.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.sidebar-version span{cursor:help}

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { formatTimestamp } from "../../format";
 import { TestAuth } from "../../test/TestAuth";
 import { ServerTab } from "./ServerTab";
 
@@ -31,6 +32,13 @@ const SETTINGS = {
 
 const HEALTH = {
   status: "ok",
+  version: {
+    version: "2026.10.07+5dcc9d3",
+    sha: "5dcc9d3a1b2c3d4e5f60718293a4b5c6d7e8f901",
+    commit_date: "2026-10-07T14:03:22-04:00",
+    build_date: "2026-10-08T09:15:00Z",
+    dirty: false,
+  },
   checks: { server_db: "ok", books: "ok", ssl: "disabled" },
   started_at: "2026-10-07T15:50:10",
   uptime_seconds: 93784,
@@ -194,6 +202,10 @@ it("shows the server's health details", async () => {
   const card = (await screen.findByText("Server health")).closest(".card") as HTMLElement;
   await waitFor(() => expect(card).toHaveTextContent("Healthy"));
   expect(card).toHaveTextContent("HTTP on port 8000");
+  expect(card).toHaveTextContent("2026.10.07+5dcc9d3");
+  expect(card).toHaveTextContent("5dcc9d3a1b2c3d4e5f60718293a4b5c6d7e8f901");
+  expect(card).toHaveTextContent(`committed ${formatTimestamp("2026-10-07T14:03:22-04:00")}`);
+  expect(card).toHaveTextContent(`built ${formatTimestamp("2026-10-08T09:15:00Z")}`);
   expect(card).toHaveTextContent("1d 2h 3m");
   expect(card).toHaveTextContent("3 users (2 active admins, 1 disabled)");
   expect(card).toHaveTextContent("3 books files, 1.5 MB");
@@ -223,4 +235,16 @@ it("re-checks health on demand", async () => {
   await waitFor(() => expect(getHealth).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(getHealth).toHaveBeenCalledTimes(2));
+});
+
+it("says so when running from source with uncommitted changes", async () => {
+  getHealth.mockResolvedValue({
+    ...HEALTH,
+    version: { ...HEALTH.version, version: "2026.10.07+5dcc9d3.dirty", build_date: null, dirty: true },
+  });
+  renderTab();
+  const card = (await screen.findByText("Server health")).closest(".card") as HTMLElement;
+  await waitFor(() => expect(card).toHaveTextContent("2026.10.07+5dcc9d3.dirty"));
+  expect(card).toHaveTextContent("running from source, with uncommitted changes");
+  expect(card).not.toHaveTextContent("built ");
 });

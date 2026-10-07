@@ -1,8 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from app import runtime, server_db
+from app.auth import current_user
+from app.version import get_version
 from app.server_models import utcnow
 
 router = APIRouter(tags=["health"])
@@ -36,3 +38,10 @@ def health() -> JSONResponse:
         },
         status_code=200 if ok else 503,
     )
+
+
+# For logged-in users only: which build is running is nobody else's business
+# (it tells an attacker exactly which code to look for holes in).
+@router.get("/api/version", dependencies=[Depends(current_user)])
+def version() -> dict:
+    return get_version().as_dict()

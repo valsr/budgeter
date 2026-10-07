@@ -1,6 +1,7 @@
 import { apiDownload, apiFetch, apiUpload } from "./client";
 import type { RequestOpts } from "./client";
 import type { AdminUser } from "./types";
+import type { VersionInfo } from "./version";
 
 export interface ServerSettings {
   registration_open: boolean;
@@ -25,6 +26,7 @@ export type ServerSettingsPatch = Partial<
 
 export interface ServerHealth {
   status: "ok" | "degraded";
+  version: VersionInfo;
   /** Each is "ok", "disabled", or a description of what is wrong. */
   checks: Record<string, string>;
   started_at: string;
