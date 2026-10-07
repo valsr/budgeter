@@ -2,6 +2,7 @@
 source = app
 omit =
     app/migrations/*
+    app/server_migrations/*
     app/main.py
 
 [report]
