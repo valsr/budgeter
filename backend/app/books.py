@@ -12,11 +12,9 @@ from sqlalchemy.pool import NullPool, StaticPool
 
 from app.config import legacy_database_path, resolve_data_dir
 from app.security import hash_token
-from app.server_db import MIGRATION_LOCK, remove_side_files
+from app.server_db import CONNECT_ARGS, remove_side_files, run_upgrade
 from app.server_models import User
 
-_ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
-_CONNECT_ARGS = {"check_same_thread": False}
 
 _engines: dict[int, Engine] = {}
 _lock = threading.RLock()
@@ -31,14 +29,7 @@ def books_path(user_id: int) -> Path:
 
 def upgrade(path: Path, revision: str = "head") -> None:
     """Bring one books file up to `revision`, creating it if need be."""
-    from alembic import command
-    from alembic.config import Config
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    cfg = Config(str(_ALEMBIC_INI))
-    cfg.attributes["db_url"] = f"sqlite:///{path}"
-    with MIGRATION_LOCK:
-        command.upgrade(cfg, revision)
+    run_upgrade(path, revision=revision)
 
 
 def upgrade_all(user_ids: Iterable[int]) -> None:
@@ -64,7 +55,7 @@ def _engine_for(user_id: int) -> Engine:
                 from app import models  # noqa: F401  (registers the models)
                 from app.db import Base
 
-                engine = create_engine("sqlite://", connect_args=_CONNECT_ARGS, poolclass=StaticPool)
+                engine = create_engine("sqlite://", connect_args=CONNECT_ARGS, poolclass=StaticPool)
                 Base.metadata.create_all(engine)
             else:
                 path = books_path(user_id)
@@ -74,7 +65,7 @@ def _engine_for(user_id: int) -> Engine:
                     upgrade(path)
                 # NullPool: every session opens the file afresh, so nothing
                 # can go on using a file that a restore has since replaced.
-                engine = create_engine(f"sqlite:///{path}", connect_args=_CONNECT_ARGS, poolclass=NullPool)
+                engine = create_engine(f"sqlite:///{path}", connect_args=CONNECT_ARGS, poolclass=NullPool)
             _engines[user_id] = engine
         return engine
 

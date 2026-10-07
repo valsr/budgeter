@@ -3,7 +3,8 @@ import hashlib
 from app.security import hash_password, hash_token, new_token, verify_password
 
 
-def test_hash_round_trips():
+def test_hash_round_trips(monkeypatch):
+    monkeypatch.setattr("app.security._SCRYPT_N", 16384)  # conftest lowers it for speed
     h = hash_password("correct horse")
     assert h.startswith("scrypt$16384$8$1$")
     assert len(h.split("$")) == 6

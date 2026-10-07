@@ -8,6 +8,10 @@ from app.server_models import utcnow
 STARTED_AT = utcnow()
 
 
+def uptime_seconds() -> int:
+    return int((utcnow() - STARTED_AT).total_seconds())
+
+
 @dataclass(frozen=True)
 class Runtime:
     port: int

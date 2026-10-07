@@ -1,10 +1,10 @@
 """Server administration: other users and server-wide settings."""
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app import books, runtime
+from app import runtime
 from app.auth import require_admin
 from app.config import settings as app_settings
 from app.schemas.admin import (
@@ -17,7 +17,7 @@ from app.schemas.auth import Credentials
 from app.server_db import get_server_db
 from app.server_models import ServerSettings, User
 from app.services import health as health_service
-from app.services import server_config
+from app.services import lifecycle, server_config
 from app.services import server_backup
 from app.services import users as users_service
 
@@ -33,7 +33,7 @@ def list_users(sdb: Session = Depends(get_server_db)):
 def create_user(payload: Credentials, sdb: Session = Depends(get_server_db)):
     """Works whether or not self-registration is open."""
     user = users_service.create_user(sdb, payload.username, payload.password)
-    books.create_books(user.id)
+    lifecycle.provision(sdb, user)
     return user
 
 
@@ -44,24 +44,19 @@ def update_user(
     admin: User = Depends(require_admin),
     sdb: Session = Depends(get_server_db),
 ):
-    if user_id == admin.id and payload.is_admin is False:
-        # Giving up admin is one click from locking yourself out of this very
-        # screen; it takes another admin to do it.
-        raise HTTPException(status_code=409, detail="You can't remove your own admin rights")
     return users_service.update_user(
         sdb,
         user_id,
         is_admin=payload.is_admin,
         is_disabled=payload.is_disabled,
         password=payload.password,
+        acting_user_id=admin.id,
     )
 
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, sdb: Session = Depends(get_server_db)):
-    users_service.delete_user(sdb, user_id)
-    # Only once the account is gone: nothing can open these books any more.
-    books.delete_books(user_id)
+    lifecycle.remove(sdb, user_id)
 
 
 def _settings_read(row: ServerSettings) -> ServerSettingsRead:
@@ -85,16 +80,16 @@ def get_settings(sdb: Session = Depends(get_server_db)):
 
 @router.patch("/settings", response_model=ServerSettingsRead)
 def update_settings(payload: ServerSettingsUpdate, sdb: Session = Depends(get_server_db)):
-    sent = payload.model_dump(exclude_unset=True)
     # Port and SSL first: if they're refused, nothing at all is saved.
     server_config.update(
         sdb,
-        port=sent.get("port"),
-        ssl_enabled=sent.get("ssl_enabled"),
-        **{k: sent[k] for k in ("ssl_certfile", "ssl_keyfile") if k in sent},
+        port=payload.port,
+        ssl_enabled=payload.ssl_enabled,
+        ssl_certfile=payload.ssl_certfile,
+        ssl_keyfile=payload.ssl_keyfile,
     )
-    if sent.get("registration_open") is not None:
-        users_service.set_registration_open(sdb, sent["registration_open"])
+    if payload.registration_open is not None:
+        users_service.set_registration_open(sdb, payload.registration_open)
     return _settings_read(users_service.get_settings(sdb))
 
 

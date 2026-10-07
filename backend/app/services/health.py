@@ -8,18 +8,10 @@ from sqlalchemy.orm import Session
 from app import books, runtime, server_db
 from app.config import resolve_data_dir
 from app.errors import ValidationError
-from app.routers.health import uptime_seconds
 from app.services import server_config
+from app.services.backup import open_db, read_revision
 from app.services import users as users_service
 from app.version import get_version
-
-
-def _revision(connection) -> str | None:
-    try:
-        row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    except sqlite3.Error:
-        return None
-    return row[0] if row else None
 
 
 def _books_report(user_ids: list[int]) -> tuple[dict, str, str | None]:
@@ -33,12 +25,9 @@ def _books_report(user_ids: list[int]) -> tuple[dict, str, str | None]:
         files += 1
         size += path.stat().st_size
         try:
-            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-            try:
+            with open_db(path, readonly=True) as conn:
                 conn.execute("SELECT 1 FROM accounts LIMIT 1")
-                revision = _revision(conn) or revision
-            finally:
-                conn.close()
+                revision = read_revision(conn) or revision
         except sqlite3.Error:
             broken += 1
     check = "ok" if broken == 0 else f"{broken} of {files} books files can't be read"
@@ -56,11 +45,8 @@ def report(sdb: Session) -> dict:
         storage, checks["books"], books_revision = _books_report([u.id for u in all_users])
         server_path = server_db.server_db_path()
         storage["server_db_bytes"] = server_path.stat().st_size
-        conn = sqlite3.connect(f"file:{server_path}?mode=ro", uri=True)
-        try:
-            schema = {"server": _revision(conn), "books": books_revision}
-        finally:
-            conn.close()
+        with open_db(server_path, readonly=True) as conn:
+            schema = {"server": read_revision(conn), "books": books_revision}
 
     # Checked against what is *saved*, so a certificate that has been moved or has stopped matching
     # its key shows up here -- before the restart that would refuse to start because of it.
@@ -78,12 +64,11 @@ def report(sdb: Session) -> dict:
         "version": get_version().as_dict(),
         "checks": checks,
         "started_at": runtime.STARTED_AT,
-        "uptime_seconds": uptime_seconds(),
+        "uptime_seconds": runtime.uptime_seconds(),
         "serving": {"port": serving.port, "https": serving.ssl_enabled} if serving else None,
-        "restart_required": server_config.restart_required(server_settings),
         "users": {
             "total": len(all_users),
-            "active_admins": sum(1 for u in all_users if u.is_admin and not u.is_disabled),
+            "active_admins": sum(1 for u in all_users if users_service.is_active_admin(u)),
             "disabled": sum(1 for u in all_users if u.is_disabled),
         },
         "data_dir": str(data_dir) if data_dir is not None else None,

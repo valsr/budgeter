@@ -58,7 +58,7 @@ def test_a_session_whose_user_is_gone_is_removed_not_kept(server_session):
     server_session.commit()
     server_session.connection().exec_driver_sql("PRAGMA foreign_keys=ON")
     server_session.expire_all()
-    assert users.resolve_session(server_session, token) is None
+    assert users.resolve_session(server_session, token)[0] is None
     assert server_session.execute(select(UserSession)).scalars().all() == []
 
 

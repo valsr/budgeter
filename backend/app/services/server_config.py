@@ -12,8 +12,6 @@ from app.errors import DomainError, ValidationError
 from app.server_models import ServerSettings
 from app.services import users as users_service
 
-_UNSET = object()
-
 
 class StartupError(DomainError):
     """The saved settings can't be served with; the server must not start."""
@@ -50,17 +48,17 @@ def update(
     *,
     port: int | None = None,
     ssl_enabled: bool | None = None,
-    ssl_certfile: str | None | object = _UNSET,
-    ssl_keyfile: str | None | object = _UNSET,
+    ssl_certfile: str | None = None,
+    ssl_keyfile: str | None = None,
 ) -> ServerSettings:
-    """Change only the settings given."""
+    """Change only the settings given (None leaves one as it is; "" clears a path)."""
     row = users_service.get_settings(db)
 
     new_port = row.port if port is None else port
     if not (1 <= new_port <= 65535):
         raise ValidationError("Port must be between 1 and 65535")
-    new_cert = row.ssl_certfile if ssl_certfile is _UNSET else _clean_path(ssl_certfile)
-    new_key = row.ssl_keyfile if ssl_keyfile is _UNSET else _clean_path(ssl_keyfile)
+    new_cert = row.ssl_certfile if ssl_certfile is None else _clean_path(ssl_certfile)
+    new_key = row.ssl_keyfile if ssl_keyfile is None else _clean_path(ssl_keyfile)
     new_enabled = row.ssl_enabled if ssl_enabled is None else ssl_enabled
     if new_enabled:
         check_ssl_files(new_cert, new_key)

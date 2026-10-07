@@ -17,3 +17,11 @@ class ConflictError(DomainError):
 
 class AuthError(DomainError):
     """Credentials were rejected, or the action isn't open to the caller."""
+
+
+class InvalidCredentialsError(AuthError):
+    """Who the caller claims to be couldn't be confirmed (HTTP 401)."""
+
+
+class PermissionDeniedError(AuthError):
+    """The caller is known, but this isn't allowed (HTTP 403)."""

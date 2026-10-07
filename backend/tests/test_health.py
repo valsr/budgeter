@@ -4,11 +4,6 @@ from app import runtime
 from app.services import server_config
 
 
-@pytest.fixture(autouse=True)
-def _no_runtime(monkeypatch):
-    monkeypatch.setattr(runtime, "current", None)
-
-
 @pytest.mark.parametrize("path", ["/health", "/api/health"])
 def test_public_health_is_ok_and_says_little(anon, path):
     resp = anon.get(path)

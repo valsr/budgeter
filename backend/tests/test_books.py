@@ -8,18 +8,11 @@ from app.models import Account, AccountType
 from app.security import hash_token
 from app.server_models import User
 from app.services import users
+from tests.helpers import tables
 
 # The books head just before the api_key table was dropped, and the tree's root.
 PRE_ACCOUNTS_HEAD = "1ed80c4a4e60"
 ROOT_REVISION = "5928280a1455"
-
-
-def tables(path) -> set[str]:
-    conn = sqlite3.connect(path)
-    try:
-        return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    finally:
-        conn.close()
 
 
 def make_legacy(files, revision=PRE_ACCOUNTS_HEAD, api_key="legacy-key"):

@@ -11,8 +11,8 @@ from sqlalchemy.pool import NullPool, StaticPool
 
 from app.config import resolve_data_dir
 
-_ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
-_CONNECT_ARGS = {"check_same_thread": False}
+ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
+CONNECT_ARGS = {"check_same_thread": False}
 
 _engine: Engine | None = None
 _lock = threading.RLock()
@@ -58,14 +58,14 @@ def get_engine() -> Engine:
             if path is None:
                 from app import server_models  # noqa: F401  (registers the models)
 
-                engine = create_engine("sqlite://", connect_args=_CONNECT_ARGS, poolclass=StaticPool)
+                engine = create_engine("sqlite://", connect_args=CONNECT_ARGS, poolclass=StaticPool)
                 _enforce_foreign_keys(engine)
                 ServerBase.metadata.create_all(engine)
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 # NullPool: every session opens the file afresh, so nothing
                 # can go on using a file that a restore has since replaced.
-                engine = create_engine(f"sqlite:///{path}", connect_args=_CONNECT_ARGS, poolclass=NullPool)
+                engine = create_engine(f"sqlite:///{path}", connect_args=CONNECT_ARGS, poolclass=NullPool)
                 _enforce_foreign_keys(engine)
             _engine = engine
         return _engine
@@ -113,13 +113,24 @@ def upgrade_to_head() -> None:
     upgrade_path(path)
 
 
-def upgrade_path(path: Path) -> None:
-    """Run the server tree's migrations against one specific file."""
-    from alembic import command
+def alembic_config(section: str | None = None):
+    """The Alembic config for one of the two trees: books (default) or "server"."""
     from alembic.config import Config
 
+    return Config(str(ALEMBIC_INI), ini_section=section or "alembic")
+
+
+def run_upgrade(path: Path, *, section: str | None = None, revision: str = "head") -> None:
+    """Migrate one database file, creating it if need be."""
+    from alembic import command
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    cfg = Config(str(_ALEMBIC_INI), ini_section="server")
+    cfg = alembic_config(section)
     cfg.attributes["db_url"] = f"sqlite:///{path}"
     with MIGRATION_LOCK:
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, revision)
+
+
+def upgrade_path(path: Path) -> None:
+    """Run the server tree's migrations against one specific file."""
+    run_upgrade(path, section="server")

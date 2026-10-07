@@ -28,7 +28,7 @@ def current_user(
     else:
         token = request.cookies.get(SESSION_COOKIE)
         if token:
-            user, renewed = users_service.resolve_session_renewing(sdb, token)
+            user, renewed = users_service.resolve_session(sdb, token)
             if user is not None:
                 request.state.session_token = token
                 if renewed:

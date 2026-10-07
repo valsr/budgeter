@@ -29,8 +29,7 @@ def certs(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _no_runtime(monkeypatch):
-    monkeypatch.setattr(runtime, "current", None)
+def _no_overrides(monkeypatch):
     monkeypatch.setattr(settings, "port", None)
     monkeypatch.setattr(settings, "ssl_disabled", False)
 

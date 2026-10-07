@@ -5,13 +5,8 @@ from sqlalchemy import select
 from app import runtime, server_db
 from app.auth import current_user
 from app.version import get_version
-from app.server_models import utcnow
 
 router = APIRouter(tags=["health"])
-
-
-def uptime_seconds() -> int:
-    return int((utcnow() - runtime.STARTED_AT).total_seconds())
 
 
 def _check_server_db() -> None:
@@ -32,7 +27,7 @@ def health() -> JSONResponse:
     return JSONResponse(
         {
             "status": "ok" if ok else "error",
-            "uptime_seconds": uptime_seconds(),
+            "uptime_seconds": runtime.uptime_seconds(),
             "checks": {"server_db": "ok" if ok else "error"},
         },
         status_code=200 if ok else 503,

@@ -47,123 +47,129 @@ def create_backup_bytes(db_path: str) -> bytes:
         return path.read_bytes()
 
 
-def validate_sqlite_bytes(data: bytes) -> None:
-    if not data.startswith(SQLITE_MAGIC):
-        raise ValidationError("Uploaded file is not a valid SQLite database")
-    with open_image(data) as conn:
-        try:
-            result = conn.execute("PRAGMA integrity_check(1)").fetchone()
-        except sqlite3.DatabaseError as e:
-            raise ValidationError(f"Uploaded file is not a valid SQLite database: {e}") from e
+@contextmanager
+def open_db(path: Path, *, readonly: bool = False) -> Iterator[sqlite3.Connection]:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True) if readonly else sqlite3.connect(path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def read_revision(conn: sqlite3.Connection) -> str | None:
+    """The database's Alembic revision, or None if it has none."""
+    try:
+        row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+    except sqlite3.Error:
+        return None
+    return row[0] if row else None
+
+
+def _check_integrity(data: bytes, conn: sqlite3.Connection) -> None:
+    try:
+        result = conn.execute("PRAGMA integrity_check(1)").fetchone()
+    except sqlite3.DatabaseError as e:
+        raise ValidationError(f"Uploaded file is not a valid SQLite database: {e}") from e
     if result is None or result[0] != "ok":
         raise ValidationError("Uploaded file failed SQLite integrity check")
 
 
-def _inspect_sqlite_bytes(data: bytes) -> tuple[set[str], str | None]:
-    """(table names, Alembic revision or None) of a validated SQLite image."""
+def _require_sqlite(data: bytes) -> None:
+    if not data.startswith(SQLITE_MAGIC):
+        raise ValidationError("Uploaded file is not a valid SQLite database")
+
+
+def validate_sqlite_bytes(data: bytes) -> None:
+    _require_sqlite(data)
     with open_image(data) as conn:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        revision = None
-        if "alembic_version" in tables:
-            row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-            revision = row[0] if row else None
-    return tables, revision
+        _check_integrity(data, conn)
 
 
-def _known_revision(revision: str, ini_section: str) -> bool:
-    from alembic.config import Config
+def _known_revision(revision: str, section: str | None) -> bool:
     from alembic.script import ScriptDirectory
     from alembic.util import CommandError
 
-    ini = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
-    script = ScriptDirectory.from_config(Config(str(ini), ini_section=ini_section))
+    from app.server_db import alembic_config
+
     try:
-        return script.get_revision(revision) is not None
+        return ScriptDirectory.from_config(alembic_config(section)).get_revision(revision) is not None
     except CommandError:
         return False
 
 
-def _validate_schema(data: bytes, *, kind: str, required: str, forbidden: str, ini_section: str) -> None:
-    validate_sqlite_bytes(data)
-    tables, revision = _inspect_sqlite_bytes(data)
+def _validate_schema(data: bytes, *, kind: str, required: str, forbidden: str, section: str | None) -> None:
+    _require_sqlite(data)
+    with open_image(data) as conn:
+        _check_integrity(data, conn)
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        revision = read_revision(conn)
     if required not in tables or forbidden in tables:
         raise ValidationError(f"Uploaded file is not a budgeter {kind} database")
     if revision is None:
         raise ValidationError(f"Uploaded {kind} database has no schema version")
-    if not _known_revision(revision, ini_section):
-        # Typically a backup taken from a newer version of the app: there is
-        # no migration path from a revision this build has never heard of.
+    if not _known_revision(revision, section):
+        # Typically a backup from a newer version of the app: no migration path from it.
         raise ValidationError(
             f"Uploaded {kind} database is at schema version {revision}, which this version of the app doesn't know"
         )
 
 
 def validate_books_bytes(data: bytes) -> None:
-    """A SQLite image that is one user's books, at a revision this build
-    can migrate from -- not a server database, not some other app's file."""
-    _validate_schema(data, kind="books", required="accounts", forbidden="users", ini_section="alembic")
+    """One user's books, at a revision this build can migrate from."""
+    _validate_schema(data, kind="books", required="accounts", forbidden="users", section=None)
 
 
 def validate_server_bytes(data: bytes) -> None:
-    _validate_schema(data, kind="server", required="users", forbidden="accounts", ini_section="server")
+    _validate_schema(data, kind="server", required="users", forbidden="accounts", section="server")
 
 
 def _verify_schema(path: Path, metadata, kind: str) -> None:
     """After migrating: every table and column the app's models expect must actually be there."""
-    conn = sqlite3.connect(path)
-    try:
+    with open_db(path) as conn:
         for table in metadata.sorted_tables:
             columns = {row[1] for row in conn.execute(f'PRAGMA table_info("{table.name}")')}
-            missing = {column.name for column in table.columns} - columns
-            if missing:
+            if {column.name for column in table.columns} - columns:
                 raise ValidationError(
                     f"Uploaded {kind} database doesn't have the expected structure (table {table.name!r})"
                 )
-    finally:
-        conn.close()
 
 
-def stage_books(data: bytes, directory: Path, name: str | None = None) -> Path:
-    """Turn an uploaded books image into a ready-to-swap file in `directory`: validated, migrated to
-    head, and checked against the models."""
+def _stage(data: bytes, staged: Path, *, kind: str, validate, upgrade, metadata) -> Path:
+    """Write an uploaded image to `staged` as a ready-to-swap file: validated, migrated to head and
+    checked against the models. Raises ValidationError, leaving nothing behind."""
+    validate(data)
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        staged.write_bytes(data)
+        try:
+            upgrade(staged)
+        except Exception as e:  # noqa: BLE001 -- whatever a migration trips on
+            raise ValidationError(f"Uploaded {kind} database couldn't be brought up to date: {e}") from e
+        _verify_schema(staged, metadata, kind)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return staged
+
+
+def stage_books(data: bytes, staged: Path) -> Path:
     from app import books
     from app import models  # noqa: F401  (registers the models)
     from app.db import Base
 
-    validate_books_bytes(data)
-    directory.mkdir(parents=True, exist_ok=True)
-    if name is None:
-        fd, tmp = tempfile.mkstemp(suffix=".restore", dir=directory)
-        os.close(fd)
-        staged = Path(tmp)
-    else:
-        staged = directory / name
-    try:
-        staged.write_bytes(data)
-        try:
-            books.upgrade(staged)
-        except Exception as e:  # noqa: BLE001 -- whatever a migration trips on
-            raise ValidationError(f"Uploaded books database couldn't be brought up to date: {e}") from e
-        _verify_schema(staged, Base.metadata, "books")
-    except BaseException:
-        staged.unlink(missing_ok=True)
-        raise
-    return staged
+    return _stage(
+        data, staged, kind="books", validate=validate_books_bytes, upgrade=books.upgrade, metadata=Base.metadata
+    )
 
 
 def stage_server(data: bytes, staged: Path) -> Path:
-    """The server-database counterpart of stage_books."""
     from app import server_db, server_models  # noqa: F401
 
-    validate_server_bytes(data)
-    try:
-        staged.write_bytes(data)
-        try:
-            server_db.upgrade_path(staged)
-        except Exception as e:  # noqa: BLE001
-            raise ValidationError(f"Uploaded server database couldn't be brought up to date: {e}") from e
-        _verify_schema(staged, server_db.ServerBase.metadata, "server")
-    except BaseException:
-        staged.unlink(missing_ok=True)
-        raise
-    return staged
+    return _stage(
+        data,
+        staged,
+        kind="server",
+        validate=validate_server_bytes,
+        upgrade=server_db.upgrade_path,
+        metadata=server_db.ServerBase.metadata,
+    )
