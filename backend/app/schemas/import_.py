@@ -42,9 +42,8 @@ class DetectedAccount(BaseModel):
     matched_account_id: int | None
     match_reason: Literal["name", "account_number"] | None = None
     suggested_type: Literal["asset", "liability"] | None = None
-    # Which account the counts below were computed against — the auto-match
-    # unless the caller overrode it. None means "a new account", so every row
-    # counts as new.
+    # Which account the counts below were computed against — the auto-match unless the caller
+    # overrode it.
     target_account_id: int | None = None
     new_count: int = 0
     duplicate_count: int = 0

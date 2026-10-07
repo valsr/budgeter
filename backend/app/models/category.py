@@ -18,12 +18,9 @@ class Category(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_income: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
-    """Reporting-only: flips the sign of this category's actual amounts in
-    budget reports (deposits display as positive, not the expense-style
-    negation applied elsewhere) so income categories read naturally.
-    Inherited by descendants — a category under an income-marked ancestor is
-    effectively income too, even if not marked itself. Never affects the
-    underlying transaction/split data."""
+    """Reporting-only: flips the sign of this category's actual amounts in budget reports (deposits
+    display as positive, not the expense-style negation applied elsewhere) so income categories read
+    naturally."""
 
     children: Mapped[list["Category"]] = relationship(
         "Category",

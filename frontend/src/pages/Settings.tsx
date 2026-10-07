@@ -293,12 +293,9 @@ function CategoryModal({
   );
 }
 
-/** One-line human-readable summary of a rule condition. is_deposit/
- * is_withdrawal carry no value (they match on the split's sign alone), so
- * they're worded as a plain statement instead of the usual field/operator/
- * value template -- which would otherwise print a bare empty "". An
- * `account` condition stores a comma-separated list of account ids, so those
- * are resolved to account names rather than shown as bare numbers. */
+/** One-line human-readable summary of a rule condition. is_deposit/ is_withdrawal carry no value
+ * (they match on the split's sign alone), so they're worded as a plain statement instead of the
+ * usual field/operator/ value template -- which would otherwise print a bare empty "". */
 function conditionSummary(
   c: { field: ConditionField; operator: ConditionOperator; value: string },
   accountName: (id: string) => string,
@@ -315,9 +312,9 @@ function conditionSummary(
   return `${c.field} ${c.operator} "${c.value}"`;
 }
 
-/** Combines the conditions of the given rules (in list order) for the "Merge
- * rules" flow, deduping exact field/operator/value repeats across rules, and
- * defaulting the target category to the first selected rule's. */
+/** Combines the conditions of the given rules (in list order) for the "Merge rules" flow, deduping
+ * exact field/operator/value repeats across rules, and defaulting the target category to the first
+ * selected rule's. */
 function buildMergeInitial(sourceRules: Rule[]) {
   const seen = new Set<string>();
   const conditions: { field: ConditionField; operator: ConditionOperator; value: string }[] = [];
@@ -371,9 +368,9 @@ function RulesTab() {
     accountsApi.list().then(setAccounts);
   }, []);
 
-  // Categories can nest to any depth (docs/requirements.md §2.2), so this
-  // has to walk the whole tree rather than just top-level + one child deep
-  // -- flattenAllCategories already does that recursively.
+  // Categories can nest to any depth (docs/requirements.md §2.2), so this has to walk the whole
+  // tree rather than just top-level + one child deep -- flattenAllCategories already does that
+  // recursively.
   const categoryPaths = flattenAllCategories(categories);
   const categoryName = (id: number) => categoryPaths.find((o) => o.id === id)?.path ?? `#${id}`;
   const accountName = (id: string) => accounts.find((a) => String(a.id) === id)?.name ?? `#${id}`;

@@ -25,9 +25,8 @@ _RENEW_WHEN_LEFT_BELOW = timedelta(days=29)
 
 _BAD_CREDENTIALS = "Invalid username or password"
 _LAST_ADMIN = "The last active admin can't be demoted, disabled or deleted"
-# Verified against when the username is unknown, so a miss costs the same
-# scrypt work as a wrong password and response time doesn't reveal which
-# usernames exist.
+# Verified against when the username is unknown, so a miss costs the same scrypt work as a wrong
+# password and response time doesn't reveal which usernames exist.
 _DUMMY_HASH = hash_password("no such user")
 
 
@@ -190,9 +189,7 @@ def create_session(db: Session, user: User) -> str:
 def resolve_session_renewing(
     db: Session, token: str, now: datetime | None = None
 ) -> tuple[User | None, bool]:
-    """(the session's user or None, whether its expiry was just extended).
-    The caller re-issues the cookie on a renewal, so the browser's copy
-    slides forward together with the server's."""
+    """(the session's user or None, whether its expiry was just extended)."""
     if not token:
         return None, False
     now = now or utcnow()

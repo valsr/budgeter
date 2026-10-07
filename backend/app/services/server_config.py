@@ -53,10 +53,7 @@ def update(
     ssl_certfile: str | None | object = _UNSET,
     ssl_keyfile: str | None | object = _UNSET,
 ) -> ServerSettings:
-    """Change only the settings given. Nothing is saved unless the result
-    is something the server could start with: enabling SSL (or changing the
-    files while it's on) requires a working certificate and key *now*, so
-    the next restart doesn't discover the problem instead."""
+    """Change only the settings given."""
     row = users_service.get_settings(db)
 
     new_port = row.port if port is None else port
@@ -85,9 +82,9 @@ def planned(row: ServerSettings) -> runtime.Runtime:
 
 
 def resolve_startup(db: Session) -> runtime.Runtime:
-    """What to serve with right now. Raises StartupError if SSL is enabled
-    but its files can't be used: falling back to plain HTTP would quietly
-    serve logins unencrypted, so the server refuses to start instead."""
+    """What to serve with right now. Raises StartupError if SSL is enabled but its files can't be
+    used: falling back to plain HTTP would quietly serve logins unencrypted, so the server refuses
+    to start instead."""
     row = users_service.get_settings(db)
     plan = planned(row)
     if plan.ssl_enabled:

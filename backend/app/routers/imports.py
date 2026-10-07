@@ -33,8 +33,6 @@ async def import_qif(
     )
 
     # Categorization must not block the import response (docs/requirements.md §2.4).
-    # Runs in its own DB session — the request's `db` is closed by the time
-    # background tasks run (see run_categorization_in_background docstring).
     background_tasks.add_task(categorization.run_categorization_in_background, user.id, imported_ids)
     return batch
 

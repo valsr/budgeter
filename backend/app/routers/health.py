@@ -19,9 +19,8 @@ def _check_server_db() -> None:
         db.execute(select(1)).scalar_one()
 
 
-# Public, for load balancers and container health checks: says whether the
-# server can do its job, and nothing an anonymous caller could use. The
-# details are at /api/admin/health (routers/admin.py), for admins.
+# Public, for load balancers and container health checks: says whether the server can do its job,
+# and nothing an anonymous caller could use.
 @router.get("/health")
 @router.get("/api/health")
 def health() -> JSONResponse:

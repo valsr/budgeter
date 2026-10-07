@@ -66,12 +66,8 @@ export function Overview() {
     storage.set(BUDGET_STORAGE_KEY, value);
   }
 
-  // Grand total = Σ expense actuals − Σ income actuals, over top-level rows
-  // only (parent rollups already fold their children's actuals in, so
-  // summing children too would double count). The backend already flips an
-  // income-marked category's actual to read as a natural positive "money
-  // received" amount (see Category.is_income), so it has to be subtracted
-  // back out explicitly here rather than just summed with the rest.
+  // Grand total = Σ expense actuals − Σ income actuals, over top-level rows only (parent rollups
+  // already fold their children's actuals in, so summing children too would double count).
   const grandTotal = rows
     .filter((r) => topLevelIds.has(r.category_id))
     .reduce((sum, r) => sum + (r.is_income ? -rowTotals(r).actual : rowTotals(r).actual), 0);

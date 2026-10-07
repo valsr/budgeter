@@ -14,13 +14,7 @@ class ChangeOperation(str, enum.Enum):
 
 
 class _ChangeRow:
-    """Shared column set for the three per-entity change-log tables.
-
-    Not a mapped base (each table needs its own __tablename__), just the
-    column definitions repeated identically across AccountChange /
-    CategoryChange / TransactionChange so undo.py can treat them
-    interchangeably by attribute name.
-    """
+    """Shared column set for the three per-entity change-log tables."""
 
     id: Mapped[int] = mapped_column(primary_key=True)
     entity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
@@ -49,12 +43,7 @@ class TransactionChange(_ChangeRow, Base):
 
 
 class AppSettings(Base):
-    """Single-row table holding one user's settings for their own books.
-
-    Absence of a row is a valid state (fresh test DBs, pre-migration
-    installs) — app/services/app_settings.py falls back to
-    DEFAULT_RETENTION_DAYS in that case.
-    """
+    """Single-row table holding one user's settings for their own books."""
 
     __tablename__ = "app_settings"
 

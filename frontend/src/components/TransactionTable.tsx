@@ -57,9 +57,8 @@ const EMPTY_FILTERS: Filters = {
 const PAGE_SIZE = 100;
 const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
 
-/** One line in the table. A linked transfer is a single movement of money
- * shown once, with a leg in each of two accounts; everything else is one
- * transaction on one account. */
+/** One line in the table. A linked transfer is a single movement of money shown once, with a leg in
+ * each of two accounts; everything else is one transaction on one account. */
 type Entry =
   | { kind: "single"; txn: Transaction }
   | { kind: "pair"; from: Transaction; to: Transaction; carrying: Transaction };
@@ -68,18 +67,12 @@ function totalOf(txn: Transaction): number {
   return txn.splits.reduce((sum, s) => sum + s.amount, 0);
 }
 
-/** The leg holding the pair's category. A pair carries its category on
- * exactly one leg (both would net the movement to zero), and which leg sets
- * the sign the category sees — so an uncategorized pair defaults to the
- * withdrawal leg, whose amount is negative and therefore reads as spending. */
+/** The leg holding the pair's category. */
 function carryingLeg(from: Transaction, to: Transaction): Transaction {
   return to.splits.some((s) => s.category_id !== null) ? to : from;
 }
 
-/** Whether the entry still needs categorizing — mirrors the server's
- * _is_uncategorized_clause. A pair counts as uncategorized only when neither
- * leg carries a category: the non-carrying leg's empty split is the model
- * working, not a gap. */
+/** Whether the entry still needs categorizing — mirrors the server's _is_uncategorized_clause. */
 function isEntryUncategorized(entry: Entry): boolean {
   if (entry.kind === "pair") {
     return ![entry.from, entry.to].some((leg) =>
@@ -123,16 +116,11 @@ export function TransactionTable({
     [data],
   );
 
-  /** The account whose ledger is being viewed, if any. A linked pair spans two
-   * accounts, so its amount only belongs in a Deposit/Withdraw column when
-   * there's a single account to be relative to. */
+  /** The account whose ledger is being viewed, if any. */
   const viewingAccountId =
     lockAccountId ?? (filters.account_id ? Number(filters.account_id) : undefined);
 
-  // A linked pair is one movement of money and renders as one line. The
-  // server guarantees both legs arrive on the same page (it pages by entry,
-  // not by row), so pairing up here is always complete -- see
-  // transactions.py's _entry_key_expr.
+  // A linked pair is one movement of money and renders as one line.
   const entries = useMemo<Entry[]>(() => {
     const rows = data?.items ?? [];
     const byId = new Map(rows.map((t) => [t.id, t]));
@@ -251,10 +239,9 @@ export function TransactionTable({
       return (
         <td
           onBlur={(e) => {
-            // Only cancel editing once focus has genuinely left the cell —
-            // clicking a dropdown row keeps the combobox's input focused
-            // (see CategoryCombobox's mousedown/preventDefault), so this
-            // won't fire for a real selection, only for a click-away.
+            // Only cancel editing once focus has genuinely left the cell — clicking a dropdown row
+            // keeps the combobox's input focused (see CategoryCombobox's mousedown/preventDefault),
+            // so this won't fire for a real selection, only for a click-away.
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
               setEditingSplit(null);
             }
@@ -331,10 +318,8 @@ export function TransactionTable({
     );
   }
 
-  /** Transfers carry a ⇄ before the name so a linked pair is recognisable in
-   * the list itself, not only by opening the row. Where the other leg happens
-   * to be on the same page the tooltip names its account; otherwise only the
-   * pair's existence is known here (the row carries an id, not the pair). */
+  /** Transfers carry a ⇄ before the name so a linked pair is recognisable in the list itself, not
+   * only by opening the row. */
   function renderName(txn: Transaction) {
     if (txn.type !== "transfer") return txn.name;
 
@@ -373,9 +358,8 @@ export function TransactionTable({
   function renderPairRow(entry: Extract<Entry, { kind: "pair" }>, rowClass: string) {
     const { from, to, carrying } = entry;
     const amount = Math.abs(totalOf(from));
-    // Deposit/Withdraw are account-relative, so they only mean something when
-    // a single account is in view. Otherwise the from → to arrow carries the
-    // direction and the amount spans both columns.
+    // Deposit/Withdraw are account-relative, so they only mean something when a single account is
+    // in view.
     const viewedLeg =
       viewingAccountId === undefined
         ? undefined

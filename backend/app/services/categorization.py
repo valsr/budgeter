@@ -9,12 +9,7 @@ from app.services.rules import list_rules, rules_to_specs
 
 
 def find_uncategorized_split(txn: Transaction) -> Split | None:
-    """The transaction's sole still-uncategorized split, if there is
-    exactly one. A suggestion proposes one category for a single split, so
-    a transaction with zero (fully categorized) or two-or-more (rule can't
-    tell which one to fill in) uncategorized splits is left alone — only
-    manual/AI-assisted editing touches those.
-    """
+    """The transaction's sole still-uncategorized split, if there is exactly one."""
     uncategorized = [s for s in txn.splits if s.category_id is None]
     return uncategorized[0] if len(uncategorized) == 1 else None
 
@@ -35,18 +30,7 @@ def list_eligible_for_suggestion(db: Session, transaction_ids: list[int] | None 
 
 
 def run_categorization(db: Session, transaction_ids: list[int] | None = None) -> int:
-    """Apply rule-based categorization to uncategorized transactions.
-
-    Only transactions with exactly one still-uncategorized split are
-    eligible — a rule proposes one category for a single split, and once a
-    split's category_id is set it is considered confirmed and is never
-    touched here (docs/requirements.md §3.1). `transaction_ids=None` means
-    "all eligible transactions" (used right after import, and whenever a
-    rule is created/edited); a specific list scopes this to a manual/bulk
-    re-run selection.
-
-    Returns the number of transactions that received a new suggestion.
-    """
+    """Apply rule-based categorization to uncategorized transactions."""
     rules = rules_to_specs(list_rules(db))
     if not rules:
         return 0
@@ -73,14 +57,7 @@ def run_categorization(db: Session, transaction_ids: list[int] | None = None) ->
 
 
 def run_categorization_in_background(user_id: int, transaction_ids: list[int] | None = None) -> int:
-    """Entry point for FastAPI's BackgroundTasks (see routers/imports.py).
-
-    Background tasks run after the response is sent, by which point FastAPI
-    has already closed the request's `db` session — passing that session
-    into the task worked only because a closed SQLAlchemy Session silently
-    reopens a connection on next use. That's fragile to depend on, so this
-    opens and closes its own session on the importing user's books instead.
-    """
+    """Entry point for FastAPI's BackgroundTasks (see routers/imports.py)."""
     session = books.session_for(user_id)
     try:
         return run_categorization(session, transaction_ids)

@@ -110,16 +110,7 @@ def _clear_category(txn: Transaction) -> None:
 
 
 def _category_leg(txn: Transaction, pair: Transaction | None) -> Transaction:
-    """The leg of a pair that holds its category: always the withdrawal one.
-
-    A pair's category has to live on one leg, and that leg's sign is the sign
-    the category sees. Letting the choice ride on which row happened to be
-    clicked made an identical movement read as spending or as a credit
-    depending on an invisible detail -- so it's fixed instead. Money leaving
-    the source account *into* the category is what a transfer between your own
-    accounts means when it's worth categorizing at all.
-
-    Falls back to the given leg for an orphan (unpaired) transfer."""
+    """The leg of a pair that holds its category: always the withdrawal one."""
     if pair is None:
         return txn
     return txn if _single_split_amount(txn) < 0 else pair
@@ -131,11 +122,8 @@ def update_transaction_splits(
     txn = _get_transaction_or_404(db, transaction_id)
     pair = None
     if txn.type == TransactionType.TRANSFER:
-        # A transfer moves one sum of money, so it takes one category -- but
-        # only one, and only on one leg. Both legs categorized would net the
-        # movement to zero in every rollup (equal and opposite amounts under
-        # the same category), which is the whole reason a pair carries its
-        # category on a single leg.
+        # A transfer moves one sum of money, so it takes one category -- but only one, and only on
+        # one leg.
         if len(splits) != 1:
             raise ValidationError("A transfer takes a single category, not a split across several")
         pair = _transfer_pair(db, txn)
@@ -146,10 +134,8 @@ def update_transaction_splits(
     validate_splits(splits, expected_total=current_total)
 
     if pair is not None:
-        # Addressing either leg categorizes the pair, and the category always
-        # lands on the withdrawal leg -- see _category_leg. Amounts are fixed
-        # for a transfer (validate_splits above already checked the addressed
-        # leg's total is unchanged), so only the category moves.
+        # Addressing either leg categorizes the pair, and the category always lands on the
+        # withdrawal leg -- see _category_leg.
         category_id = splits[0][0]
         target = _category_leg(txn, pair)
         other = pair if target is txn else txn
@@ -305,9 +291,7 @@ TRANSFER_DAY_WINDOW = 5
 
 
 def _single_split_amount(txn: Transaction) -> float:
-    """The signed amount of a transaction that can take part in a transfer.
-    A transfer is one movement of money, so each leg must be a single split —
-    a transaction split across categories has no single amount to match on."""
+    """The signed amount of a transaction that can take part in a transfer."""
     if len(txn.splits) != 1:
         return 0.0
     return float(txn.splits[0].amount)
@@ -316,12 +300,9 @@ def _single_split_amount(txn: Transaction) -> float:
 def find_transfer_candidates(
     db: Session, transaction_id: int, day_window: int = TRANSFER_DAY_WINDOW
 ) -> list[Transaction]:
-    """Transactions that could be the other leg of `transaction_id`: a normal,
-    single-split transaction on a *different* account whose amount is the exact
-    negation of this one, dated within `day_window` days either side.
-
-    Ordered by date proximity so the likeliest match sorts first — banks post
-    the two legs a day or two apart at least as often as on the same day."""
+    """Transactions that could be the other leg of `transaction_id`: a normal, single-split
+    transaction on a *different* account whose amount is the exact negation of this one, dated
+    within `day_window` days either side."""
     txn = _get_transaction_or_404(db, transaction_id)
     if txn.type != TransactionType.NORMAL:
         raise ValidationError("Only normal transactions can be linked as a transfer")
@@ -360,15 +341,7 @@ def find_transfer_candidates(
 def link_as_transfer(
     db: Session, transaction_id: int, other_transaction_id: int
 ) -> tuple[Transaction, Transaction]:
-    """Mark two existing transactions as the two legs of one transfer.
-
-    Needed when both legs were imported independently — each account's own
-    statement carries one side — so neither came from create_transfer.
-
-    `transaction_id` is the leg the user acted on. It decides which category
-    survives when both legs carry one, but not where that category lands: a
-    pair holds its category on its withdrawal leg (see _category_leg), so an
-    identical movement reads the same way however it was linked."""
+    """Mark two existing transactions as the two legs of one transfer."""
     if transaction_id == other_transaction_id:
         raise ValidationError("A transaction can't be linked to itself")
 
@@ -392,11 +365,7 @@ def link_as_transfer(
     before_txn = change_log.serialize_transaction(txn)
     before_other = change_log.serialize_transaction(other)
 
-    # Linking is non-destructive: a category either leg was carrying survives
-    # the operation. Where both carry one the selected leg's wins, and the
-    # loser is named in the summary rather than silently binned. The survivor
-    # then moves to the withdrawal leg, which is the only leg a pair's
-    # category ever lives on.
+    # Linking is non-destructive: a category either leg was carrying survives the operation.
     kept_category_id = _leg_category_id(txn) or _leg_category_id(other)
     dropped_category_id = None
     if _leg_category_id(txn) is not None and _leg_category_id(other) is not None:
@@ -443,11 +412,7 @@ def link_as_transfer(
 
 
 def unlink_transfer(db: Session, transaction_id: int) -> list[Transaction]:
-    """Turn a transfer back into ordinary transactions on both accounts.
-
-    The reverse of link_as_transfer. Unlike delete_transaction it keeps both
-    rows — the money did move, only the pairing was wrong — so the legs come
-    back uncategorized and available for categorization again."""
+    """Turn a transfer back into ordinary transactions on both accounts."""
     txn = _get_transaction_or_404(db, transaction_id)
     if txn.type != TransactionType.TRANSFER:
         raise ValidationError("This transaction is not a transfer")
@@ -540,9 +505,8 @@ def reject_suggestion(db: Session, transaction_id: int, split_id: int) -> Split:
 
 
 def _descendant_category_ids(db: Session, category_id: int) -> list[int]:
-    """category_id plus every descendant at any depth — categories can be
-    nested arbitrarily deep, so filtering by a parent must include the
-    whole subtree, not just direct children."""
+    """category_id plus every descendant at any depth — categories can be nested arbitrarily deep,
+    so filtering by a parent must include the whole subtree, not just direct children."""
     ids = [category_id]
     frontier = [category_id]
     while frontier:
@@ -553,25 +517,15 @@ def _descendant_category_ids(db: Session, category_id: int) -> list[int]:
 
 
 def _is_uncategorized_clause():
-    """A transaction is "uncategorized" when it has a split lacking a
-    confirmed category and nothing else in its entry supplies one.
-
-    Transfers are included. They used to be excluded as categorized-by-
-    definition, which was right while a transfer *couldn't* carry a category
-    -- but a linked pair now takes one (see link_as_transfer), so a pair
-    with none is genuinely outstanding work and belongs in the filter.
-
-    The pair check is what keeps a *categorized* pair out: its category sits
-    on one leg by design, so the other leg's NULL split is not a missing
-    categorization, it's the model working."""
+    """A transaction is "uncategorized" when it has a split lacking a confirmed category and nothing
+    else in its entry supplies one."""
     uncat_split_exists = (
         select(Split.id)
         .where(Split.transaction_id == Transaction.id)
         .where(Split.category_id.is_(None))
-        # Correlate Transaction only. An amount or category filter joins Split
-        # into the outer query too, and without this SQLAlchemy auto-correlates
-        # that away as well -- leaving this subquery with no FROM at all and
-        # raising rather than running.
+        # Correlate Transaction only. An amount or category filter joins Split into the outer query
+        # too, and without this SQLAlchemy auto-correlates that away as well -- leaving this
+        # subquery with no FROM at all and raising rather than running.
         .correlate(Transaction)
         .exists()
     )
@@ -588,10 +542,7 @@ def _is_uncategorized_clause():
 
 
 def _entry_key_expr():
-    """The id of the "entry" a transaction row belongs to. A linked transfer's
-    two legs share one key -- the lower of the two ids -- so grouping by this
-    collapses a pair into a single entry; every other transaction is its own
-    entry."""
+    """The id of the "entry" a transaction row belongs to."""
     return case(
         (Transaction.transfer_pair_id.is_(None), Transaction.id),
         else_=func.min(Transaction.id, Transaction.transfer_pair_id),
@@ -670,11 +621,8 @@ def list_transactions(
         show_categorized,
         show_uncategorized,
     )
-    # Page by *entry*, not by row: a linked transfer is one movement of money
-    # shown as one line, so its two legs must count once toward the page size
-    # and never straddle a page boundary. Both legs are always returned
-    # together, even when the filters matched only one of them -- rendering
-    # the collapsed line needs the other leg's account and amount.
+    # Page by *entry*, not by row: a linked transfer is one movement of money shown as one line, so
+    # its two legs must count once toward the page size and never straddle a page boundary.
     matching_ids = stmt.with_only_columns(Transaction.id).distinct().subquery()
     key = _entry_key_expr()
     entry_rows = (
@@ -726,17 +674,7 @@ def count_uncategorized(db: Session) -> int:
     return db.execute(stmt).scalar_one()
 
 
-# --- undo-only helpers -------------------------------------------------
-#
-# Used exclusively by app/services/undo.py. apply_transaction_snapshot
-# replaces date/name/splits wholesale (including suggested_category_id/
-# suggestion_source, which none of update_transaction_details /
-# update_transaction_splits / accept_suggestion / reject_suggestion alone
-# can fully restore) so a single call can reverse an UPDATE row regardless
-# of which of those four originally produced it. restore_transaction
-# recreates a deleted transaction (and its splits) with the original id;
-# undoing a create reuses delete_transaction as-is, since it already
-# handles the transfer-pair cascade.
+# --- undo-only helpers, used by services/undo.py ---
 
 
 def apply_transaction_snapshot(db: Session, transaction_id: int, snapshot: dict) -> Transaction:
@@ -745,9 +683,8 @@ def apply_transaction_snapshot(db: Session, transaction_id: int, snapshot: dict)
 
     txn.date = dt.date.fromisoformat(snapshot["date"])
     txn.name = snapshot["name"]
-    # type/transfer_pair_id are restored too — link_as_transfer and
-    # unlink_transfer log UPDATEs that change nothing else, so an undo that
-    # skipped these fields would be a no-op for them.
+    # type/transfer_pair_id are restored too — link_as_transfer and unlink_transfer log UPDATEs that
+    # change nothing else, so an undo that skipped these fields would be a no-op for them.
     txn.type = TransactionType(snapshot["type"])
     txn.transfer_pair_id = snapshot["transfer_pair_id"]
     for split in list(txn.splits):

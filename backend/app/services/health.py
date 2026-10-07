@@ -62,9 +62,8 @@ def report(sdb: Session) -> dict:
         finally:
             conn.close()
 
-    # Checked against what is *saved*, so a certificate that has been moved
-    # or has stopped matching its key shows up here -- before the restart
-    # that would refuse to start because of it.
+    # Checked against what is *saved*, so a certificate that has been moved or has stopped matching
+    # its key shows up here -- before the restart that would refuse to start because of it.
     if server_settings.ssl_enabled:
         try:
             server_config.check_ssl_files(server_settings.ssl_certfile, server_settings.ssl_keyfile)

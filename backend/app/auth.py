@@ -17,12 +17,8 @@ def current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     sdb: Session = Depends(get_server_db),
 ) -> User:
-    """Who is making this request: the owner of a bearer API key (the MCP
-    adapter, scripts), or of the browser's session cookie.
-
-    A request that presents a key is judged on the key alone -- a wrong one
-    is a 401 even if a valid cookie rides along.
-    """
+    """Who is making this request: the owner of a bearer API key (the MCP adapter, scripts), or of
+    the browser's session cookie."""
     # The raw session token, for handlers that need to tell "this session"
     # from the user's others (logout, password change). None under key auth.
     request.state.session_token = None
@@ -36,9 +32,8 @@ def current_user(
             if user is not None:
                 request.state.session_token = token
                 if renewed:
-                    # Keep the browser's cookie in step with the server's
-                    # sliding expiry, or it would lapse 30 days after login
-                    # however active the user had been.
+                    # Keep the browser's cookie in step with the server's sliding expiry, or it
+                    # would lapse 30 days after login however active the user had been.
                     set_session_cookie(response, request, token)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")

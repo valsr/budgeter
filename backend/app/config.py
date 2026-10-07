@@ -17,9 +17,7 @@ class Settings(BaseSettings):
     """Overrides the port saved in Settings → Server -- for when the port is
     dictated from outside, e.g. a container's published port mapping."""
     ssl_disabled: bool = False
-    """Escape hatch: start on plain HTTP even though SSL is enabled in
-    Settings → Server. The way back in when the certificate has gone missing
-    and the server therefore refuses to start."""
+    """Escape hatch: start on plain HTTP even though SSL is enabled in Settings → Server."""
     data_dir: str | None = None
     """Holds server.db and books/<user_id>.db. Defaults to the directory of
     the database_url file -- see resolve_data_dir."""
@@ -40,12 +38,7 @@ def legacy_database_path() -> Path | None:
 
 
 def resolve_data_dir() -> Path | None:
-    """The directory holding server.db and the per-user books files.
-
-    None means in-memory test mode: the bare `sqlite://` URL that
-    tests/conftest.py sets, with no explicit data_dir. Nothing touches disk
-    then, and schemas are created directly rather than through Alembic.
-    """
+    """The directory holding server.db and the per-user books files."""
     if settings.data_dir:
         return Path(settings.data_dir)
     legacy = legacy_database_path()

@@ -1,10 +1,9 @@
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { authApi } from "../../api/auth";
+import { errorMessage } from "../../api/client";
 import { settingsApi } from "../../api/settings";
 import { useAuth } from "../../auth/context";
-
-const errorText = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong");
 
 export function AccountTab() {
   const { user } = useAuth();
@@ -43,7 +42,7 @@ function PasswordCard() {
       setConfirm("");
       setMessage({ ok: true, text: "Password changed." });
     } catch (err) {
-      setMessage({ ok: false, text: errorText(err) });
+      setMessage({ ok: false, text: errorMessage(err) });
     } finally {
       setSaving(false);
     }
@@ -177,7 +176,7 @@ function DeleteAccountCard() {
       // The session died with the account; this drops back to the login screen.
       await refresh();
     } catch (err) {
-      setError(errorText(err));
+      setError(errorMessage(err));
       setDeleting(false);
     }
   }

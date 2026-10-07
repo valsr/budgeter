@@ -21,16 +21,13 @@ export const categoriesApi = {
       method: "POST",
       body: JSON.stringify({ parent_id, ordered_ids }),
     }),
-  /** Find-or-create a category by a colon-delimited path, e.g.
-   * "shared:groceries:alcohol" — creates any missing segments and returns
-   * the resolved leaf category. */
+  /** Find-or-create a category by a colon-delimited path, e.g. "shared:groceries:alcohol" — creates
+   * any missing segments and returns the resolved leaf category. */
   resolvePath: (path: string) =>
     apiFetch<Category>("/api/categories/resolve", { method: "POST", body: JSON.stringify({ path }) }),
 };
 
-/** Strip archived categories from a tree fetched with include_archived=true.
- * Pages fetch the full tree so archived categories still render on historical
- * transactions (§2.2), but pickers/filters must only offer active ones. */
+/** Strip archived categories from a tree fetched with include_archived=true. */
 export function activeCategories(tree: Category[]): Category[] {
   return tree
     .filter((c) => c.archived_at === null)
@@ -45,10 +42,9 @@ export interface CategoryOption {
   isLeaf: boolean;
 }
 
-/** Flatten the category tree into every category (not just leaves), with
- * full colon-joined paths and each node's depth (0 = top level) — used for
- * pickers that need to choose any category, e.g. a new parent or a rollup
- * filter, rather than just leaves. */
+/** Flatten the category tree into every category (not just leaves), with full colon-joined paths
+ * and each node's depth (0 = top level) — used for pickers that need to choose any category, e.g. a
+ * new parent or a rollup filter, rather than just leaves. */
 export function flattenAllCategories(tree: Category[]): CategoryOption[] {
   const result: CategoryOption[] = [];
   function walk(nodes: Category[], prefix: string, depth: number) {
@@ -62,11 +58,8 @@ export function flattenAllCategories(tree: Category[]): CategoryOption[] {
   return result;
 }
 
-/** Flatten the category tree into leaf-path entries (e.g.
- * "shared:groceries:alcohol") for pickers — categories can nest to any
- * depth, so this recurses rather than assuming a fixed number of levels.
- * Only leaves (no children) are included: parent categories are never
- * directly assignable, since their totals are always derived from children. */
+/** Flatten the category tree into leaf-path entries (e.g. "shared:groceries:alcohol") for pickers —
+ * categories can nest to any depth, so this recurses rather than assuming a fixed number of levels. */
 export function flattenLeafCategories(tree: Category[]): { id: number; path: string; color: string }[] {
   const result: { id: number; path: string; color: string }[] = [];
   function walk(nodes: Category[], prefix: string) {

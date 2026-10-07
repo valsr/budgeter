@@ -27,9 +27,8 @@ class ServerSettingsRead(BaseModel):
     ssl_certfile: str | None
     ssl_keyfile: str | None
     managed: bool
-    """Whether this process was started by the launcher (app/serve.py) and
-    so actually serves with the port and SSL settings above. False under a
-    bare `uvicorn app.main:app`, where they are saved but not applied."""
+    """Whether this process was started by the launcher (app/serve.py) and so actually serves with
+    the port and SSL settings above."""
     restart_required: bool
     """The saved port/SSL settings differ from what is being served."""
     port_override: int | None

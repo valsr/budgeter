@@ -93,9 +93,7 @@ def get_report(
     account_id: Annotated[list[int] | None, Query()] = None,
     db: Session = Depends(get_db),
 ):
-    """`account_id` may repeat, narrowing the report to those source accounts.
-    Omit it for every account -- an empty selection isn't a distinct state,
-    since a budget over no accounts has nothing to report."""
+    """`account_id` may repeat, narrowing the report to those source accounts."""
     if not (1 <= through_month <= 12):
         raise HTTPException(status_code=422, detail="through_month must be between 1 and 12")
     rows = budgets_service.get_report(

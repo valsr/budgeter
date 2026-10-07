@@ -1,9 +1,4 @@
-"""The server database: users, sessions and server-wide settings.
-
-Separate from the per-user books (app/books.py), which hold everything a
-user actually budgets with. It has its own declarative base and its own
-Alembic tree (app/server_migrations, the `[server]` section of alembic.ini).
-"""
+"""The server database: users, sessions and server-wide settings."""
 
 import os
 import threading
@@ -22,9 +17,8 @@ _CONNECT_ARGS = {"check_same_thread": False}
 _engine: Engine | None = None
 _lock = threading.RLock()
 
-# Alembic keeps its migration context in process-global state, and requests
-# run migrations too (creating or restoring books) -- so every upgrade, in
-# either tree, takes this lock. Two at once would cross-wire.
+# Alembic keeps its migration context in process-global state, and requests run migrations too
+# (creating or restoring books) -- so every upgrade, in either tree, takes this lock.
 MIGRATION_LOCK = threading.RLock()
 
 # SQLite side files that must not outlive the database they belonged to.
@@ -88,9 +82,7 @@ def reset() -> None:
 
 
 def replace_database(staged: Path) -> None:
-    """Swap an already validated and migrated file in as the server
-    database. Holds the engine lock throughout, so no request can build an
-    engine on the outgoing file in between."""
+    """Swap an already validated and migrated file in as the server database."""
     path = server_db_path()
     if path is None:
         raise RuntimeError("The server database has no file in in-memory test mode")
@@ -113,9 +105,8 @@ def get_server_db() -> Generator[Session, None, None]:
 
 
 def upgrade_to_head() -> None:
-    """Bring the server database up to its latest Alembic revision; the
-    counterpart of books.upgrade for the server tree. A no-op in in-memory
-    test mode, where get_engine creates the tables directly."""
+    """Bring the server database up to its latest Alembic revision; the counterpart of books.upgrade
+    for the server tree."""
     path = server_db_path()
     if path is None:
         return

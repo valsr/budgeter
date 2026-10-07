@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
-import { accountsApi } from "../api/accounts";
-import { activeCategories, categoriesApi, flattenAllCategories } from "../api/categories";
-import type { Account, Category, Transaction } from "../api/types";
+import { useState } from "react";
+import { activeCategories, flattenAllCategories } from "../api/categories";
 import { useUserStorage } from "../auth/userStorage";
 import { CategoryCombobox } from "../components/CategoryCombobox";
 import { SplitModal } from "../components/SplitModal";
 import { TransactionTable } from "../components/TransactionTable";
+import { useLedgerData } from "../hooks/useLedgerData";
 
 // Same starting window as the Accounts screen: the current calendar year.
 const ACCOUNTING_PERIOD_START = `${new Date().getFullYear()}-01-01`;
@@ -15,25 +14,12 @@ const CATEGORY_STORAGE_KEY = "categories.selected";
 
 export function Categories() {
   const storage = useUserStorage();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [categories, setCategories] = useState<Category[] | null>(null);
+  const { accounts, categories: tree, categoriesLoaded, loadCategories, splitTxn, setSplitTxn, refreshKey, refresh } =
+    useLedgerData();
   const [currentCategoryId, setCurrentCategoryId] = useState<number | null>(() => {
     const stored = Number(storage.get(CATEGORY_STORAGE_KEY));
     return Number.isInteger(stored) && stored > 0 ? stored : null;
   });
-  const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  function loadCategories() {
-    // include_archived so historical transactions keep rendering their
-    // (possibly archived) category; pickers filter to active internally.
-    categoriesApi.list(true).then(setCategories);
-  }
-
-  useEffect(() => {
-    accountsApi.list().then(setAccounts);
-    loadCategories();
-  }, []);
 
   function selectCategory(categoryId: number | null) {
     setCurrentCategoryId(categoryId);
@@ -41,10 +27,9 @@ export function Categories() {
     else storage.set(CATEGORY_STORAGE_KEY, String(categoryId));
   }
 
-  const tree = categories ?? [];
   // A remembered category may have been deleted since; treat it as unpicked.
   const selectedId =
-    categories !== null && flattenAllCategories(tree).some((c) => c.id === currentCategoryId)
+    categoriesLoaded && flattenAllCategories(tree).some((c) => c.id === currentCategoryId)
       ? currentCategoryId
       : null;
 
@@ -56,7 +41,7 @@ export function Categories() {
         everything beneath it.
       </p>
 
-      {categories !== null && (
+      {categoriesLoaded && (
         <div style={{ maxWidth: 360, marginBottom: 18 }}>
           <CategoryCombobox
             categories={activeCategories(tree)}
@@ -86,7 +71,7 @@ export function Categories() {
           transaction={splitTxn}
           categories={tree}
           onClose={() => setSplitTxn(null)}
-          onSaved={() => setRefreshKey((k) => k + 1)}
+          onSaved={refresh}
         />
       )}
     </div>

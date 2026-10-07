@@ -2,6 +2,7 @@ import { useState } from "react";
 import { activeCategories, flattenLeafCategories } from "../api/categories";
 import { transactionsApi } from "../api/transactions";
 import type { Category, Transaction } from "../api/types";
+import { errorMessage } from "../api/client";
 import { formatMoney } from "../format";
 import { CategoryCombobox } from "./CategoryCombobox";
 import { Modal } from "./Modal";
@@ -93,7 +94,7 @@ export function SplitModal({ transaction, categories, onClose, onSaved }: SplitM
         runLearnCheck(transaction.id);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save splits");
+      setError(errorMessage(e, "Failed to save splits"));
     }
   }
 

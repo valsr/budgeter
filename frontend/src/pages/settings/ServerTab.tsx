@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { adminApi } from "../../api/admin";
 import type { ServerHealth, ServerSettings } from "../../api/admin";
+import { errorMessage } from "../../api/client";
 import { useAuth } from "../../auth/context";
 import { saveBlob } from "../../download";
 import { formatBytes, formatDuration, formatTimestamp } from "../../format";
@@ -133,7 +134,7 @@ function NetworkCard({
         ),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save the settings");
+      setError(errorMessage(err, "Couldn't save the settings"));
     } finally {
       setSaving(false);
     }

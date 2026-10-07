@@ -2,16 +2,7 @@ import sqlite3
 
 from app import books
 from app.services import backup as backup_svc
-
-
-def make_account(client, name):
-    resp = client.post("/api/accounts", json={"name": name, "type": "asset"})
-    assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
-
-
-def account_names(client):
-    return [a["name"] for a in client.get("/api/accounts").json()]
+from tests.helpers import account_names, make_account
 
 
 def restore(client, data: bytes):

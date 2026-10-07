@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { authApi } from "../api/auth";
 import type { AuthStatus, AuthUser } from "../api/types";
+import { errorMessage } from "../api/client";
 
 interface LoginProps {
   onAuthenticated: (user: AuthUser) => void;
@@ -52,7 +53,7 @@ export function Login({ onAuthenticated }: LoginProps) {
         mode === "login" ? await authApi.login(username, password) : await authApi.register(username, password);
       onAuthenticated(user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(errorMessage(err));
       setBusy(false);
     }
   }

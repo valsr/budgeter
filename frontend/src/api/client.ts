@@ -9,18 +9,19 @@ export class ApiError extends Error {
   }
 }
 
+/** The message to show for a failed call: the server's own, when it gave one. */
+export function errorMessage(e: unknown, fallback = "Something went wrong"): string {
+  return e instanceof Error ? e.message : fallback;
+}
+
 export interface RequestOpts {
   /** Skip the global error toast — for calls whose failures are routine/
    * expected and already handled locally (e.g. a debounced live preview). */
   silent?: boolean;
 }
 
-// A global sink for failed requests, set by ToastProvider on mount, so any
-// call site gets an "Operation failed" toast for free without individually
-// wiring up error handling. Call sites that already show their own inline
-// error (SplitModal's split-sum check) still get a toast too — the two only
-// double up on genuine backend errors, which is fine; deliberate opt-outs
-// use `{ silent: true }`.
+// A global sink for failed requests, set by ToastProvider on mount, so any call site gets an
+// "Operation failed" toast for free without individually wiring up error handling.
 type ErrorListener = (message: string) => void;
 let errorListener: ErrorListener | null = null;
 
@@ -28,9 +29,9 @@ export function setErrorListener(listener: ErrorListener | null): void {
   errorListener = listener;
 }
 
-// Called when the server says the session is gone (expired, logged out
-// elsewhere, account disabled), so AuthProvider can drop back to the login
-// screen from wherever the app happened to be.
+// Called when the server says the session is gone (expired, logged out elsewhere, account
+// disabled), so AuthProvider can drop back to the login screen from wherever the app happened to
+// be.
 type UnauthorizedListener = () => void;
 let unauthorizedListener: UnauthorizedListener | null = null;
 

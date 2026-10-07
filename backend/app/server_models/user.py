@@ -7,18 +7,15 @@ from app.server_db import ServerBase
 
 
 def utcnow() -> datetime:
-    """Naive UTC. SQLite hands datetimes back without a zone whatever went
-    in, so everything in the server database stays naive UTC throughout
-    rather than mixing aware and naive values in comparisons."""
+    """Naive UTC. SQLite hands datetimes back without a zone whatever went in, so everything in the
+    server database stays naive UTC throughout rather than mixing aware and naive values in
+    comparisons."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class User(ServerBase):
     __tablename__ = "users"
-    # AUTOINCREMENT: an id is never handed out twice. Without it SQLite
-    # reuses the id of the most recently deleted user, and with the id go
-    # whatever still points at it -- a session created by a login that raced
-    # the delete, a stranded books file.
+    # AUTOINCREMENT: an id is never handed out twice.
     __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)

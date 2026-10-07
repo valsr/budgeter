@@ -205,9 +205,8 @@ export interface BudgetCategory {
   amounts: BudgetAmount[];
 }
 
-/** A category a save request listed that is no longer budgetable — deleted,
- * archived, or broken down into subcategories since the budget was built.
- * `name` is null when the category no longer exists at all. */
+/** A category a save request listed that is no longer budgetable — deleted, archived, or broken
+ * down into subcategories since the budget was built. */
 export interface DroppedCategory {
   category_id: number;
   name: string | null;

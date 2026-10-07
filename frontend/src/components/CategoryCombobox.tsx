@@ -10,19 +10,14 @@ interface CategoryComboboxProps {
   categories: Category[];
   value: number | null;
   onChange: (categoryId: number | null) => void;
-  /** "assign" offers a "+ Create '<path>'" row (via POST /api/categories/resolve)
-   * when the typed path has no exact match; "filter" only ever searches/selects
-   * existing categories. */
+  /** "assign" offers a "+ Create '<path>'" row (via POST /api/categories/resolve) when the typed
+   * path has no exact match; "filter" only ever searches/selects existing categories. */
   mode?: "assign" | "filter";
-  /** "leaves" (default for assign) only offers leaf categories — the only
-   * ones a transaction can actually be assigned to. "all" (default for
-   * filter) also offers parent categories, matching the rollup filter
-   * ("filtering by a parent includes its children") the old plain <select>
-   * exposed via a "(all)" suffix. */
+  /** "leaves" (default for assign) only offers leaf categories — the only ones a transaction can
+   * actually be assigned to. */
   optionSource?: "leaves" | "all";
-  /** Label for the "no category" row, shown when the input is empty (e.g.
-   * "Unassigned" for assignment, "All categories" for a filter). Omit to
-   * disable this row entirely. */
+  /** Label for the "no category" row, shown when the input is empty (e.g. "Unassigned" for
+   * assignment, "All categories" for a filter). */
   clearLabel?: string;
   placeholder?: string;
   /** Called after a new category is created via this input, so the caller
@@ -31,9 +26,9 @@ interface CategoryComboboxProps {
   autoFocus?: boolean;
 }
 
-/** Colon-delimited category search/create combobox — type a path like
- * "shared:groceries:alcohol" to filter down to it; in "assign" mode, a
- * path with no match offers to create it (and any missing ancestors). */
+/** Colon-delimited category search/create combobox — type a path like "shared:groceries:alcohol" to
+ * filter down to it; in "assign" mode, a path with no match offers to create it (and any missing
+ * ancestors). */
 export function CategoryCombobox({
   categories,
   value,
@@ -57,9 +52,8 @@ export function CategoryCombobox({
   const creatingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Keep the displayed text in sync with the externally-controlled value
-  // (e.g. after a save elsewhere) while the menu is closed; don't fight the
-  // user's typing while it's open.
+  // Keep the displayed text in sync with the externally-controlled value (e.g. after a save
+  // elsewhere) while the menu is closed; don't fight the user's typing while it's open.
   useEffect(() => {
     if (!open) setQuery(selected?.path ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps

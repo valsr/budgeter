@@ -15,12 +15,7 @@ def sum_monthly(dicts: list[MonthlyAmounts]) -> MonthlyAmounts:
 
 
 def cumulative_balance(budgeted: MonthlyAmounts, actual: MonthlyAmounts, through_month: int) -> Decimal:
-    """Category balance: Σ(budgeted) − Σ(actual) from January (1) through
-    `through_month` inclusive. Because this sums across the whole range
-    rather than resetting each month, underspend in an earlier month
-    automatically carries forward as available balance in a later one —
-    "carryover" falls out of the cumulative formula for free.
-    """
+    """Category balance: Σ(budgeted) − Σ(actual) from January (1) through `through_month` inclusive."""
     budgeted_sum = sum((budgeted.get(m, Decimal(0)) for m in range(1, through_month + 1)), Decimal(0))
     actual_sum = sum((actual.get(m, Decimal(0)) for m in range(1, through_month + 1)), Decimal(0))
     return budgeted_sum - actual_sum
@@ -37,24 +32,23 @@ class ReportRow:
     monthly: dict[int, tuple[Decimal, Decimal]] = field(default_factory=dict)  # month -> (budgeted, actual)
     ytd_diff: Decimal = Decimal(0)
     has_budget: bool = True
-    """False when this category has no budgeted amount anywhere (e.g. an
-    income category on the Overview screen) — the diff/balance is then
-    meaningless and should render as "—" rather than a number."""
+    """False when this category has no budgeted amount anywhere (e.g. an income category on the
+    Overview screen) — the diff/balance is then meaningless and should render as "—" rather than a
+    number."""
     depth: int = 0
     """Distance from a top-level category (0 = top level), for indenting
     arbitrarily-deep category trees in the report."""
     is_income: bool = False
-    """Effective income flag for this category (its own Category.is_income,
-    or inherited from an ancestor) — the sign flip has already been baked
-    into `monthly`/`ytd_diff` above by the time this row is built; this is
-    exposed purely so callers (e.g. an expense-minus-income grand total) can
-    tell which rows were flipped."""
+    """Effective income flag for this category (its own Category.is_income, or inherited from an
+    ancestor) — the sign flip has already been baked into `monthly`/`ytd_diff` above by the time
+    this row is built; this is exposed purely so callers (e.g. an expense-minus-income grand total)
+    can tell which rows were flipped."""
 
     @property
     def row_key(self) -> str:
-        """Stable per-row identity for the client. category_id alone stopped
-        being unique once a category can be followed by per-account rows, and
-        the client uses this as both the React key and the highlight key."""
+        """Stable per-row identity for the client. category_id alone stopped being unique once a
+        category can be followed by per-account rows, and the client uses this as both the React key
+        and the highlight key."""
         return f"cat:{self.category_id}" + (
             "" if self.account_id is None else f":acct:{self.account_id}"
         )

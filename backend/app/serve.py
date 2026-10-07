@@ -1,12 +1,4 @@
-"""Start the server the way Settings → Server says to.
-
-    python -m app.serve
-
-Reads the port and SSL settings from the server database and runs uvicorn
-with them. This is how the container starts the app. `uvicorn app.main:app`
-still works (handy with --reload in development) but ignores those settings:
-the port and TLS are then whatever that command line says.
-"""
+"""Start the server the way Settings → Server says to."""
 
 import sys
 import tempfile
@@ -19,13 +11,7 @@ from app.services import server_config
 
 
 def _prepare_data_dir() -> None:
-    """Say where the data lives, and stop now if it can't be written.
-
-    In a container the data directory is a mount; one with the wrong
-    ownership is otherwise discovered as an obscure SQLite error on the
-    first write. Checked with a throwaway file rather than os.access, which
-    doesn't see through every kind of mount.
-    """
+    """Say where the data lives, and stop now if it can't be written."""
     data_dir = resolve_data_dir()
     if data_dir is None:
         return
