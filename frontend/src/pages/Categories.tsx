@@ -4,10 +4,7 @@ import { useUserStorage } from "../auth/userStorage";
 import { CategoryCombobox } from "../components/CategoryCombobox";
 import { SplitModal } from "../components/SplitModal";
 import { TransactionTable } from "../components/TransactionTable";
-import { useLedgerData } from "../hooks/useLedgerData";
-
-// Same starting window as the Accounts screen: the current calendar year.
-const ACCOUNTING_PERIOD_START = `${new Date().getFullYear()}-01-01`;
+import { ACCOUNTING_PERIOD_START, useLedgerData } from "../hooks/useLedgerData";
 
 // The last category picked here, so the screen reopens on it.
 const CATEGORY_STORAGE_KEY = "categories.selected";

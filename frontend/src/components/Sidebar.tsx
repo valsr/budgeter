@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { versionApi } from "../api/version";
+import { versionApi, versionParts } from "../api/version";
 import type { VersionInfo } from "../api/version";
 import { useAuth } from "../auth/context";
-import { formatTimestamp } from "../format";
 
 const NAV_ITEMS = [
   {
@@ -96,17 +95,6 @@ const NAV_ITEMS = [
   },
 ];
 
-function versionDetails(v: VersionInfo): string {
-  return [
-    v.sha ? `Commit ${v.sha}` : null,
-    v.commit_date ? `Committed ${formatTimestamp(v.commit_date)}` : null,
-    v.build_date ? `Built ${formatTimestamp(v.build_date)}` : "Running from source",
-    v.dirty ? "With uncommitted changes" : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 export function Sidebar() {
   const { user, logout } = useAuth();
   const [version, setVersion] = useState<VersionInfo | null>(null);
@@ -147,7 +135,7 @@ export function Sidebar() {
       </div>
       {version && (
         <div className="sidebar-version">
-          <span title={versionDetails(version)}>{version.version}</span>
+          <span title={versionParts(version).slice(1).join("\n")}>{version.version}</span>
         </div>
       )}
     </div>

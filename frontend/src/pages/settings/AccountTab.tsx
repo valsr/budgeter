@@ -182,7 +182,7 @@ function DeleteAccountCard() {
   }
 
   return (
-    <div className="card" style={{ maxWidth: 520, borderColor: "#e3cfa3", background: "#fdfbf7" }}>
+    <div className="card danger" style={{ maxWidth: 520 }}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>Delete my account</div>
       <p className="sub" style={{ marginBottom: 12 }}>
         Removes your login and all of your books. <b style={{ color: "var(--c5)" }}>This can't be undone</b> —

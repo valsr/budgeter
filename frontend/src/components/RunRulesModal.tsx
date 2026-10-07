@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { accountsApi } from "../api/accounts";
+import { DEFAULT_ACCOUNT_COLOR, accountsApi } from "../api/accounts";
 import { flattenAllCategories } from "../api/categories";
 import { rulesApi } from "../api/rules";
 import type { Account, Category, RunPreviewItem } from "../api/types";
 import { CategoryTag, hexToRgba } from "./CategoryTag";
 import { Modal } from "./Modal";
-
-const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
 
 interface RunRulesModalProps {
   categories: Category[];

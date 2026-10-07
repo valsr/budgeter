@@ -9,6 +9,9 @@ export interface AccountInput {
   color?: string | null;
 }
 
+/** Shown for an account that has no colour of its own. */
+export const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
+
 export const accountsApi = {
   list: () => apiFetch<Account[]>("/api/accounts"),
   get: (id: number) => apiFetch<Account>(`/api/accounts/${id}`),

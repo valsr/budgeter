@@ -43,7 +43,6 @@ const HEALTH = {
   started_at: "2026-10-07T15:50:10",
   uptime_seconds: 93784,
   serving: { port: 8000, https: false },
-  restart_required: false,
   users: { total: 3, active_admins: 2, disabled: 1 },
   data_dir: "/data",
   storage: { books_files: 3, books_bytes: 1572864, server_db_bytes: 57344 },

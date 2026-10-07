@@ -3,6 +3,9 @@ import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
 import type { Account, Category, Transaction } from "../api/types";
 
+/** Transaction lists open on the current accounting period: the calendar year. */
+export const ACCOUNTING_PERIOD_START = `${new Date().getFullYear()}-01-01`;
+
 /** What every screen built around a TransactionTable needs: the accounts, the full category tree,
  * the transaction being split, and a key to bump when the list should refetch. */
 export function useLedgerData() {

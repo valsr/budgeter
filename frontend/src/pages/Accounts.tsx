@@ -1,21 +1,16 @@
 import { useEffect, useState } from "react";
-import { accountsApi } from "../api/accounts";
+import { DEFAULT_ACCOUNT_COLOR, accountsApi } from "../api/accounts";
 import type { Account } from "../api/types";
 import { hexToRgba } from "../components/CategoryTag";
 import { Modal } from "../components/Modal";
 import { SplitModal } from "../components/SplitModal";
 import { TransactionTable } from "../components/TransactionTable";
-import { useLedgerData } from "../hooks/useLedgerData";
+import { ACCOUNTING_PERIOD_START, useLedgerData } from "../hooks/useLedgerData";
 
 function fmtBal(n: number): string {
   const sign = n < 0 ? "-" : "";
   return `${sign}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
-
-const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
-
-// §5: an account's transaction list starts "from start of accounting period" — the current calendar year.
-const ACCOUNTING_PERIOD_START = `${new Date().getFullYear()}-01-01`;
 
 interface AccountFormState {
   name: string;
@@ -30,7 +25,7 @@ const EMPTY_FORM: AccountFormState = {
   account_number: "",
   type: "asset",
   opening_balance: "0.00",
-  color: "#4f8a9c",
+  color: DEFAULT_ACCOUNT_COLOR,
 };
 
 export function Accounts() {
@@ -61,7 +56,7 @@ export function Accounts() {
       account_number: account.account_number ?? "",
       type: account.type,
       opening_balance: String(account.opening_balance),
-      color: account.color ?? "#4f8a9c",
+      color: account.color ?? DEFAULT_ACCOUNT_COLOR,
     });
     setAccountIdTouched(true);
     setModal("edit");

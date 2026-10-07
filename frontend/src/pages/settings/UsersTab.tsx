@@ -190,7 +190,7 @@ function ResetPasswordModal({
     setSaving(true);
     setError(null);
     try {
-      await adminApi.updateUser(user.id, { password });
+      await adminApi.updateUser(user.id, { password }, { silent: true });
       onDone();
     } catch (e) {
       setError(errorMessage(e, "Couldn't reset the password"));

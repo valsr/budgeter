@@ -3,8 +3,8 @@ import { transactionsApi } from "../api/transactions";
 import type { Account, Transaction } from "../api/types";
 import { hexToRgba } from "./CategoryTag";
 import { Modal } from "./Modal";
+import { DEFAULT_ACCOUNT_COLOR } from "../api/accounts";
 
-const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
 const NARROW_WINDOW = 5;
 const WIDE_WINDOW = 30;
 
