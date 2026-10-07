@@ -3,10 +3,10 @@ def test_requires_auth(client):
     assert resp.status_code == 401
 
 
-def test_get_api_key_defaults_to_env_key(client, auth_headers):
+def test_api_key_status_never_returns_the_key(client, auth_headers):
     resp = client.get("/api/settings/api-key", headers=auth_headers)
     assert resp.status_code == 200
-    assert resp.json() == {"api_key": "test-api-key"}
+    assert resp.json() == {"has_key": True}
 
 
 def test_regenerate_returns_new_key_and_invalidates_old_one(client, auth_headers):
@@ -19,8 +19,8 @@ def test_regenerate_returns_new_key_and_invalidates_old_one(client, auth_headers
     resp = client.get("/api/settings/api-key", headers=auth_headers)
     assert resp.status_code == 401
 
-    # ...but the newly issued one does, and reflects the same value.
+    # ...but the newly issued one does.
     new_headers = {"Authorization": f"Bearer {new_key}"}
     resp = client.get("/api/settings/api-key", headers=new_headers)
     assert resp.status_code == 200
-    assert resp.json() == {"api_key": new_key}
+    assert resp.json() == {"has_key": True}

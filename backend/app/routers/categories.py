@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
 from app.models.category import Category
@@ -16,7 +16,7 @@ from app.services import categories as categories_service
 from app.services.color import hash_color
 
 router = APIRouter(
-    prefix="/api/categories", tags=["categories"], dependencies=[Depends(require_api_key)]
+    prefix="/api/categories", tags=["categories"], dependencies=[Depends(current_user)]
 )
 
 

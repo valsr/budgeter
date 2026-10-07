@@ -7,10 +7,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import db as db_module
+from app import server_db
 from app.db import upgrade_to_head
 from app.routers import (
     accounts,
     ai,
+    auth,
     backup,
     budgets,
     categories,
@@ -22,11 +24,15 @@ from app.routers import (
     settings,
     transactions,
 )
+from app.services import users as users_service
 from app.services.change_log import purge_expired
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    server_db.upgrade_to_head()
+    with server_db.SessionLocal() as sdb:
+        users_service.purge_expired_sessions(sdb)
     upgrade_to_head()
     # Dynamic module attribute access (not `from app.db import SessionLocal`)
     # so tests' monkeypatched SessionLocal (see tests/conftest.py) is honored.
@@ -50,6 +56,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(accounts.router)
 app.include_router(categories.router)
 app.include_router(transactions.router)

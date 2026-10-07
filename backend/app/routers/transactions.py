@@ -3,7 +3,7 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
 from app.schemas.transaction import (
@@ -19,7 +19,7 @@ from app.schemas.transaction import (
 from app.services import transactions as txn_service
 
 router = APIRouter(
-    prefix="/api/transactions", tags=["transactions"], dependencies=[Depends(require_api_key)]
+    prefix="/api/transactions", tags=["transactions"], dependencies=[Depends(current_user)]
 )
 
 

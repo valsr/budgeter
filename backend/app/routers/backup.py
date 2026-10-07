@@ -3,13 +3,13 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.config import settings
 from app.db import engine
 from app.errors import ValidationError
 from app.services import backup as backup_service
 
-router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(current_user)])
 
 
 @router.get("")

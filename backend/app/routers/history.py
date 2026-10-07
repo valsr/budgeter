@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import ValidationError
 from app.schemas.history import (
@@ -17,7 +17,7 @@ from app.schemas.history import (
 from app.services import history as history_service
 from app.services import undo as undo_service
 
-router = APIRouter(prefix="/api/history", tags=["history"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/api/history", tags=["history"], dependencies=[Depends(current_user)])
 
 
 @router.get("", response_model=HistoryPage)
