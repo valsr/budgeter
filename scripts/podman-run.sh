@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Run the budgeter container with Podman. All data (logins and every user's
-# books) persists on a named volume across restarts/rebuilds.
+# books) lives in the container's /data, which persists across
+# restarts/rebuilds on either:
+#   - a named Podman volume (the default, VOLUME_NAME), or
+#   - a host directory of your choosing (DATA_DIR) -- e.g. a disk that your
+#     backups already cover.
 #
 # Usage:
 #   scripts/podman-run.sh
+#   DATA_DIR=/mnt/backed-up/budgeter scripts/podman-run.sh
 set -euo pipefail
 
 IMAGE_NAME="${IMAGE_NAME:-com.valsr.budgeter}"
@@ -17,8 +22,22 @@ CONTAINER_PORT="${CONTAINER_PORT:-8000}"
 # read-only at /certs (then use /certs/<file> in Settings → Server).
 CERTS_DIR="${CERTS_DIR:-}"
 VOLUME_NAME="${VOLUME_NAME:-budgeter-data}"
+# A host directory to keep the data in, instead of the named volume.
+DATA_DIR="${DATA_DIR:-}"
 
-podman volume create "${VOLUME_NAME}" >/dev/null 2>&1 || true
+if [ -n "${DATA_DIR}" ]; then
+  mkdir -p "${DATA_DIR}"
+  # The app runs as uid 1000 inside the container. Mapping that uid onto the
+  # user running this script makes the files in DATA_DIR that user's own on
+  # the host -- writable by the app, and readable by ordinary backup tools.
+  # Without it a rootless container can't write to a host directory at all.
+  DATA_MOUNT=(--userns "keep-id:uid=1000,gid=1000" --volume "$(cd "${DATA_DIR}" && pwd):/data")
+  echo "Data directory: ${DATA_DIR}"
+else
+  podman volume create "${VOLUME_NAME}" >/dev/null 2>&1 || true
+  DATA_MOUNT=(--volume "${VOLUME_NAME}:/data")
+  echo "Data volume: ${VOLUME_NAME}"
+fi
 
 CERTS_MOUNT=()
 if [ -n "${CERTS_DIR}" ]; then
@@ -30,6 +49,6 @@ podman run \
   --rm \
   --name "${CONTAINER_NAME}" \
   --publish "${HOST_PORT}:${CONTAINER_PORT}" \
-  --volume "${VOLUME_NAME}:/data" \
+  "${DATA_MOUNT[@]}" \
   ${CERTS_MOUNT[@]+"${CERTS_MOUNT[@]}"} \
   "${IMAGE_NAME}:${IMAGE_TAG}"

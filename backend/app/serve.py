@@ -9,15 +9,44 @@ the port and TLS are then whatever that command line says.
 """
 
 import sys
+import tempfile
 
 import uvicorn
 
 from app import runtime, server_db
-from app.config import settings
+from app.config import resolve_data_dir, settings
 from app.services import server_config
 
 
+def _prepare_data_dir() -> None:
+    """Say where the data lives, and stop now if it can't be written.
+
+    In a container the data directory is a mount; one with the wrong
+    ownership is otherwise discovered as an obscure SQLite error on the
+    first write. Checked with a throwaway file rather than os.access, which
+    doesn't see through every kind of mount.
+    """
+    data_dir = resolve_data_dir()
+    if data_dir is None:
+        return
+    print(f"budgeter: data directory: {data_dir}", file=sys.stderr)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=data_dir, prefix=".write-check-"):
+            pass
+    except OSError as e:
+        print(
+            f"budgeter: not starting -- can't write to the data directory {data_dir}: {e}\n"
+            "Everything the app stores (server.db, books/) goes there. If it is a mounted\n"
+            "directory, make it writable by the user the server runs as (uid 1000 in the\n"
+            "container), or point BUDGETER_DATA_DIR somewhere else.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from e
+
+
 def main() -> None:
+    _prepare_data_dir()
     # The settings live in the server database, so it has to be current
     # before they can be read -- ahead of the app's own startup hook.
     server_db.upgrade_to_head()

@@ -44,8 +44,11 @@ ENV BUDGETER_BUILD_SHA=${GIT_SHA} \
     BUDGETER_BUILD_COMMIT_DATE=${GIT_COMMIT_DATE} \
     BUDGETER_BUILD_DATE=${BUILD_DATE}
 
-# The data directory is this file's directory (/data). The file itself is
-# only read, and only on volumes that predate user accounts.
+# Everything the app stores lives under /data: server.db (logins, settings)
+# and books/<user_id>.db (each user's data). Mount a volume or a host
+# directory there -- see docs/container.md, "Where the data lives".
+ENV BUDGETER_DATA_DIR=/data
+# Only read, and only on volumes that predate user accounts.
 ENV BUDGETER_DATABASE_URL=sqlite:////data/budgeter.db
 # Listen on all interfaces inside the container; the port and HTTPS come from
 # Settings → Server (default: plain HTTP on 8000).
