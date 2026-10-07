@@ -96,10 +96,10 @@ def download_server_backup():
 
 
 @router.post("/backup/restore", status_code=204)
-async def restore_server_backup(file: UploadFile):
+def restore_server_backup(file: UploadFile):
     """Replaces every user's account and books with the archive's. Sessions
     come from the archive too, so callers may need to log in again."""
-    data = await file.read()
+    data = file.file.read()
     try:
         server_backup.restore_archive(data)
     except ValidationError as e:

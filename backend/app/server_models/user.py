@@ -15,6 +15,11 @@ def utcnow() -> datetime:
 
 class User(ServerBase):
     __tablename__ = "users"
+    # AUTOINCREMENT: an id is never handed out twice. Without it SQLite
+    # reuses the id of the most recently deleted user, and with the id go
+    # whatever still points at it -- a session created by a login that raced
+    # the delete, a stranded books file.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)

@@ -18,9 +18,7 @@ from app.services import backup as backup_service
 from app.services import users as users_service
 
 _SERVER_MEMBER = "server.db"
-_BOOKS_MEMBER = re.compile(r"books/([1-9]\d*)\.db")
-# SQLite side files that must not outlive the database they belonged to.
-_SIDE_SUFFIXES = ("-wal", "-shm", "-journal")
+_BOOKS_MEMBER = re.compile(r"books/([1-9][0-9]*)\.db")
 
 
 def _data_dir() -> Path:
@@ -107,45 +105,29 @@ def _user_ids_in(server_bytes: bytes) -> set[int]:
         os.unlink(tmp_path)
 
 
-def _remove_side_files(path: Path) -> None:
-    for suffix in _SIDE_SUFFIXES:
-        Path(str(path) + suffix).unlink(missing_ok=True)
-
-
 def restore_archive(data: bytes) -> None:
     """Replace the server database and all books with the archive's.
 
-    Everything is validated, then staged inside the data directory, before
-    the first live file is touched -- so a bad archive, or a full disk,
-    raises with the server exactly as it was. Raises ValidationError.
+    Every member is validated, then staged inside the data directory and
+    migrated there, before the first live file is touched -- so a bad
+    archive, or a full disk, raises with the server exactly as it was.
+    Raises ValidationError.
     """
     data_dir = _data_dir()
     server_bytes, books_bytes = _read_members(data)
 
-    books_dir = data_dir / "books"
-    # Staged on the same filesystem so each os.replace below is atomic.
+    # Staged on the same filesystem so each os.replace is atomic.
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=data_dir))
     try:
-        (staging / "server.db").write_bytes(server_bytes)
+        staged_server = backup_service.stage_server(server_bytes, staging / "server.db")
+        staged_books: dict[int, Path] = {}
         for user_id, image in books_bytes.items():
-            (staging / f"{user_id}.db").write_bytes(image)
+            try:
+                staged_books[user_id] = backup_service.stage_books(image, staging, name=f"{user_id}.db")
+            except ValidationError as e:
+                raise ValidationError(f"books/{user_id}.db: {e}") from e
 
-        server_db.reset()
-        books.dispose_all()
-        books_dir.mkdir(exist_ok=True)
-
-        os.replace(staging / "server.db", data_dir / "server.db")
-        _remove_side_files(data_dir / "server.db")
-        for user_id in books_bytes:
-            os.replace(staging / f"{user_id}.db", books_dir / f"{user_id}.db")
-            _remove_side_files(books_dir / f"{user_id}.db")
-        keep = {f"{user_id}.db" for user_id in books_bytes}
-        for path in books_dir.glob("*.db"):
-            if path.name not in keep:
-                path.unlink()
-                _remove_side_files(path)
+        server_db.replace_database(staged_server)
+        books.replace_all_books(staged_books)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
-
-    server_db.upgrade_to_head()
-    books.upgrade_all(books_bytes)

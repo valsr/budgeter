@@ -139,3 +139,71 @@ def validate_books_bytes(data: bytes) -> None:
 
 def validate_server_bytes(data: bytes) -> None:
     _validate_schema(data, kind="server", required="users", forbidden="accounts", ini_section="server")
+
+
+def _verify_schema(path: Path, metadata, kind: str) -> None:
+    """After migrating: every table and column the app's models expect must
+    actually be there. A file can carry a plausible revision stamp and still
+    be nothing like the schema that stamp promises."""
+    conn = sqlite3.connect(path)
+    try:
+        for table in metadata.sorted_tables:
+            columns = {row[1] for row in conn.execute(f'PRAGMA table_info("{table.name}")')}
+            missing = {column.name for column in table.columns} - columns
+            if missing:
+                raise ValidationError(
+                    f"Uploaded {kind} database doesn't have the expected structure (table {table.name!r})"
+                )
+    finally:
+        conn.close()
+
+
+def stage_books(data: bytes, directory: Path, name: str | None = None) -> Path:
+    """Turn an uploaded books image into a ready-to-swap file in `directory`:
+    validated, migrated to head, and checked against the models.
+
+    Everything that can go wrong goes wrong here, on a copy -- the caller's
+    live books are untouched until it os.replace()s the returned path in.
+    Raises ValidationError and leaves nothing behind on any failure.
+    """
+    from app import books
+    from app import models  # noqa: F401  (registers the models)
+    from app.db import Base
+
+    validate_books_bytes(data)
+    directory.mkdir(parents=True, exist_ok=True)
+    if name is None:
+        fd, tmp = tempfile.mkstemp(suffix=".restore", dir=directory)
+        os.close(fd)
+        staged = Path(tmp)
+    else:
+        staged = directory / name
+    try:
+        staged.write_bytes(data)
+        try:
+            books.upgrade(staged)
+        except Exception as e:  # noqa: BLE001 -- whatever a migration trips on
+            raise ValidationError(f"Uploaded books database couldn't be brought up to date: {e}") from e
+        _verify_schema(staged, Base.metadata, "books")
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return staged
+
+
+def stage_server(data: bytes, staged: Path) -> Path:
+    """The server-database counterpart of stage_books."""
+    from app import server_db, server_models  # noqa: F401
+
+    validate_server_bytes(data)
+    try:
+        staged.write_bytes(data)
+        try:
+            server_db.upgrade_path(staged)
+        except Exception as e:  # noqa: BLE001
+            raise ValidationError(f"Uploaded server database couldn't be brought up to date: {e}") from e
+        _verify_schema(staged, server_db.ServerBase.metadata, "server")
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return staged

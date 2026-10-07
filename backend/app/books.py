@@ -10,6 +10,7 @@ The schema is `app.db.Base` and its Alembic tree is app/migrations. The
 users themselves live elsewhere, in the server database (app/server_db.py).
 """
 
+import os
 import sqlite3
 import threading
 from collections.abc import Iterable
@@ -17,17 +18,18 @@ from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from app.config import legacy_database_path, resolve_data_dir
 from app.security import hash_token
+from app.server_db import MIGRATION_LOCK, remove_side_files
 from app.server_models import User
 
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 _CONNECT_ARGS = {"check_same_thread": False}
 
 _engines: dict[int, Engine] = {}
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 
 def books_path(user_id: int) -> Path:
@@ -45,7 +47,8 @@ def upgrade(path: Path, revision: str = "head") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     cfg = Config(str(_ALEMBIC_INI))
     cfg.attributes["db_url"] = f"sqlite:///{path}"
-    command.upgrade(cfg, revision)
+    with MIGRATION_LOCK:
+        command.upgrade(cfg, revision)
 
 
 def upgrade_all(user_ids: Iterable[int]) -> None:
@@ -81,7 +84,9 @@ def _engine_for(user_id: int) -> Engine:
                     # app alike: start from fresh, empty books rather than
                     # failing on "no such table".
                     upgrade(path)
-                engine = create_engine(f"sqlite:///{path}", connect_args=_CONNECT_ARGS)
+                # NullPool: every session opens the file afresh, so nothing
+                # can go on using a file that a restore has since replaced.
+                engine = create_engine(f"sqlite:///{path}", connect_args=_CONNECT_ARGS, poolclass=NullPool)
             _engines[user_id] = engine
         return engine
 
@@ -124,9 +129,40 @@ def dispose_all() -> None:
 
 
 def delete_books(user_id: int) -> None:
-    dispose(user_id)
-    if resolve_data_dir() is not None:
-        books_path(user_id).unlink(missing_ok=True)
+    with _lock:
+        dispose(user_id)
+        if resolve_data_dir() is not None:
+            path = books_path(user_id)
+            path.unlink(missing_ok=True)
+            remove_side_files(path)
+
+
+def replace_books(user_id: int, staged: Path) -> None:
+    """Swap an already validated and migrated file in as a user's books.
+    Holds the engine lock throughout, so no request can open the outgoing
+    file in between."""
+    with _lock:
+        dispose(user_id)
+        path = books_path(user_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(staged, path)
+        remove_side_files(path)
+
+
+def replace_all_books(staged: dict[int, Path]) -> None:
+    """Whole-server restore: make the books directory hold exactly the
+    staged files -- replacing those, and removing every other user's."""
+    with _lock:
+        dispose_all()
+        books_dir = books_path(0).parent
+        books_dir.mkdir(parents=True, exist_ok=True)
+        for user_id, path in staged.items():
+            replace_books(user_id, path)
+        keep = {f"{user_id}.db" for user_id in staged}
+        for path in books_dir.glob("*.db"):
+            if path.name not in keep:
+                path.unlink()
+                remove_side_files(path)
 
 
 # --- the pre-accounts database -----------------------------------------

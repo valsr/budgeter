@@ -13,6 +13,7 @@ SESSION_COOKIE = "budgeter_session"
 
 def current_user(
     request: Request,
+    response: Response,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     sdb: Session = Depends(get_server_db),
 ) -> User:
@@ -31,9 +32,14 @@ def current_user(
     else:
         token = request.cookies.get(SESSION_COOKIE)
         if token:
-            user = users_service.resolve_session(sdb, token)
+            user, renewed = users_service.resolve_session_renewing(sdb, token)
             if user is not None:
                 request.state.session_token = token
+                if renewed:
+                    # Keep the browser's cookie in step with the server's
+                    # sliding expiry, or it would lapse 30 days after login
+                    # however active the user had been.
+                    set_session_cookie(response, request, token)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
