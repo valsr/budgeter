@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { overviewApi } from "../api/budgets";
+import { budgetsApi, overviewApi } from "../api/budgets";
 import { categoriesApi } from "../api/categories";
 import { transactionsApi } from "../api/transactions";
-import type { ReportRow } from "../api/types";
+import type { Budget, ReportRow } from "../api/types";
 import { formatMoney } from "../format";
 
 function rowTotals(row: ReportRow): { budgeted: number; actual: number } {
@@ -14,17 +14,55 @@ function rowTotals(row: ReportRow): { budgeted: number; actual: number } {
   };
 }
 
+// The last budget picked here, so the Overview reopens on it: a budget id,
+// or "all" for the every-category view.
+const BUDGET_STORAGE_KEY = "budgeter.overview.budget";
+const ALL_CATEGORIES = "all";
+
 export function Overview() {
   const [rows, setRows] = useState<ReportRow[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  // null until the budget list has loaded and the remembered choice resolved.
+  const [selection, setSelection] = useState<string | null>(null);
   const [topLevelIds, setTopLevelIds] = useState<Set<number>>(new Set());
   const [uncategorizedCount, setUncategorizedCount] = useState(0);
 
   useEffect(() => {
-    const now = new Date();
-    overviewApi.get(now.getFullYear(), now.getMonth() + 1).then(setRows);
     transactionsApi.uncategorizedCount().then((r) => setUncategorizedCount(r.count));
     categoriesApi.list().then((tree) => setTopLevelIds(new Set(tree.map((c) => c.id))));
+    budgetsApi.list().then((list) => {
+      setBudgets(list);
+      const stored = localStorage.getItem(BUDGET_STORAGE_KEY);
+      const remembered =
+        stored === ALL_CATEGORIES || list.some((b) => String(b.id) === stored) ? stored : null;
+      setSelection(remembered ?? (list.length > 0 ? String(list[0].id) : ALL_CATEGORIES));
+    });
   }, []);
+
+  useEffect(() => {
+    if (selection === null) return;
+    const now = new Date();
+    const year = now.getFullYear();
+    const throughMonth = now.getMonth() + 1;
+    const request =
+      selection === ALL_CATEGORIES
+        ? overviewApi.get(year, throughMonth)
+        : budgetsApi.report(Number(selection), year, throughMonth);
+    let stale = false;
+    // A budget's report also carries per-account breakdown rows; this
+    // summary shows one line per category.
+    request.then((result) => {
+      if (!stale) setRows(result.filter((r) => r.account_id === null));
+    });
+    return () => {
+      stale = true;
+    };
+  }, [selection]);
+
+  function selectBudget(value: string) {
+    setSelection(value);
+    localStorage.setItem(BUDGET_STORAGE_KEY, value);
+  }
 
   // Grand total = Σ expense actuals − Σ income actuals, over top-level rows
   // only (parent rollups already fold their children's actuals in, so
@@ -40,6 +78,23 @@ export function Overview() {
     <div>
       <h1>Overview</h1>
       <p className="sub">Category balances, year-to-date budgeted minus actual, following the category hierarchy.</p>
+
+      <div className="field" style={{ maxWidth: 320 }}>
+        <label htmlFor="overview-budget">Budget</label>
+        <select
+          id="overview-budget"
+          value={selection ?? ALL_CATEGORIES}
+          disabled={selection === null}
+          onChange={(e) => selectBudget(e.target.value)}
+        >
+          {budgets.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+          <option value={ALL_CATEGORIES}>All categories</option>
+        </select>
+      </div>
 
       {uncategorizedCount > 0 && (
         <div className="banner">
@@ -62,7 +117,7 @@ export function Overview() {
             const { budgeted, actual } = rowTotals(row);
             const balance = row.has_budget ? row.ytd_diff : null;
             return (
-              <tr key={row.category_id} style={row.is_parent ? { fontWeight: 600 } : undefined}>
+              <tr key={row.row_key} style={row.is_parent ? { fontWeight: 600 } : undefined}>
                 <td style={row.depth > 0 ? { paddingLeft: 26 * row.depth } : undefined}>{row.name}</td>
                 <td className={"right" + (budgeted < 0 ? " neg" : "")}>
                   {row.has_budget ? formatMoney(budgeted) : "—"}

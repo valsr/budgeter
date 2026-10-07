@@ -15,6 +15,9 @@ interface TransactionTableProps {
   categories: Category[];
   accounts: Account[];
   lockAccountId?: number;
+  /** Pins the list to one category (and its descendants) and hides the
+   * category filter — the Categories screen's counterpart to lockAccountId. */
+  lockCategoryId?: number;
   onSplitTransaction?: (transaction: Transaction) => void;
   refreshKey?: number;
   onDataChanged?: () => void;
@@ -90,6 +93,7 @@ export function TransactionTable({
   categories,
   accounts,
   lockAccountId,
+  lockCategoryId,
   onSplitTransaction,
   refreshKey,
   onDataChanged,
@@ -163,7 +167,7 @@ export function TransactionTable({
       amount_min: filters.amount_min ? Number(filters.amount_min) : undefined,
       amount_max: filters.amount_max ? Number(filters.amount_max) : undefined,
       name_contains: filters.name_contains || undefined,
-      category_id: filters.category_id ? Number(filters.category_id) : undefined,
+      category_id: lockCategoryId ?? (filters.category_id ? Number(filters.category_id) : undefined),
       page,
       page_size: PAGE_SIZE,
       show_categorized: filters.show_categorized ? undefined : false,
@@ -175,11 +179,11 @@ export function TransactionTable({
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, page, lockAccountId, refreshKey]);
+  }, [filters, page, lockAccountId, lockCategoryId, refreshKey]);
 
   useEffect(() => {
     setPage(1);
-  }, [filters, lockAccountId]);
+  }, [filters, lockAccountId, lockCategoryId]);
 
   async function assignCategory(transactionId: number, splitId: number, categoryId: number | null) {
     const txn = data?.items.find((t) => t.id === transactionId);
@@ -475,16 +479,18 @@ export function TransactionTable({
           </div>
         </div>
         <div className="filters-row">
-          <CategoryCombobox
-            categories={activeTree}
-            value={filters.category_id ? Number(filters.category_id) : null}
-            onChange={(categoryId) =>
-              setFilters((f) => ({ ...f, category_id: categoryId === null ? "" : String(categoryId) }))
-            }
-            mode="filter"
-            clearLabel="All categories"
-            placeholder="All categories"
-          />
+          {lockCategoryId === undefined && (
+            <CategoryCombobox
+              categories={activeTree}
+              value={filters.category_id ? Number(filters.category_id) : null}
+              onChange={(categoryId) =>
+                setFilters((f) => ({ ...f, category_id: categoryId === null ? "" : String(categoryId) }))
+              }
+              mode="filter"
+              clearLabel="All categories"
+              placeholder="All categories"
+            />
+          )}
           {showAccountColumn && (
             <select
               value={filters.account_id}
