@@ -1,21 +1,5 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-// The key is stored server-side (see routers/settings.py) and can be
-// regenerated from Settings → API key. VITE_API_KEY only seeds the very
-// first request of a fresh browser profile — once regenerated, the new
-// value lives in localStorage so this tab (and future loads) keep working.
-const API_KEY_STORAGE_KEY = "budgeter.apiKey";
-let apiKey = localStorage.getItem(API_KEY_STORAGE_KEY) ?? import.meta.env.VITE_API_KEY ?? "dev-local-api-key";
-
-export function getApiKey(): string {
-  return apiKey;
-}
-
-export function setApiKey(key: string): void {
-  apiKey = key;
-  localStorage.setItem(API_KEY_STORAGE_KEY, key);
-}
-
 export class ApiError extends Error {
   status: number;
 
@@ -44,6 +28,19 @@ export function setErrorListener(listener: ErrorListener | null): void {
   errorListener = listener;
 }
 
+// Called when the server says the session is gone (expired, logged out
+// elsewhere, account disabled), so AuthProvider can drop back to the login
+// screen from wherever the app happened to be.
+type UnauthorizedListener = () => void;
+let unauthorizedListener: UnauthorizedListener | null = null;
+
+export function setUnauthorizedListener(listener: UnauthorizedListener | null): void {
+  unauthorizedListener = listener;
+}
+
+// The one endpoint where a 401 means "wrong credentials", not "no session".
+const LOGIN_PATH = "/api/auth/login";
+
 async function extractErrorMessage(res: Response): Promise<string> {
   const text = await res.text().catch(() => "");
   if (text) {
@@ -63,16 +60,17 @@ async function extractErrorMessage(res: Response): Promise<string> {
 }
 
 async function rawFetch(path: string, init: RequestInit = {}, opts: RequestOpts = {}): Promise<Response> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      ...init.headers,
-    },
-  });
+  // The session lives in an httpOnly cookie; "include" sends it to the API
+  // even when the dev server and the API are on different ports.
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...init, credentials: "include" });
   if (!res.ok) {
     const message = await extractErrorMessage(res);
-    if (!opts.silent) errorListener?.(message);
+    if (res.status === 401 && path !== LOGIN_PATH) {
+      // No toast: the login screen that replaces the app says it all.
+      unauthorizedListener?.();
+    } else if (!opts.silent) {
+      errorListener?.(message);
+    }
     throw new ApiError(res.status, message);
   }
   return res;

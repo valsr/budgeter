@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../auth/context";
 
 const NAV_ITEMS = [
   {
@@ -92,11 +93,12 @@ const NAV_ITEMS = [
 ];
 
 export function Sidebar() {
+  const { user, logout } = useAuth();
   return (
     <div className="sidebar">
       <div className="brand">
         Finance
-        <span>local · single user</span>
+        <span>{user.username}</span>
       </div>
       {NAV_ITEMS.map((item) => (
         <NavLink
@@ -109,6 +111,15 @@ export function Sidebar() {
           <span>{item.label}</span>
         </NavLink>
       ))}
+      <div className="sidebar-user">
+        <span className="name" title={user.username}>
+          {user.username}
+          {user.is_admin ? " · admin" : ""}
+        </span>
+        <button type="button" className="logout" onClick={logout}>
+          Log out
+        </button>
+      </div>
     </div>
   );
 }

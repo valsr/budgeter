@@ -124,8 +124,9 @@ def test_password_change_keeps_this_session_and_ends_others(anon):
     assert first != second
 
     resp = anon.post("/api/auth/password", json={"current_password": "nope-nope", "new_password": "password2"})
-    assert resp.status_code == 401
+    assert resp.status_code == 403
     assert resp.json()["detail"] == "Current password is incorrect"
+    assert anon.get("/api/auth/me").status_code == 200  # a typo doesn't cost the session
     resp = anon.post("/api/auth/password", json={"current_password": "password1", "new_password": "short"})
     assert resp.status_code == 422
 

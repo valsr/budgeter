@@ -4,6 +4,7 @@ import { budgetsApi, overviewApi } from "../api/budgets";
 import { categoriesApi } from "../api/categories";
 import { transactionsApi } from "../api/transactions";
 import type { Budget, ReportRow } from "../api/types";
+import { useUserStorage } from "../auth/userStorage";
 import { formatMoney } from "../format";
 
 function rowTotals(row: ReportRow): { budgeted: number; actual: number } {
@@ -16,10 +17,11 @@ function rowTotals(row: ReportRow): { budgeted: number; actual: number } {
 
 // The last budget picked here, so the Overview reopens on it: a budget id,
 // or "all" for the every-category view.
-const BUDGET_STORAGE_KEY = "budgeter.overview.budget";
+const BUDGET_STORAGE_KEY = "overview.budget";
 const ALL_CATEGORIES = "all";
 
 export function Overview() {
+  const storage = useUserStorage();
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   // null until the budget list has loaded and the remembered choice resolved.
@@ -32,12 +34,12 @@ export function Overview() {
     categoriesApi.list().then((tree) => setTopLevelIds(new Set(tree.map((c) => c.id))));
     budgetsApi.list().then((list) => {
       setBudgets(list);
-      const stored = localStorage.getItem(BUDGET_STORAGE_KEY);
+      const stored = storage.get(BUDGET_STORAGE_KEY);
       const remembered =
         stored === ALL_CATEGORIES || list.some((b) => String(b.id) === stored) ? stored : null;
       setSelection(remembered ?? (list.length > 0 ? String(list[0].id) : ALL_CATEGORIES));
     });
-  }, []);
+  }, [storage]);
 
   useEffect(() => {
     if (selection === null) return;
@@ -61,7 +63,7 @@ export function Overview() {
 
   function selectBudget(value: string) {
     setSelection(value);
-    localStorage.setItem(BUDGET_STORAGE_KEY, value);
+    storage.set(BUDGET_STORAGE_KEY, value);
   }
 
   // Grand total = Σ expense actuals − Σ income actuals, over top-level rows

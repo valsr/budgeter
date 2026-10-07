@@ -275,3 +275,24 @@ export interface UndoResult {
   status: "undone" | "skipped";
   reason: string | null;
 }
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  is_admin: boolean;
+}
+
+export interface AuthStatus {
+  registration_open: boolean;
+  /** False on a server nobody has registered on yet — sign-up is always
+   * possible then, whatever registration_open says. */
+  has_users: boolean;
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  is_admin: boolean;
+  is_disabled: boolean;
+  created_at: string;
+}

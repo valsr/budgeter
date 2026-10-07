@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { accountsApi } from "../api/accounts";
 import { backupApi } from "../api/backup";
 import { categoriesApi, flattenAllCategories } from "../api/categories";
-import { setApiKey } from "../api/client";
 import { rulesApi } from "../api/rules";
 import { settingsApi } from "../api/settings";
 import type { Account, Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
@@ -10,19 +9,16 @@ import { Modal } from "../components/Modal";
 import { RuleModal } from "../components/RuleModal";
 import { RunRulesModal } from "../components/RunRulesModal";
 
-type Tab = "api" | "cats" | "rules" | "backup" | "history";
+type Tab = "cats" | "rules" | "backup" | "history";
 
 export function Settings() {
-  const [tab, setTab] = useState<Tab>("api");
+  const [tab, setTab] = useState<Tab>("cats");
 
   return (
     <div>
       <h1>Settings</h1>
       <p className="sub">API access, category taxonomy, and categorization rules.</p>
       <div className="settings-tabs">
-        <span className={tab === "api" ? "active" : ""} onClick={() => setTab("api")}>
-          API key
-        </span>
         <span className={tab === "cats" ? "active" : ""} onClick={() => setTab("cats")}>
           Categories
         </span>
@@ -37,59 +33,10 @@ export function Settings() {
         </span>
       </div>
 
-      {tab === "api" && <ApiKeyTab />}
       {tab === "cats" && <CategoriesTab />}
       {tab === "rules" && <RulesTab />}
       {tab === "backup" && <BackupTab />}
       {tab === "history" && <HistoryRetentionTab />}
-    </div>
-  );
-}
-
-function ApiKeyTab() {
-  const [apiKey, setKey] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState(false);
-  const [regenerating, setRegenerating] = useState(false);
-
-  useEffect(() => {
-    settingsApi.getApiKey().then((r) => setKey(r.api_key));
-  }, []);
-
-  async function regenerate() {
-    if (
-      !confirm(
-        "Regenerate the API key? The current key stops working immediately — any MCP adapter or " +
-          "skill using it will need the new value.",
-      )
-    ) {
-      return;
-    }
-    setRegenerating(true);
-    try {
-      const { api_key } = await settingsApi.regenerateApiKey();
-      setApiKey(api_key); // keep this browser session authenticated with the new key
-      setKey(api_key);
-      setRevealed(true); // surface it immediately since it can't be re-fetched in plaintext-friendly UX otherwise
-    } finally {
-      setRegenerating(false);
-    }
-  }
-
-  const display = apiKey ?? "";
-  return (
-    <div>
-      <div className="field" style={{ maxWidth: 420 }}>
-        <label>API key — used by the MCP adapter / skill</label>
-        <input value={revealed ? display : "•".repeat(Math.max(8, display.length))} readOnly />
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button className="btn ghost sm" onClick={() => setRevealed((r) => !r)} disabled={apiKey === null}>
-          {revealed ? "Hide" : "Show"}
-        </button>
-        <button className="btn sm" onClick={regenerate} disabled={regenerating || apiKey === null}>
-          {regenerating ? "Regenerating…" : "Regenerate"}
-        </button>
-      </div>
     </div>
   );
 }

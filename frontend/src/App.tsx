@@ -1,4 +1,5 @@
 import { Route, Routes } from "react-router-dom";
+import { AuthProvider } from "./auth/AuthProvider";
 import { Sidebar } from "./components/Sidebar";
 import { ToastProvider } from "./components/Toast";
 import { Overview } from "./pages/Overview";
@@ -12,7 +13,8 @@ import { Settings } from "./pages/Settings";
 
 export function App() {
   return (
-    <ToastProvider>
+    <AuthProvider>
+      <ToastProvider>
       <div className="app">
         <Sidebar />
         <div className="main">
@@ -28,6 +30,7 @@ export function App() {
           </Routes>
         </div>
       </div>
-    </ToastProvider>
+      </ToastProvider>
+    </AuthProvider>
   );
 }
