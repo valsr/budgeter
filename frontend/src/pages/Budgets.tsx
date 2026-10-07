@@ -6,6 +6,7 @@ import { accountsApi } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
 import type { Account, Budget, Category, DroppedCategory, ReportRow } from "../api/types";
 import { AccountFilter } from "../components/AccountFilter";
+import { hexToRgba } from "../components/CategoryTag";
 import { Modal } from "../components/Modal";
 import { formatMoney } from "../format";
 
@@ -40,7 +41,6 @@ export function Budgets() {
   // Categories whose per-source breakdown is showing. Collapsed by default —
   // the summary is the primary view and the table is already twelve months
   // wide, so the breakdown is opened for the category being worked on.
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   function loadBudgets() {
     budgetsApi.list().then((list) => {
@@ -78,7 +78,6 @@ export function Budgets() {
   useEffect(() => {
     loadReport(currentBudgetId);
     setHighlightedRow(null);
-    setExpanded(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBudgetId]);
 
@@ -104,30 +103,54 @@ export function Budgets() {
   const currentBudget = budgets.find((b) => b.id === currentBudgetId);
   const months = useMemo(() => Array.from({ length: CURRENT_MONTH }, (_, i) => i + 1), []);
 
-  const categoriesWithBreakdown = useMemo(
-    () => new Set(report.filter((r) => r.account_id !== null).map((r) => r.category_id)),
-    [report],
-  );
-  const visibleRows = useMemo(
-    () => report.filter((r) => r.account_id === null || expanded.has(r.category_id)),
-    [report, expanded],
-  );
+  // A category planned per source comes back as its own row plus one row
+  // per account. The table shows the category once; the per-account figures
+  // ride along as a hover bubble on each of its amounts.
+  const categoryRows = useMemo(() => report.filter((r) => r.account_id === null), [report]);
+  const splitByCategory = useMemo(() => {
+    const map = new Map<number, ReportRow[]>();
+    for (const r of report) {
+      if (r.account_id === null) continue;
+      map.set(r.category_id, [...(map.get(r.category_id) ?? []), r]);
+    }
+    return map;
+  }, [report]);
+  const accountColor = useMemo(() => new Map(accounts.map((a) => [a.id, a.color])), [accounts]);
 
-  function toggleExpanded(categoryId: number) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(categoryId)) {
-        next.delete(categoryId);
-        // Don't leave the highlight on a row that just disappeared — move it
-        // up to the category the collapsed rows belong to.
-        setHighlightedRow((current) =>
-          current?.startsWith(`cat:${categoryId}:acct:`) ? `cat:${categoryId}` : current,
-        );
-      } else {
-        next.add(categoryId);
-      }
-      return next;
-    });
+  /** The bubble for one amount: a pill per account, one per line. */
+  function splitBubble(split: ReportRow[], amountOf: (r: ReportRow) => number | null) {
+    const shares = split
+      .map((r) => ({ row: r, amount: amountOf(r) }))
+      .filter((s): s is { row: ReportRow; amount: number } => s.amount !== null);
+    if (shares.length === 0) return null;
+    return (
+      <span className="split-tip" role="tooltip">
+        {shares.map(({ row: r, amount }) => {
+          const color = accountColor.get(r.account_id!) ?? "#4f8a9c";
+          return (
+            <span className="split-line" key={r.row_key}>
+              <span className="tag" style={{ background: hexToRgba(color, 0.15), color }}>
+                {/* An explicit minus: here the colour says which account, not which sign. */}
+                {r.name}: {amount < 0 ? "-" : ""}
+                {formatMoney(amount)}
+              </span>
+            </span>
+          );
+        })}
+      </span>
+    );
+  }
+
+  /** An amount cell's content: the figure, plus its split bubble if it has one. */
+  function amount(text: string, bubble: ReactNode) {
+    return bubble ? (
+      <>
+        <span className="split-value">{text}</span>
+        {bubble}
+      </>
+    ) : (
+      text
+    );
   }
 
   return (
@@ -220,59 +243,50 @@ export function Budgets() {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((row) => (
-                <tr
-                  key={row.row_key}
-                  className={
-                    (highlightedRow === row.row_key ? "row-highlight " : "") +
-                    (row.account_id !== null ? "breakdown-row" : "")
-                  }
-                  style={row.is_parent ? { fontWeight: 600 } : undefined}
-                  onClick={() => setHighlightedRow(row.row_key)}
-                >
-                  <td style={row.depth > 0 ? { paddingLeft: 22 * row.depth, color: "var(--ink-2)" } : undefined}>
-                    {row.account_id !== null && <span className="breakdown-mark">↳</span>}
-                    {row.account_id === null && categoriesWithBreakdown.has(row.category_id) && (
-                      <span
-                        className="expander"
-                        role="button"
-                        aria-expanded={expanded.has(row.category_id)}
-                        aria-label={
-                          (expanded.has(row.category_id) ? "Hide" : "Show") +
-                          ` ${row.name} breakdown by account`
-                        }
-                        // Stops the row's own click handler running, so
-                        // opening a breakdown doesn't also move the highlight.
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleExpanded(row.category_id);
-                        }}
-                      >
-                        {expanded.has(row.category_id) ? "▾" : "▸"}
-                      </span>
-                    )}
-                    {row.name}
-                  </td>
-                  {months.map((m, i) => {
-                    const cell = row.monthly[m] ?? { budgeted: 0, actual: 0 };
-                    const over = cell.actual > cell.budgeted;
-                    const cls = monthClass(i, months.length);
-                    return (
-                      <Fragment key={m}>
-                        <td className={"right muted-cell " + cls + (cell.budgeted < 0 ? " neg" : "")}>
-                          {formatMoney(cell.budgeted)}
-                        </td>
-                        <td className={"right " + cls + (over ? " over" : cell.actual < 0 ? " neg" : "")}>
-                          {formatMoney(cell.actual)}
-                        </td>
-                      </Fragment>
-                    );
-                  })}
-                  <td className={"right " + (row.ytd_diff >= 0 ? "diff-pos" : "diff-neg")}>
-                    {row.has_budget ? formatMoney(row.ytd_diff) : "—"}
-                  </td>
-                </tr>
-              ))}
+              {categoryRows.map((row) => {
+                const split = splitByCategory.get(row.category_id) ?? [];
+                const diffBubble = splitBubble(split, (r) => (r.has_budget ? r.ytd_diff : null));
+                return (
+                  <tr
+                    key={row.row_key}
+                    className={highlightedRow === row.row_key ? "row-highlight" : ""}
+                    style={row.is_parent ? { fontWeight: 600 } : undefined}
+                    onClick={() => setHighlightedRow(row.row_key)}
+                  >
+                    <td style={row.depth > 0 ? { paddingLeft: 22 * row.depth, color: "var(--ink-2)" } : undefined}>
+                      {row.name}
+                    </td>
+                    {months.map((m, i) => {
+                      const cell = row.monthly[m] ?? { budgeted: 0, actual: 0 };
+                      const over = cell.actual > cell.budgeted;
+                      const cls = monthClass(i, months.length) + (split.length > 0 ? " has-split" : "");
+                      return (
+                        <Fragment key={m}>
+                          <td className={"right muted-cell " + cls + (cell.budgeted < 0 ? " neg" : "")}>
+                            {amount(
+                              formatMoney(cell.budgeted),
+                              splitBubble(split, (r) => r.monthly[m]?.budgeted ?? 0),
+                            )}
+                          </td>
+                          <td className={"right " + cls + (over ? " over" : cell.actual < 0 ? " neg" : "")}>
+                            {amount(
+                              formatMoney(cell.actual),
+                              splitBubble(split, (r) => r.monthly[m]?.actual ?? 0),
+                            )}
+                          </td>
+                        </Fragment>
+                      );
+                    })}
+                    <td
+                      className={
+                        "right " + (row.ytd_diff >= 0 ? "diff-pos" : "diff-neg") + (diffBubble ? " has-split" : "")
+                      }
+                    >
+                      {amount(row.has_budget ? formatMoney(row.ytd_diff) : "—", diffBubble)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </>
