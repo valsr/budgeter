@@ -6,9 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import db as db_module
-from app import server_db
-from app.db import upgrade_to_head
+from app import books, server_db
 from app.routers import (
     accounts,
     ai,
@@ -33,15 +31,12 @@ async def lifespan(app: FastAPI):
     server_db.upgrade_to_head()
     with server_db.SessionLocal() as sdb:
         users_service.purge_expired_sessions(sdb)
-    upgrade_to_head()
-    # Dynamic module attribute access (not `from app.db import SessionLocal`)
-    # so tests' monkeypatched SessionLocal (see tests/conftest.py) is honored.
-    db = db_module.SessionLocal()
-    try:
-        purge_expired(db)
-        db.commit()
-    finally:
-        db.close()
+        user_ids = [user.id for user in users_service.list_users(sdb)]
+    books.upgrade_all(user_ids)
+    for user_id in user_ids:
+        with books.session_for(user_id) as db:
+            purge_expired(db)
+            db.commit()
     yield
 
 

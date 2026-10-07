@@ -49,7 +49,7 @@ class TransactionChange(_ChangeRow, Base):
 
 
 class AppSettings(Base):
-    """Single-row table holding app-wide settings (docs mirror app/models/api_key.py).
+    """Single-row table holding one user's settings for their own books.
 
     Absence of a row is a valid state (fresh test DBs, pre-migration
     installs) — app/services/app_settings.py falls back to

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
+from app import books
 from app.auth import clear_session_cookie, current_user, set_session_cookie
 from app.errors import AuthError, ConflictError, ValidationError
 from app.schemas.auth import AuthStatus, Credentials, PasswordChange, UserRead
@@ -35,6 +36,10 @@ def register(
         raise HTTPException(status_code=409, detail=str(e)) from e
     except AuthError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
+    # A server's very first user inherits the data from before accounts
+    # existed; everyone else starts with empty books.
+    if not books.claim_legacy_books(sdb, user):
+        books.create_books(user.id)
     set_session_cookie(response, request, users_service.create_session(sdb, user))
     return user
 

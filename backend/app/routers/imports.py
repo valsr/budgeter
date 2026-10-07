@@ -3,6 +3,7 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
 from app.auth import current_user
+from app.server_models import User
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
 from app.models.account import AccountType
@@ -25,6 +26,7 @@ async def import_qif(
     account_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    user: User = Depends(current_user),
 ):
     content = (await file.read()).decode("utf-8", errors="replace")
     try:
@@ -39,7 +41,7 @@ async def import_qif(
     # Categorization must not block the import response (docs/requirements.md §2.4).
     # Runs in its own DB session — the request's `db` is closed by the time
     # background tasks run (see run_categorization_in_background docstring).
-    background_tasks.add_task(categorization.run_categorization_in_background, imported_ids)
+    background_tasks.add_task(categorization.run_categorization_in_background, user.id, imported_ids)
     return batch
 
 
@@ -71,6 +73,7 @@ async def commit_import(
     file: UploadFile = File(...),
     resolutions: str = Form(...),
     db: Session = Depends(get_db),
+    user: User = Depends(current_user),
 ):
     content = (await file.read()).decode("utf-8", errors="replace")
     try:
@@ -105,7 +108,7 @@ async def commit_import(
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
-    background_tasks.add_task(categorization.run_categorization_in_background, imported_ids)
+    background_tasks.add_task(categorization.run_categorization_in_background, user.id, imported_ids)
     return batches
 
 
@@ -135,6 +138,7 @@ def resolve_review_item(
     payload: ReviewResolveRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    user: User = Depends(current_user),
 ):
     try:
         item = imports_service.resolve_review_item(db, item_id, payload.action)
@@ -144,5 +148,5 @@ def resolve_review_item(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
     if payload.action == "new":
-        background_tasks.add_task(categorization.run_categorization_in_background, [])
+        background_tasks.add_task(categorization.run_categorization_in_background, user.id, [])
     return item
