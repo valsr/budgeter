@@ -4,9 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BUDGETER_", env_file=".env")
+    # extra="ignore": a .env left over from the single-user days may still set
+    # BUDGETER_API_KEY, which no longer means anything (keys are per user now).
+    model_config = SettingsConfigDict(env_prefix="BUDGETER_", env_file=".env", extra="ignore")
 
-    api_key: str = "dev-local-api-key"
     database_url: str = "sqlite:///./budgeter.db"
     """Where the pre-accounts, single-user database lives. It is only ever
     read: the first registered user gets a copy of it (see app/books.py)."""

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
 from app.models.account import Account
@@ -37,7 +37,7 @@ from app.services.rule_engine import (
     parse_account_ids,
 )
 
-router = APIRouter(prefix="/api/rules", tags=["rules"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/api/rules", tags=["rules"], dependencies=[Depends(current_user)])
 
 
 def _conditions_as_tuples(conditions):

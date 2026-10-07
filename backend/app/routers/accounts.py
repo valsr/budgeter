@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import NotFoundError
 from app.schemas.account import AccountCreate, AccountRead, AccountUpdate
@@ -9,7 +9,7 @@ from app.services import accounts as accounts_service
 from app.services.balances import compute_balance, compute_balances
 
 router = APIRouter(
-    prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(require_api_key)]
+    prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(current_user)]
 )
 
 

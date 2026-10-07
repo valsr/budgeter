@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import NotFoundError, ValidationError
 from app.models.account import AccountType
@@ -16,7 +16,7 @@ from app.schemas.import_ import (
 )
 from app.services import accounts as accounts_service, categorization, imports as imports_service
 
-router = APIRouter(prefix="/api/import", tags=["import"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/api/import", tags=["import"], dependencies=[Depends(current_user)])
 
 
 @router.post("", response_model=ImportBatchRead, status_code=201)

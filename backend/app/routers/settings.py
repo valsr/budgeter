@@ -1,25 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import ValidationError
-from app.schemas.api_key import ApiKeyRead
+from app.schemas.auth import ApiKeyReveal, ApiKeyStatus
 from app.schemas.settings import RetentionSettings
-from app.services import api_key as api_key_service
+from app.server_db import get_server_db
+from app.server_models import User
 from app.services import app_settings as app_settings_service
+from app.services import users as users_service
 
-router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_api_key)])
-
-
-@router.get("/api-key", response_model=ApiKeyRead)
-def get_api_key(db: Session = Depends(get_db)):
-    return ApiKeyRead(api_key=api_key_service.get_current_key(db))
+router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
 
 
-@router.post("/api-key/regenerate", response_model=ApiKeyRead)
-def regenerate_api_key(db: Session = Depends(get_db)):
-    return ApiKeyRead(api_key=api_key_service.regenerate_key(db))
+@router.get("/api-key", response_model=ApiKeyStatus)
+def get_api_key(user: User = Depends(current_user)):
+    # Only whether one exists: the key is stored hashed and can't be shown again.
+    return ApiKeyStatus(has_key=user.api_key_hash is not None)
+
+
+@router.post("/api-key/regenerate", response_model=ApiKeyReveal)
+def regenerate_api_key(user: User = Depends(current_user), sdb: Session = Depends(get_server_db)):
+    return ApiKeyReveal(api_key=users_service.regenerate_api_key(sdb, user))
 
 
 @router.get("/retention", response_model=RetentionSettings)

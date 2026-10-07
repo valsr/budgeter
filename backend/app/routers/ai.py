@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import current_user
 from app.db import get_db
 from app.errors import NotFoundError
 from app.schemas.ai import AiSuggestRequest, AiSuggestResponse
 from app.schemas.transaction import TransactionRead
 from app.services import ai_categorization
 
-router = APIRouter(prefix="/api/ai", tags=["ai"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/api/ai", tags=["ai"], dependencies=[Depends(current_user)])
 
 
 @router.get("/uncategorized", response_model=list[TransactionRead])
