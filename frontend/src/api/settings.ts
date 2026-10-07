@@ -1,7 +1,8 @@
 import { apiFetch } from "./client";
 
 export const settingsApi = {
-  getApiKey: () => apiFetch<{ api_key: string }>("/api/settings/api-key"),
+  /** Whether a key exists — the key itself is only ever returned by regenerateApiKey. */
+  getApiKey: () => apiFetch<{ has_key: boolean }>("/api/settings/api-key"),
   regenerateApiKey: () =>
     apiFetch<{ api_key: string }>("/api/settings/api-key/regenerate", { method: "POST" }),
   getRetention: () => apiFetch<{ retention_days: number }>("/api/settings/retention"),

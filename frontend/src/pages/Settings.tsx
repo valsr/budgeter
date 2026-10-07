@@ -5,20 +5,29 @@ import { categoriesApi, flattenAllCategories } from "../api/categories";
 import { rulesApi } from "../api/rules";
 import { settingsApi } from "../api/settings";
 import type { Account, Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
+import { useAuth } from "../auth/context";
 import { Modal } from "../components/Modal";
 import { RuleModal } from "../components/RuleModal";
 import { RunRulesModal } from "../components/RunRulesModal";
+import { saveBlob } from "../download";
+import { AccountTab } from "./settings/AccountTab";
+import { ServerTab } from "./settings/ServerTab";
+import { UsersTab } from "./settings/UsersTab";
 
-type Tab = "cats" | "rules" | "backup" | "history";
+type Tab = "account" | "cats" | "rules" | "backup" | "history" | "users" | "server";
 
 export function Settings() {
-  const [tab, setTab] = useState<Tab>("cats");
+  const { user } = useAuth();
+  const [tab, setTab] = useState<Tab>("account");
 
   return (
     <div>
       <h1>Settings</h1>
-      <p className="sub">API access, category taxonomy, and categorization rules.</p>
+      <p className="sub">Your account, category taxonomy, categorization rules, and backups.</p>
       <div className="settings-tabs">
+        <span className={tab === "account" ? "active" : ""} onClick={() => setTab("account")}>
+          Account
+        </span>
         <span className={tab === "cats" ? "active" : ""} onClick={() => setTab("cats")}>
           Categories
         </span>
@@ -31,12 +40,26 @@ export function Settings() {
         <span className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>
           History
         </span>
+        {user.is_admin && (
+          <>
+            <span className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
+              Users
+            </span>
+            <span className={tab === "server" ? "active" : ""} onClick={() => setTab("server")}>
+              Server
+            </span>
+          </>
+        )}
       </div>
 
+      {tab === "account" && <AccountTab />}
       {tab === "cats" && <CategoriesTab />}
       {tab === "rules" && <RulesTab />}
       {tab === "backup" && <BackupTab />}
       {tab === "history" && <HistoryRetentionTab />}
+      {/* Re-checked here, not just on the tab strip: losing admin while one of these is open closes it. */}
+      {tab === "users" && user.is_admin && <UsersTab />}
+      {tab === "server" && user.is_admin && <ServerTab />}
     </div>
   );
 }
@@ -502,16 +525,11 @@ function BackupTab() {
 
   async function download() {
     const { blob, filename } = await backupApi.download();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename ?? "budgeter-backup.db";
-    a.click();
-    URL.revokeObjectURL(url);
+    saveBlob(blob, filename ?? "budgeter-backup.db");
   }
 
   async function restore(file: File) {
-    if (!confirm("This will overwrite all current data with the selected backup. Continue?")) return;
+    if (!confirm("This will overwrite all of your current data with the selected backup. Continue?")) return;
     setRestoring(true);
     try {
       await backupApi.restore(file);
@@ -526,7 +544,7 @@ function BackupTab() {
       <div className="card" style={{ maxWidth: 520 }}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>Download backup</div>
         <p className="sub" style={{ marginBottom: 12 }}>
-          Exports the full database as a single file — copy it somewhere safe.
+          Exports your books as a single file — copy it somewhere safe. Other users' data isn't included.
         </p>
         <button className="btn" onClick={download}>
           Download backup (.db)
@@ -535,7 +553,7 @@ function BackupTab() {
       <div className="card" style={{ maxWidth: 520, borderColor: "#e3cfa3", background: "#fdfbf7" }}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>Restore from backup</div>
         <p className="sub" style={{ marginBottom: 12 }}>
-          Replaces all current data with the contents of the selected file.{" "}
+          Replaces all of your current data with the contents of the selected file.{" "}
           <b style={{ color: "var(--c5)" }}>This can't be undone.</b>
         </p>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
