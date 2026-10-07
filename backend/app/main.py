@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app import books, server_db
 from app.routers import (
     accounts,
+    admin,
     ai,
     auth,
     backup,
@@ -52,6 +53,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(accounts.router)
 app.include_router(categories.router)
 app.include_router(transactions.router)

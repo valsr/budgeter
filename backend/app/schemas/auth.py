@@ -11,6 +11,10 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+class PasswordConfirm(BaseModel):
+    password: str
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

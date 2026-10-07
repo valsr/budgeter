@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 from app import books
 from app.auth import clear_session_cookie, current_user, set_session_cookie
 from app.errors import AuthError, ConflictError, ValidationError
-from app.schemas.auth import AuthStatus, Credentials, PasswordChange, UserRead
+from app.schemas.auth import AuthStatus, Credentials, PasswordChange, PasswordConfirm, UserRead
 from app.server_db import get_server_db
 from app.server_models import User
+from app.security import verify_password
 from app.services import users as users_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -95,3 +96,23 @@ def change_password(
         raise HTTPException(status_code=401, detail=str(e)) from e
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.delete("/me", status_code=204)
+def delete_me(
+    payload: PasswordConfirm,
+    response: Response,
+    user: User = Depends(current_user),
+    sdb: Session = Depends(get_server_db),
+):
+    """Delete the caller's own account and books. Irreversible, so it asks
+    for the password again rather than trusting a session alone."""
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Password is incorrect")
+    user_id = user.id
+    try:
+        users_service.delete_user(sdb, user_id)
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    books.delete_books(user_id)
+    clear_session_cookie(response)
