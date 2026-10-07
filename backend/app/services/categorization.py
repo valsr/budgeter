@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app import db as db_module
+from app import books
 from app.models.split import Split, SuggestionSource
 from app.models.transaction import Transaction, TransactionType
 from app.services.rule_engine import TransactionContext, find_matching_rule
@@ -72,16 +72,16 @@ def run_categorization(db: Session, transaction_ids: list[int] | None = None) ->
     return suggested_count
 
 
-def run_categorization_in_background(transaction_ids: list[int] | None = None) -> int:
+def run_categorization_in_background(user_id: int, transaction_ids: list[int] | None = None) -> int:
     """Entry point for FastAPI's BackgroundTasks (see routers/imports.py).
 
     Background tasks run after the response is sent, by which point FastAPI
     has already closed the request's `db` session — passing that session
     into the task worked only because a closed SQLAlchemy Session silently
     reopens a connection on next use. That's fragile to depend on, so this
-    opens and closes its own session instead.
+    opens and closes its own session on the importing user's books instead.
     """
-    session = db_module.SessionLocal()
+    session = books.session_for(user_id)
     try:
         return run_categorization(session, transaction_ids)
     finally:

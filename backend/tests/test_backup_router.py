@@ -1,78 +1,74 @@
-import io
 import sqlite3
 
-import pytest
-
-from app import config as config_module
+from app import books
 from app.services import backup as backup_svc
 
 
-@pytest.fixture()
-def file_backed_settings(monkeypatch, tmp_path):
-    """Point the app at a real on-disk SQLite file so the backup endpoints
-    (which manipulate the file directly) have something real to act on,
-    instead of the in-memory `sqlite://` DB the rest of the test suite uses.
-    """
-    db_path = tmp_path / "app.db"
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO accounts (name) VALUES ('Main checking')")
-    conn.commit()
-    conn.close()
-
-    monkeypatch.setattr(config_module.settings, "database_url", f"sqlite:///{db_path}")
-    return str(db_path)
+def make_account(client, name):
+    resp = client.post("/api/accounts", json={"name": name, "type": "asset"})
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
 
 
-def test_requires_auth(client):
-    resp = client.get("/api/backup")
-    assert resp.status_code == 401
+def account_names(client):
+    return [a["name"] for a in client.get("/api/accounts").json()]
 
 
-def test_download_backup_returns_sqlite_file(client, auth_headers, file_backed_settings):
-    resp = client.get("/api/backup", headers=auth_headers)
+def restore(client, data: bytes):
+    return client.post("/api/backup/restore", files={"file": ("backup.db", data, "application/octet-stream")})
+
+
+def test_requires_auth(make_client):
+    anonymous = make_client()
+    assert anonymous.get("/api/backup").status_code == 401
+    assert restore(anonymous, b"x").status_code == 401
+
+
+def test_download_backup_returns_my_books_as_a_sqlite_file(make_client, tmp_path):
+    alice = make_client("alice")
+    make_account(alice, "Main checking")
+
+    resp = alice.get("/api/backup")
     assert resp.status_code == 200
     assert resp.content.startswith(backup_svc.SQLITE_MAGIC)
     assert "attachment" in resp.headers["content-disposition"]
 
-
-def test_downloaded_backup_contains_real_data(client, auth_headers, file_backed_settings, tmp_path):
-    resp = client.get("/api/backup", headers=auth_headers)
-    copy_path = tmp_path / "downloaded.db"
-    copy_path.write_bytes(resp.content)
-
-    conn = sqlite3.connect(str(copy_path))
+    downloaded = tmp_path / "downloaded.db"
+    downloaded.write_bytes(resp.content)
+    conn = sqlite3.connect(str(downloaded))
     rows = conn.execute("SELECT name FROM accounts").fetchall()
     conn.close()
     assert rows == [("Main checking",)]
 
 
-def test_restore_replaces_database_contents(client, auth_headers, file_backed_settings, tmp_path):
-    other_path = tmp_path / "other.db"
-    conn = sqlite3.connect(str(other_path))
-    conn.execute("CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO accounts (name) VALUES ('Restored account')")
-    conn.commit()
-    conn.close()
-    other_bytes = other_path.read_bytes()
+def test_download_then_restore_round_trips_my_books(make_client):
+    alice = make_client("alice")
+    make_account(alice, "Before")
+    snapshot = alice.get("/api/backup").content
 
-    resp = client.post(
-        "/api/backup/restore",
-        headers=auth_headers,
-        files={"file": ("backup.db", io.BytesIO(other_bytes), "application/octet-stream")},
-    )
-    assert resp.status_code == 204
+    make_account(alice, "After")
+    assert account_names(alice) == ["Before", "After"]
 
-    conn = sqlite3.connect(file_backed_settings)
-    rows = conn.execute("SELECT name FROM accounts").fetchall()
-    conn.close()
-    assert rows == [("Restored account",)]
+    assert restore(alice, snapshot).status_code == 204
+    assert account_names(alice) == ["Before"]
 
 
-def test_restore_rejects_invalid_file(client, auth_headers, file_backed_settings):
-    resp = client.post(
-        "/api/backup/restore",
-        headers=auth_headers,
-        files={"file": ("bad.db", io.BytesIO(b"not a database"), "application/octet-stream")},
-    )
+def test_restore_does_not_touch_another_users_books(make_client):
+    alice, bob = make_client("alice"), make_client("bob")
+    make_account(bob, "Bob savings")
+    empty = alice.get("/api/backup").content
+    make_account(alice, "Alice checking")
+
+    assert restore(alice, empty).status_code == 204
+    assert account_names(alice) == []
+    assert account_names(bob) == ["Bob savings"]
+    # ...and bob can't be handed alice's books by restoring his own backup.
+    assert books.books_path(alice.user_id) != books.books_path(bob.user_id)
+
+
+def test_restore_rejects_invalid_file(make_client):
+    alice = make_client("alice")
+    make_account(alice, "Keep me")
+    resp = restore(alice, b"definitely not sqlite")
     assert resp.status_code == 422
+    assert account_names(alice) == ["Keep me"]

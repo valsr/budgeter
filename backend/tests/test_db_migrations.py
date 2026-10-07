@@ -1,54 +1,64 @@
 import sqlite3
 
+from app import books, server_db
 from app.config import settings
-from app.db import upgrade_to_head
 
 
-def test_upgrade_to_head_creates_schema_on_a_fresh_db_file(tmp_path, monkeypatch):
-    """Regression test: a fresh/missing DB file (new checkout, or a
-    migration added since the file was last touched) must self-heal to the
-    current schema on startup rather than 500ing on "no such table" the
-    first time a route queries it.
-    """
-    db_path = tmp_path / "fresh.db"
-    monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_path}")
-
-    upgrade_to_head()
-
-    assert db_path.exists()
-    conn = sqlite3.connect(db_path)
+def _tables(path) -> set[str]:
+    conn = sqlite3.connect(path)
     try:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         conn.close()
+
+
+def test_books_upgrade_creates_schema_on_a_fresh_db_file(tmp_path):
+    """Regression test: a fresh/missing books file (new user, new checkout,
+    or a migration added since the file was last touched) must self-heal to
+    the current schema rather than 500ing on "no such table" the first time
+    a route queries it.
+    """
+    db_path = tmp_path / "books" / "1.db"
+
+    books.upgrade(db_path)
+
+    assert db_path.exists()
     assert {
         "accounts",
         "categories",
         "transactions",
         "splits",
         "rules",
-        "api_key",
         "account_changes",
         "category_changes",
         "transaction_changes",
         "app_settings",
-    } <= tables
+    } <= _tables(db_path)
+    # Users and their keys live in the server database, never in books.
+    assert not {"api_key", "users", "sessions"} & _tables(db_path)
 
 
-def test_upgrade_to_head_is_idempotent(tmp_path, monkeypatch):
+def test_books_upgrade_is_idempotent(tmp_path):
     db_path = tmp_path / "fresh.db"
-    monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_path}")
 
-    upgrade_to_head()
-    upgrade_to_head()  # must not error on an already-current schema
+    books.upgrade(db_path)
+    books.upgrade(db_path)  # must not error on an already-current schema
 
     assert db_path.exists()
 
 
-def test_upgrade_to_head_skips_the_in_memory_test_sentinel(monkeypatch):
+def test_the_two_trees_stay_out_of_each_others_files(files):
+    books.create_books(1)
+    assert "accounts" not in _tables(files / "server.db")
+    assert "users" not in _tables(files / "books" / "1.db")
+
+
+def test_upgrades_skip_the_in_memory_test_sentinel(monkeypatch):
     # "sqlite://" (no file) is what tests/conftest.py sets as the default
-    # BUDGETER_DATABASE_URL — the test suite creates tables itself via
-    # Base.metadata.create_all, so this must no-op rather than trying to run
-    # a real Alembic migration against an anonymous in-memory DB.
+    # BUDGETER_DATABASE_URL — tables are created directly via create_all
+    # there, so these must no-op rather than trying to run a real Alembic
+    # migration against an anonymous in-memory DB.
     monkeypatch.setattr(settings, "database_url", "sqlite://")
-    upgrade_to_head()  # would raise if it attempted to run migrations here
+    monkeypatch.setattr(settings, "data_dir", None)
+    server_db.upgrade_to_head()
+    books.upgrade_all([1, 2])  # would raise if it attempted to run migrations here

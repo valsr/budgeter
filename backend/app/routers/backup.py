@@ -3,19 +3,19 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 
+from app import books
 from app.auth import current_user
-from app.config import settings
-from app.db import engine
 from app.errors import ValidationError
+from app.server_models import User
 from app.services import backup as backup_service
 
 router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(current_user)])
 
 
 @router.get("")
-def download_backup():
-    db_path = backup_service.resolve_sqlite_path(settings.database_url)
-    data = backup_service.create_backup_bytes(db_path)
+def download_backup(user: User = Depends(current_user)):
+    books.create_books(user.id)
+    data = backup_service.create_backup_bytes(str(books.books_path(user.id)))
     filename = f"budgeter-backup-{dt.date.today().isoformat()}.db"
     return Response(
         content=data,
@@ -25,13 +25,12 @@ def download_backup():
 
 
 @router.post("/restore", status_code=204)
-async def restore_backup(file: UploadFile):
+async def restore_backup(file: UploadFile, user: User = Depends(current_user)):
     data = await file.read()
-    db_path = backup_service.resolve_sqlite_path(settings.database_url)
     try:
         # Release any open connections/cached file handles before swapping
         # the file out from under them.
-        engine.dispose()
-        backup_service.write_backup_bytes(db_path, data)
+        books.dispose(user.id)
+        backup_service.write_backup_bytes(str(books.books_path(user.id)), data)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e

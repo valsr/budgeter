@@ -4,34 +4,13 @@ os.environ.setdefault("BUDGETER_DATABASE_URL", "sqlite://")
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app import db as db_module
-from app import server_db
-from app.db import Base, get_db
+from app import books, server_db
+from app.config import settings
+from app.db import get_db
 from app.main import app
 from app.security import hash_token
 from app.server_models import User
-
-engine = create_engine(
-    "sqlite://",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-@pytest.fixture()
-def db_session():
-    Base.metadata.create_all(bind=engine)
-    session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
-        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture()
@@ -40,33 +19,14 @@ def server_session():
     own sessions on the same engine, so `expire_all()` (or a fresh query)
     is needed to see what a request changed."""
     server_db.reset()
+    books.dispose_all()
     session = server_db.SessionLocal()
     try:
         yield session
     finally:
         session.close()
         server_db.reset()
-
-
-@pytest.fixture()
-def anon(db_session, server_session, monkeypatch):
-    """A client with no account behind it -- for exercising registration,
-    login and everything that must reject an unauthenticated caller."""
-
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = override_get_db
-    # Background tasks (see services/categorization.py) open their own
-    # session via app.db.SessionLocal rather than reusing the request's —
-    # point that at the same test engine/pool so they see the same data.
-    monkeypatch.setattr(db_module, "SessionLocal", TestingSessionLocal)
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
+        books.dispose_all()
 
 
 @pytest.fixture()
@@ -80,8 +40,66 @@ def test_user(server_session):
 
 
 @pytest.fixture()
-def client(anon, test_user):
+def db_session(test_user):
+    """The fixture user's (in-memory) books."""
+    session = books.session_for(test_user.id)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture()
+def anon(server_session):
+    """A client with no account behind it -- for exercising registration,
+    login and everything that must reject an unauthenticated caller."""
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def client(anon, test_user, db_session):
+    """A client for the fixture user (send `auth_headers`). Requests share
+    the test's own `db_session` rather than opening one per request, so a
+    test can read back what a request wrote without refreshing anything."""
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
     return anon
+
+
+@pytest.fixture()
+def files(tmp_path, monkeypatch):
+    """File-backed mode: a real data directory under tmp_path, with the
+    server database migrated. For anything that is about the files
+    themselves -- per-user books, the legacy claim, backup and restore."""
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{tmp_path}/budgeter.db")
+    monkeypatch.setattr(settings, "data_dir", None)
+    server_db.reset()
+    books.dispose_all()
+    server_db.upgrade_to_head()
+    yield tmp_path
+    server_db.reset()
+    books.dispose_all()
+
+
+@pytest.fixture()
+def make_client(files):
+    """Factory for independent browser-like clients (each with its own
+    cookie jar) against the file-backed app."""
+
+    def make(username: str | None = None, password: str = "password1") -> TestClient:
+        c = TestClient(app)
+        if username is not None:
+            resp = c.post("/api/auth/register", json={"username": username, "password": password})
+            assert resp.status_code == 201, resp.text
+            c.user_id = resp.json()["id"]
+        return c
+
+    return make
 
 
 @pytest.fixture()
