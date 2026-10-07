@@ -18,6 +18,7 @@ from app.schemas.admin import (
 )
 from app.schemas.auth import Credentials
 from app.server_db import get_server_db
+from app.server_models import User
 from app.services import server_backup
 from app.services import users as users_service
 
@@ -43,7 +44,16 @@ def create_user(payload: Credentials, sdb: Session = Depends(get_server_db)):
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserRead)
-def update_user(user_id: int, payload: AdminUserUpdate, sdb: Session = Depends(get_server_db)):
+def update_user(
+    user_id: int,
+    payload: AdminUserUpdate,
+    admin: User = Depends(require_admin),
+    sdb: Session = Depends(get_server_db),
+):
+    if user_id == admin.id and payload.is_admin is False:
+        # Giving up admin is one click from locking yourself out of this very
+        # screen; it takes another admin to do it.
+        raise HTTPException(status_code=409, detail="You can't remove your own admin rights")
     try:
         return users_service.update_user(
             sdb,

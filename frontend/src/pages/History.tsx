@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { historyApi } from "../api/history";
 import type { ChangeEntityType, ChangeGroup, UndoResult } from "../api/types";
+import { formatTimestamp } from "../format";
 
 const PAGE_SIZE = 50;
 
@@ -177,7 +178,7 @@ export function History() {
                       onChange={() => toggleSelected(group.group_id)}
                     />
                   </td>
-                  <td>{new Date(group.created_at).toLocaleString()}</td>
+                  <td>{formatTimestamp(group.created_at)}</td>
                   <td>
                     <span className="tag">{group.entity_type}</span>
                   </td>

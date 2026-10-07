@@ -82,25 +82,77 @@ it("toggles disabled and admin through PATCH", async () => {
   expect(refresh).not.toHaveBeenCalled();
 });
 
+it("does not offer to remove your own admin rights", async () => {
+  renderTab();
+  const mine = within(await row("alice")).getByRole("button", { name: "Remove admin" });
+  expect(mine).toBeDisabled();
+  expect(mine).toHaveAttribute("title", "You can't remove your own admin rights");
+  fireEvent.click(mine);
+  expect(updateUser).not.toHaveBeenCalled();
+  // ...but another admin's can be removed.
+  expect(within(await row("carol")).getByRole("button", { name: "Remove admin" })).toBeEnabled();
+});
+
 it("re-reads the current user after changing their own account", async () => {
   renderTab();
-  fireEvent.click(within(await row("alice")).getByRole("button", { name: "Remove admin" }));
-  await waitFor(() => expect(updateUser).toHaveBeenCalledWith(1, { is_admin: false }));
+  fireEvent.click(within(await row("alice")).getByRole("button", { name: "Disable" }));
+  await waitFor(() => expect(updateUser).toHaveBeenCalledWith(1, { is_disabled: true }));
   await waitFor(() => expect(refresh).toHaveBeenCalled());
 });
 
-it("resets a password with the value entered", async () => {
-  vi.spyOn(window, "prompt").mockReturnValue("brand-new-pw");
+async function openReset(username: string) {
+  fireEvent.click(within(await row(username)).getByRole("button", { name: "Reset password" }));
+  return screen.getByRole("button", { name: "Set password" });
+}
+
+it("resets a password from masked password and confirmation fields", async () => {
+  const prompt = vi.spyOn(window, "prompt");
   renderTab();
-  fireEvent.click(within(await row("bob")).getByRole("button", { name: "Reset password" }));
+  const submit = await openReset("bob");
+  expect(screen.getByText("Reset password for bob")).toBeInTheDocument();
+  expect(prompt).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("New password")).toHaveAttribute("type", "password");
+  expect(screen.getByLabelText("Confirm new password")).toHaveAttribute("type", "password");
+  expect(submit).toBeDisabled();
+
+  fireEvent.change(screen.getByLabelText("New password"), { target: { value: "brand-new-pw" } });
+  fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "brand-new-pw" } });
+  fireEvent.click(submit);
+
   await waitFor(() => expect(updateUser).toHaveBeenCalledWith(2, { password: "brand-new-pw" }));
+  await waitFor(() => expect(screen.queryByText("Reset password for bob")).not.toBeInTheDocument());
 });
 
-it("leaves the password alone when the prompt is cancelled", async () => {
-  vi.spyOn(window, "prompt").mockReturnValue(null);
+it("won't reset a password when the confirmation differs", async () => {
   renderTab();
-  fireEvent.click(within(await row("bob")).getByRole("button", { name: "Reset password" }));
+  const submit = await openReset("bob");
+  fireEvent.change(screen.getByLabelText("New password"), { target: { value: "brand-new-pw" } });
+  fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "brand-new-px" } });
+
+  expect(screen.getByText("Passwords don't match")).toBeInTheDocument();
+  expect(submit).toBeDisabled();
+  fireEvent.click(submit);
   expect(updateUser).not.toHaveBeenCalled();
+});
+
+it("leaves the password alone when the reset is cancelled", async () => {
+  renderTab();
+  await openReset("bob");
+  fireEvent.change(screen.getByLabelText("New password"), { target: { value: "brand-new-pw" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByText("Reset password for bob")).not.toBeInTheDocument();
+  expect(updateUser).not.toHaveBeenCalled();
+});
+
+it("keeps the reset dialog open with the reason when the server refuses", async () => {
+  updateUser.mockRejectedValue(new Error("Password must be 8–256 characters"));
+  renderTab();
+  const submit = await openReset("bob");
+  fireEvent.change(screen.getByLabelText("New password"), { target: { value: "short" } });
+  fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "short" } });
+  fireEvent.click(submit);
+  expect(await screen.findByText("Password must be 8–256 characters")).toBeInTheDocument();
+  expect(screen.getByText("Reset password for bob")).toBeInTheDocument();
 });
 
 it("asks before deleting and names the user", async () => {

@@ -3,9 +3,12 @@ import { useEffect, useState } from "react";
 import { adminApi } from "../../api/admin";
 import type { AdminUser } from "../../api/types";
 import { useAuth } from "../../auth/context";
+import { Modal } from "../../components/Modal";
 import { formatTimestamp } from "../../format";
 
 type UserPatch = Parameters<typeof adminApi.updateUser>[1];
+
+const SELF_DEMOTE_HINT = "You can't remove your own admin rights";
 
 export function UsersTab() {
   const { user: me, refresh } = useAuth();
@@ -13,6 +16,7 @@ export function UsersTab() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [adding, setAdding] = useState(false);
+  const [resetting, setResetting] = useState<AdminUser | null>(null);
 
   function load() {
     adminApi.listUsers().then(setUsers);
@@ -34,12 +38,6 @@ export function UsersTab() {
   }
 
   const patch = (target: AdminUser, body: UserPatch) => apply(target, () => adminApi.updateUser(target.id, body));
-
-  function resetPassword(target: AdminUser) {
-    const next = prompt(`New password for ${target.username} (at least 8 characters):`);
-    if (!next) return;
-    patch(target, { password: next });
-  }
 
   function remove(target: AdminUser) {
     if (
@@ -130,10 +128,16 @@ export function UsersTab() {
                   <button className="btn ghost sm" onClick={() => patch(u, { is_disabled: !u.is_disabled })}>
                     {u.is_disabled ? "Enable" : "Disable"}
                   </button>
-                  <button className="btn ghost sm" onClick={() => patch(u, { is_admin: !u.is_admin })}>
+                  <button
+                    className="btn ghost sm"
+                    // Another admin has to do this: it would lock you out of this screen.
+                    disabled={u.id === me.id && u.is_admin}
+                    title={u.id === me.id && u.is_admin ? SELF_DEMOTE_HINT : undefined}
+                    onClick={() => patch(u, { is_admin: !u.is_admin })}
+                  >
                     {u.is_admin ? "Remove admin" : "Make admin"}
                   </button>
-                  <button className="btn ghost sm" onClick={() => resetPassword(u)}>
+                  <button className="btn ghost sm" onClick={() => setResetting(u)}>
                     Reset password
                   </button>
                   <button className="btn ghost sm" onClick={() => remove(u)}>
@@ -145,6 +149,96 @@ export function UsersTab() {
           ))}
         </tbody>
       </table>
+
+      {resetting && (
+        <ResetPasswordModal
+          user={resetting}
+          onClose={() => setResetting(null)}
+          onDone={async () => {
+            const target = resetting;
+            setResetting(null);
+            // Resetting your own password ends your other sessions too.
+            if (target.id === me.id) await refresh();
+            load();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function ResetPasswordModal({
+  user,
+  onClose,
+  onDone,
+}: {
+  user: AdminUser;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const mismatch = confirm !== "" && password !== confirm;
+  const ready = password !== "" && password === confirm;
+
+  async function save() {
+    if (!ready) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await adminApi.updateUser(user.id, { password });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't reset the password");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Reset password for ${user.username}`}
+      onClose={onClose}
+      onSubmit={save}
+      submitLabel="Set password"
+      submitDisabled={!ready || saving}
+    >
+      <p className="sub" style={{ marginBottom: 12 }}>
+        Logs {user.username} out everywhere. At least 8 characters.
+      </p>
+      <div className="field">
+        <label htmlFor="reset-password">New password</label>
+        <input
+          id="reset-password"
+          type="password"
+          autoComplete="new-password"
+          autoFocus
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="reset-confirm">Confirm new password</label>
+        <input
+          id="reset-confirm"
+          type="password"
+          autoComplete="new-password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+        />
+      </div>
+      {mismatch && (
+        <p className="sub" style={{ color: "var(--c5)" }}>
+          Passwords don't match
+        </p>
+      )}
+      {error && (
+        <p className="sub" style={{ color: "var(--c5)" }}>
+          {error}
+        </p>
+      )}
+    </Modal>
   );
 }
