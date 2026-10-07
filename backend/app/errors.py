@@ -8,3 +8,12 @@ class NotFoundError(DomainError):
 
 class ValidationError(DomainError):
     pass
+
+
+class ConflictError(DomainError):
+    """The request is well-formed but clashes with current state (a taken
+    username, removing the last admin)."""
+
+
+class AuthError(DomainError):
+    """Credentials were rejected, or the action isn't open to the caller."""
