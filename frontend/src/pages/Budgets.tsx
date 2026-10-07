@@ -2,11 +2,11 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { budgetsApi, overviewApi } from "../api/budgets";
 import type { BudgetCategoryInput } from "../api/budgets";
-import { accountsApi } from "../api/accounts";
+import { accountsApi, DEFAULT_ACCOUNT_COLOR } from "../api/accounts";
 import { categoriesApi } from "../api/categories";
 import type { Account, Budget, Category, DroppedCategory, ReportRow } from "../api/types";
 import { AccountFilter } from "../components/AccountFilter";
-import { hexToRgba } from "../components/CategoryTag";
+import { CategoryTag } from "../components/CategoryTag";
 import { Modal } from "../components/Modal";
 import { formatMoney } from "../format";
 
@@ -121,14 +121,11 @@ export function Budgets() {
     return (
       <span className="split-tip" role="tooltip">
         {shares.map(({ row: r, amount }) => {
-          const color = accountColor.get(r.account_id!) ?? "#4f8a9c";
+          // An explicit minus: here the colour says which account, not which sign.
+          const label = `${r.name}: ${amount < 0 ? "-" : ""}${formatMoney(amount)}`;
           return (
             <span className="split-line" key={r.row_key}>
-              <span className="tag" style={{ background: hexToRgba(color, 0.15), color }}>
-                {/* An explicit minus: here the colour says which account, not which sign. */}
-                {r.name}: {amount < 0 ? "-" : ""}
-                {formatMoney(amount)}
-              </span>
+              <CategoryTag label={label} color={accountColor.get(r.account_id!) ?? DEFAULT_ACCOUNT_COLOR} />
             </span>
           );
         })}

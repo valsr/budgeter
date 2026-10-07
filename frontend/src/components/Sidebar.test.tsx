@@ -5,7 +5,10 @@ import { TestAuth } from "../test/TestAuth";
 import { Sidebar } from "./Sidebar";
 
 const getVersion = vi.fn();
-vi.mock("../api/version", () => ({ versionApi: { get: () => getVersion() } }));
+vi.mock("../api/version", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/version")>()),
+  versionApi: { get: () => getVersion() },
+}));
 
 beforeEach(() => {
   getVersion.mockReset().mockResolvedValue({
@@ -78,8 +81,8 @@ describe("Sidebar", () => {
     );
     const version = await screen.findByText("2026.10.07+5dcc9d3");
     expect(version.title).toContain("5dcc9d3a1b2c3d4e5f60718293a4b5c6d7e8f901");
-    expect(version.title).toContain("Committed");
-    expect(version.title).toContain("Built");
+    expect(version.title).toContain("committed");
+    expect(version.title).toContain("built");
   });
 
   it("shows no version line when the server can't say", async () => {

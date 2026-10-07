@@ -6,10 +6,10 @@ import { rulesApi } from "../api/rules";
 import { settingsApi } from "../api/settings";
 import type { Account, Category, ConditionField, ConditionOperator, MatchType, Rule } from "../api/types";
 import { useAuth } from "../auth/context";
+import { BackupCards } from "../components/BackupCards";
 import { Modal } from "../components/Modal";
 import { RuleModal } from "../components/RuleModal";
 import { RunRulesModal } from "../components/RunRulesModal";
-import { saveBlob } from "../download";
 import { AccountTab } from "./settings/AccountTab";
 import { ServerTab } from "./settings/ServerTab";
 import { UsersTab } from "./settings/UsersTab";
@@ -518,55 +518,21 @@ function RulesTab() {
 }
 
 function BackupTab() {
-  const [restoring, setRestoring] = useState(false);
-
-  async function download() {
-    const { blob, filename } = await backupApi.download();
-    saveBlob(blob, filename ?? "budgeter-backup.db");
-  }
-
-  async function restore(file: File) {
-    if (!confirm("This will overwrite all of your current data with the selected backup. Continue?")) return;
-    setRestoring(true);
-    try {
-      await backupApi.restore(file);
-      alert("Restore complete. Reload the app to see the restored data.");
-    } finally {
-      setRestoring(false);
-    }
-  }
-
   return (
-    <div>
-      <div className="card" style={{ maxWidth: 520 }}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Download backup</div>
-        <p className="sub" style={{ marginBottom: 12 }}>
-          Exports your books as a single file — copy it somewhere safe. Other users' data isn't included.
-        </p>
-        <button className="btn" onClick={download}>
-          Download backup (.db)
-        </button>
-      </div>
-      <div className="card" style={{ maxWidth: 520, borderColor: "#e3cfa3", background: "#fdfbf7" }}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Restore from backup</div>
-        <p className="sub" style={{ marginBottom: 12 }}>
-          Replaces all of your current data with the contents of the selected file.{" "}
-          <b style={{ color: "var(--c5)" }}>This can't be undone.</b>
-        </p>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input
-            type="file"
-            accept=".db,.sqlite"
-            style={{ fontSize: 12.5 }}
-            disabled={restoring}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) restore(file);
-            }}
-          />
-        </div>
-      </div>
-    </div>
+    <BackupCards
+      download={backupApi.download}
+      restore={backupApi.restore}
+      fallbackFilename="budgeter-backup.db"
+      accept=".db,.sqlite"
+      downloadTitle="Download backup"
+      downloadText="Exports your books as a single file — copy it somewhere safe. Other users' data isn't included."
+      downloadLabel="Download backup (.db)"
+      restoreTitle="Restore from backup"
+      restoreText="Replaces all of your current data with the contents of the selected file."
+      restoreInputLabel="Backup file"
+      confirmText="This will overwrite all of your current data with the selected backup. Continue?"
+      doneText="Restore complete. Reload the app to see the restored data."
+    />
   );
 }
 

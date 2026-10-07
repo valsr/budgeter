@@ -119,7 +119,8 @@ it("resets a password from masked password and confirmation fields", async () =>
   fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "brand-new-pw" } });
   fireEvent.click(submit);
 
-  await waitFor(() => expect(updateUser).toHaveBeenCalledWith(2, { password: "brand-new-pw" }));
+  // silent: a refusal is shown in the dialog, not also as a toast.
+  await waitFor(() => expect(updateUser).toHaveBeenCalledWith(2, { password: "brand-new-pw" }, { silent: true }));
   await waitFor(() => expect(screen.queryByText("Reset password for bob")).not.toBeInTheDocument());
 });
 

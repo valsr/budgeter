@@ -1,4 +1,4 @@
-import { apiDownload, apiFetch, apiUpload } from "./client";
+import { apiDownload, apiFetch, apiUploadFile } from "./client";
 import type { RequestOpts } from "./client";
 import type { AdminUser } from "./types";
 import type { VersionInfo } from "./version";
@@ -33,7 +33,6 @@ export interface ServerHealth {
   uptime_seconds: number;
   /** Null when the server wasn't started through the launcher. */
   serving: { port: number; https: boolean } | null;
-  restart_required: boolean;
   users: { total: number; active_admins: number; disabled: number };
   data_dir: string | null;
   storage: { books_files: number; books_bytes: number; server_db_bytes: number } | null;
@@ -45,8 +44,11 @@ export const adminApi = {
   listUsers: () => apiFetch<AdminUser[]>("/api/admin/users"),
   createUser: (username: string, password: string) =>
     apiFetch<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify({ username, password }) }),
-  updateUser: (id: number, patch: { is_admin?: boolean; is_disabled?: boolean; password?: string }) =>
-    apiFetch<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  updateUser: (
+    id: number,
+    patch: { is_admin?: boolean; is_disabled?: boolean; password?: string },
+    opts?: RequestOpts,
+  ) => apiFetch<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }, opts),
   deleteUser: (id: number) => apiFetch<void>(`/api/admin/users/${id}`, { method: "DELETE" }),
   getSettings: () => apiFetch<ServerSettings>("/api/admin/settings"),
   /** Only the fields given change. `silent`: the caller shows the refusal inline. */
@@ -54,9 +56,5 @@ export const adminApi = {
     apiFetch<ServerSettings>("/api/admin/settings", { method: "PATCH", body: JSON.stringify(patch) }, opts),
   getHealth: () => apiFetch<ServerHealth>("/api/admin/health"),
   downloadBackup: () => apiDownload("/api/admin/backup"),
-  restoreBackup: (file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return apiUpload<void>("/api/admin/backup/restore", form);
-  },
+  restoreBackup: (file: File) => apiUploadFile<void>("/api/admin/backup/restore", file),
 };

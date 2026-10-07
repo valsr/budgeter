@@ -8,6 +8,7 @@ import { CategoryTag, hexToRgba } from "./CategoryTag";
 import { LinkTransferModal } from "./LinkTransferModal";
 import { NewTransactionModal } from "./NewTransactionModal";
 import { useLearnCheck } from "./Toast";
+import { DEFAULT_ACCOUNT_COLOR } from "../api/accounts";
 
 interface TransactionTableProps {
   /** Full category tree including archived (so historical transactions still
@@ -55,8 +56,6 @@ const EMPTY_FILTERS: Filters = {
 };
 
 const PAGE_SIZE = 100;
-const DEFAULT_ACCOUNT_COLOR = "#4f8a9c";
-
 /** One line in the table. A linked transfer is a single movement of money shown once, with a leg in
  * each of two accounts; everything else is one transaction on one account. */
 type Entry =

@@ -3,51 +3,18 @@ import { useEffect, useState } from "react";
 import { adminApi } from "../../api/admin";
 import type { ServerHealth, ServerSettings } from "../../api/admin";
 import { errorMessage } from "../../api/client";
+import { versionParts } from "../../api/version";
 import { useAuth } from "../../auth/context";
-import { saveBlob } from "../../download";
+import { BackupCards } from "../../components/BackupCards";
 import { formatBytes, formatDuration, formatTimestamp } from "../../format";
 
 export function ServerTab() {
   const { refresh } = useAuth();
   const [settings, setSettings] = useState<ServerSettings | null>(null);
-  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null);
-  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
-    adminApi.getSettings().then((s) => {
-      setSettings(s);
-      setRegistrationOpen(s.registration_open);
-    });
+    adminApi.getSettings().then(setSettings);
   }, []);
-
-  async function toggleRegistration(open: boolean) {
-    const saved = await adminApi.updateSettings({ registration_open: open });
-    setRegistrationOpen(saved.registration_open);
-  }
-
-  async function download() {
-    const { blob, filename } = await adminApi.downloadBackup();
-    saveBlob(blob, filename ?? "budgeter-server-backup.zip");
-  }
-
-  async function restore(file: File) {
-    if (
-      !confirm(
-        "This replaces every user's data and accounts with the archive. You may need to log in again. Continue?",
-      )
-    ) {
-      return;
-    }
-    setRestoring(true);
-    try {
-      await adminApi.restoreBackup(file);
-      alert("Restore complete.");
-      // Sessions came from the archive too: find out whether this one survived.
-      await refresh();
-    } finally {
-      setRestoring(false);
-    }
-  }
 
   return (
     <div>
@@ -62,40 +29,29 @@ export function ServerTab() {
         <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13 }}>
           <input
             type="checkbox"
-            checked={registrationOpen ?? false}
-            disabled={registrationOpen === null}
-            onChange={(e) => toggleRegistration(e.target.checked)}
+            checked={settings?.registration_open ?? false}
+            disabled={!settings}
+            onChange={(e) => adminApi.updateSettings({ registration_open: e.target.checked }).then(setSettings)}
           />
           Allow new registrations
         </label>
       </div>
-      <div className="card" style={{ maxWidth: 520 }}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Download server backup</div>
-        <p className="sub" style={{ marginBottom: 12 }}>
-          One archive with every user's login and books. It contains everyone's data — keep it somewhere safe.
-        </p>
-        <button className="btn" onClick={download}>
-          Download server backup (.zip)
-        </button>
-      </div>
-      <div className="card" style={{ maxWidth: 520, borderColor: "#e3cfa3", background: "#fdfbf7" }}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Restore server from backup</div>
-        <p className="sub" style={{ marginBottom: 12 }}>
-          Replaces all users and all of their data with the archive's. Users created since it was taken are
-          removed. <b style={{ color: "var(--c5)" }}>This can't be undone.</b>
-        </p>
-        <input
-          type="file"
-          accept=".zip"
-          aria-label="Server backup archive"
-          style={{ fontSize: 12.5 }}
-          disabled={restoring}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) restore(file);
-          }}
-        />
-      </div>
+      <BackupCards
+        download={adminApi.downloadBackup}
+        restore={adminApi.restoreBackup}
+        fallbackFilename="budgeter-server-backup.zip"
+        accept=".zip"
+        downloadTitle="Download server backup"
+        downloadText="One archive with every user's login and books. It contains everyone's data — keep it somewhere safe."
+        downloadLabel="Download server backup (.zip)"
+        restoreTitle="Restore server from backup"
+        restoreText="Replaces all users and all of their data with the archive's. Users created since it was taken are removed."
+        restoreInputLabel="Server backup archive"
+        confirmText="This replaces every user's data and accounts with the archive. You may need to log in again. Continue?"
+        doneText="Restore complete."
+        // Sessions came from the archive too: find out whether this one survived.
+        onRestored={refresh}
+      />
     </div>
   );
 }
@@ -219,19 +175,6 @@ function NetworkCard({
   );
 }
 
-function describeVersion(v: ServerHealth["version"]): string {
-  if (!v.sha) return "unknown";
-  const parts = [
-    v.version,
-    `commit ${v.sha}`,
-    v.commit_date ? `committed ${formatTimestamp(v.commit_date)}` : null,
-    v.build_date
-      ? `built ${formatTimestamp(v.build_date)}`
-      : "running from source" + (v.dirty ? ", with uncommitted changes" : ""),
-  ];
-  return parts.filter(Boolean).join(" · ");
-}
-
 const CHECK_LABELS: Record<string, string> = {
   server_db: "Server database",
   books: "Books files",
@@ -247,39 +190,24 @@ function HealthCard() {
 
   useEffect(load, []);
 
-  const rows: [string, string][] = health
-    ? [
-        ["Version", describeVersion(health.version)],
-        [
-          "Serving",
-          health.serving
-            ? `${health.serving.https ? "HTTPS" : "HTTP"} on port ${health.serving.port}`
-            : "Started outside the launcher",
-        ],
-        ["Up for", `${formatDuration(health.uptime_seconds)} (since ${formatTimestamp(health.started_at)})`],
-        [
-          "Users",
-          `${health.users.total} users (${health.users.active_admins} active admins, ${health.users.disabled} disabled)`,
-        ],
-        ...(health.storage
-          ? ([
-              [
-                "Storage",
-                `${health.storage.books_files} books files, ${formatBytes(health.storage.books_bytes)}; ` +
-                  `server database ${formatBytes(health.storage.server_db_bytes)}`,
-              ],
-            ] as [string, string][])
-          : []),
-        ...(health.data_dir ? ([["Data directory", health.data_dir]] as [string, string][]) : []),
-        ...(health.schema
-          ? ([["Schema", `server ${health.schema.server ?? "?"}, books ${health.schema.books ?? "?"}`]] as [
-              string,
-              string,
-            ][])
-          : []),
-        ["Python", health.python_version],
-      ]
-    : [];
+  function rows(h: ServerHealth): [string, string][] {
+    const all: [string, string | null | undefined][] = [
+      ["Version", h.version.sha ? versionParts(h.version).join(" · ") : "unknown"],
+      ["Serving", h.serving ? `${h.serving.https ? "HTTPS" : "HTTP"} on port ${h.serving.port}` : "Started outside the launcher"],
+      ["Up for", `${formatDuration(h.uptime_seconds)} (since ${formatTimestamp(h.started_at)})`],
+      ["Users", `${h.users.total} users (${h.users.active_admins} active admins, ${h.users.disabled} disabled)`],
+      [
+        "Storage",
+        h.storage &&
+          `${h.storage.books_files} books files, ${formatBytes(h.storage.books_bytes)}; ` +
+            `server database ${formatBytes(h.storage.server_db_bytes)}`,
+      ],
+      ["Data directory", h.data_dir],
+      ["Schema", h.schema && `server ${h.schema.server ?? "?"}, books ${h.schema.books ?? "?"}`],
+      ["Python", h.python_version],
+    ];
+    return all.filter((row): row is [string, string] => Boolean(row[1]));
+  }
 
   return (
     <div className="card" style={{ maxWidth: 520 }}>
@@ -304,7 +232,7 @@ function HealthCard() {
                   <td style={value === "ok" || value === "disabled" ? undefined : warn}>{value}</td>
                 </tr>
               ))}
-              {rows.map(([label, value]) => (
+              {rows(health).map(([label, value]) => (
                 <tr key={label}>
                   <td>{label}</td>
                   <td>{value}</td>

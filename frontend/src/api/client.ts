@@ -101,6 +101,14 @@ export async function apiUpload<T>(path: string, formData: FormData, opts: Reque
   return res.json() as Promise<T>;
 }
 
+/** Upload one file as the `file` field, plus any extra text fields. */
+export function apiUploadFile<T>(path: string, file: File, fields: Record<string, string> = {}): Promise<T> {
+  const form = new FormData();
+  form.append("file", file);
+  for (const [name, value] of Object.entries(fields)) form.append(name, value);
+  return apiUpload<T>(path, form);
+}
+
 export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string | null }> {
   const res = await rawFetch(path);
   const disposition = res.headers.get("content-disposition") ?? "";
