@@ -25,15 +25,10 @@ export interface RuleInput {
 type CategorizationChangedListener = () => void;
 let categorizationChangedListener: CategorizationChangedListener | null = null;
 
-/** Subscribe to be told whenever a rule is created/edited/learned -- each
- * of those immediately re-runs categorization against every currently-
- * uncategorized transaction server-side (docs/requirements.md §3.1), so a
- * transaction list already on screen (e.g. the Transactions page) can go
- * stale without the page itself doing anything. Rule creation/editing can
- * happen from outside that page's component tree (the toast-driven learned-
- * rule/conflict flows in components/Toast.tsx are mounted at the app root),
- * so a prop callback can't reach it -- this fills that gap. Only one
- * subscriber at a time; pass `null` to unsubscribe. */
+/** Subscribe to be told whenever a rule is created/edited/learned -- each of those immediately
+ * re-runs categorization against every currently- uncategorized transaction server-side
+ * (docs/requirements.md §3.1), so a transaction list already on screen (e.g. the Transactions page)
+ * can go stale without the page itself doing anything. */
 export function setCategorizationChangedListener(listener: CategorizationChangedListener | null): void {
   categorizationChangedListener = listener;
 }

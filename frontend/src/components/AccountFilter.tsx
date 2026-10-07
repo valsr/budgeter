@@ -17,9 +17,7 @@ function label(accounts: Account[], selectedIds: number[]): string {
   return `${selectedIds.length} accounts`;
 }
 
-/** Multi-select for narrowing the budget report to a subset of source
- * accounts. A popover of checkboxes rather than a native `<select multiple>`,
- * which hides that more than one can be picked and needs a modifier key. */
+/** Multi-select for narrowing the budget report to a subset of source accounts. */
 export function AccountFilter({ accounts, selectedIds, onChange }: AccountFilterProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -42,16 +40,15 @@ export function AccountFilter({ accounts, selectedIds, onChange }: AccountFilter
   }, [open]);
 
   function toggle(accountId: number) {
-    // An empty selection renders as every box ticked, so a click there means
-    // "deselect this one" -- start from the full set, not from nothing, or
-    // unticking a box would select it instead.
+    // An empty selection renders as every box ticked, so a click there means "deselect this one" --
+    // start from the full set, not from nothing, or unticking a box would select it instead.
     const next =
       selected.size === 0 ? new Set(accounts.map((a) => a.id)) : new Set(selected);
     if (next.has(accountId)) next.delete(accountId);
     else next.add(accountId);
-    // A report over no accounts has nothing to show, so the last box can't be
-    // unticked; and every account selected is the same report as none, so it
-    // normalises to the empty list and the label reads "All accounts".
+    // A report over no accounts has nothing to show, so the last box can't be unticked; and every
+    // account selected is the same report as none, so it normalises to the empty list and the label
+    // reads "All accounts".
     if (next.size === 0) return;
     onChange(next.size === accounts.length ? [] : [...next]);
   }

@@ -2,7 +2,7 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.models.account import Account
@@ -32,13 +32,7 @@ def record_change(
     group_id: str | None = None,
     is_primary: bool = True,
 ) -> str:
-    """Write one change row and return its group_id.
-
-    Pass the same group_id into subsequent calls to link rows written by a
-    single logical operation (a cascading category archive, a transfer's
-    two legs, an import batch's created transactions) so the history page
-    collapses them into one entry and undo treats them as one unit.
-    """
+    """Write one change row and return its group_id."""
     group_id = group_id or str(uuid.uuid4())
     db.add(
         model(
@@ -65,10 +59,6 @@ def purge_expired(db: Session) -> None:
 
 
 # --- snapshot builders -----------------------------------------------------
-#
-# Plain, JSON-safe dicts (dates/enums/Decimals coerced to str/float) — these
-# are frozen-in-time records of what a row looked like, independent of how
-# the live schema or related rows may have changed since.
 
 
 def serialize_account(account: Account) -> dict[str, Any]:

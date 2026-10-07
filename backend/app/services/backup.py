@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from app.errors import ValidationError
@@ -8,99 +10,64 @@ from app.errors import ValidationError
 SQLITE_MAGIC = b"SQLite format 3\x00"
 
 
-def resolve_sqlite_path(database_url: str) -> str:
-    """Extract the filesystem path from a `sqlite:///...` URL.
-
-    `sqlite:///relative/path.db` -> `relative/path.db` (3 slashes = relative)
-    `sqlite:////abs/path.db` -> `/abs/path.db` (4 slashes = absolute)
-    """
-    prefix = "sqlite:///"
-    if not database_url.startswith(prefix):
-        raise ValidationError("Backup/restore requires a SQLite database_url")
-    return database_url[len(prefix):]
-
-
-def create_backup_bytes(db_path: str) -> bytes:
-    """Snapshot the live SQLite file via sqlite3's backup API (rather than
-    reading the file's raw bytes directly) so a concurrent writer or an
-    open WAL file can't produce a torn/inconsistent copy.
-    """
+@contextmanager
+def _temp_db() -> Iterator[Path]:
+    """A scratch file path that is removed afterwards."""
     fd, tmp_path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     try:
+        yield Path(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
+@contextmanager
+def open_image(data: bytes) -> Iterator[sqlite3.Connection]:
+    """A connection to a throwaway copy of a database image."""
+    with _temp_db() as path:
+        path.write_bytes(data)
+        conn = sqlite3.connect(path)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+
+def create_backup_bytes(db_path: str) -> bytes:
+    """Snapshot a live SQLite file through its backup API, so a concurrent writer can't tear the copy."""
+    with _temp_db() as path:
         src = sqlite3.connect(db_path)
-        dst = sqlite3.connect(tmp_path)
+        dst = sqlite3.connect(path)
         try:
             with dst:
                 src.backup(dst)
         finally:
             src.close()
             dst.close()
-        return Path(tmp_path).read_bytes()
-    finally:
-        os.unlink(tmp_path)
+        return path.read_bytes()
 
 
 def validate_sqlite_bytes(data: bytes) -> None:
     if not data.startswith(SQLITE_MAGIC):
         raise ValidationError("Uploaded file is not a valid SQLite database")
-
-    fd, tmp_path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    try:
-        Path(tmp_path).write_bytes(data)
-        conn = sqlite3.connect(tmp_path)
+    with open_image(data) as conn:
         try:
             result = conn.execute("PRAGMA integrity_check(1)").fetchone()
         except sqlite3.DatabaseError as e:
             raise ValidationError(f"Uploaded file is not a valid SQLite database: {e}") from e
-        finally:
-            conn.close()
-        if result is None or result[0] != "ok":
-            raise ValidationError("Uploaded file failed SQLite integrity check")
-    finally:
-        os.unlink(tmp_path)
-
-
-def write_backup_bytes(db_path: str, data: bytes) -> None:
-    """Validate then atomically replace the live database file.
-
-    Writes to a temp file in the same directory first and uses os.replace
-    (atomic on the same filesystem) so a crash mid-write can't leave a
-    half-written database in place.
-    """
-    validate_sqlite_bytes(data)
-
-    directory = os.path.dirname(os.path.abspath(db_path)) or "."
-    fd, tmp_path = tempfile.mkstemp(suffix=".db", dir=directory)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp_path, db_path)
-    except BaseException:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
+    if result is None or result[0] != "ok":
+        raise ValidationError("Uploaded file failed SQLite integrity check")
 
 
 def _inspect_sqlite_bytes(data: bytes) -> tuple[set[str], str | None]:
     """(table names, Alembic revision or None) of a validated SQLite image."""
-    fd, tmp_path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    try:
-        Path(tmp_path).write_bytes(data)
-        conn = sqlite3.connect(tmp_path)
-        try:
-            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            revision = None
-            if "alembic_version" in tables:
-                row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-                revision = row[0] if row else None
-        finally:
-            conn.close()
-        return tables, revision
-    finally:
-        os.unlink(tmp_path)
+    with open_image(data) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        revision = None
+        if "alembic_version" in tables:
+            row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+            revision = row[0] if row else None
+    return tables, revision
 
 
 def _known_revision(revision: str, ini_section: str) -> bool:
@@ -142,9 +109,7 @@ def validate_server_bytes(data: bytes) -> None:
 
 
 def _verify_schema(path: Path, metadata, kind: str) -> None:
-    """After migrating: every table and column the app's models expect must
-    actually be there. A file can carry a plausible revision stamp and still
-    be nothing like the schema that stamp promises."""
+    """After migrating: every table and column the app's models expect must actually be there."""
     conn = sqlite3.connect(path)
     try:
         for table in metadata.sorted_tables:
@@ -159,13 +124,8 @@ def _verify_schema(path: Path, metadata, kind: str) -> None:
 
 
 def stage_books(data: bytes, directory: Path, name: str | None = None) -> Path:
-    """Turn an uploaded books image into a ready-to-swap file in `directory`:
-    validated, migrated to head, and checked against the models.
-
-    Everything that can go wrong goes wrong here, on a copy -- the caller's
-    live books are untouched until it os.replace()s the returned path in.
-    Raises ValidationError and leaves nothing behind on any failure.
-    """
+    """Turn an uploaded books image into a ready-to-swap file in `directory`: validated, migrated to
+    head, and checked against the models."""
     from app import books
     from app import models  # noqa: F401  (registers the models)
     from app.db import Base

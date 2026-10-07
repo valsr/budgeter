@@ -26,10 +26,9 @@ def _validate_conditions(conditions: list[ConditionInput]) -> None:
     if not conditions:
         raise ValidationError("A rule must have at least one condition")
     for field, operator, value in conditions:
-        # Account conditions match by set membership over account ids, and
-        # nothing else does -- substring/ordering comparisons on a surrogate
-        # key are meaningless, and membership over free text or an amount has
-        # no defined coercion.
+        # Account conditions match by set membership over account ids, and nothing else does --
+        # substring/ordering comparisons on a surrogate key are meaningless, and membership over
+        # free text or an amount has no defined coercion.
         if field == ConditionField.ACCOUNT and operator not in MEMBERSHIP_OPERATORS:
             raise ValidationError("An account condition must use the 'in' or 'not in' operator")
         if field != ConditionField.ACCOUNT and operator in MEMBERSHIP_OPERATORS:

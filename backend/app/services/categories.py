@@ -25,9 +25,8 @@ def _next_sort_order(db: Session, parent_id: int | None) -> int:
 
 
 def _is_in_subtree(db: Session, root_id: int, candidate_id: int) -> bool:
-    """True if candidate_id is root_id itself, or anywhere in root_id's
-    subtree at any depth — used to block reparenting a category under one
-    of its own descendants (which would create a cycle)."""
+    """True if candidate_id is root_id itself, or anywhere in root_id's subtree at any depth — used
+    to block reparenting a category under one of its own descendants (which would create a cycle)."""
     frontier = [root_id]
     while frontier:
         current = frontier.pop()
@@ -210,18 +209,8 @@ PATH_DELIMITER = ":"
 
 
 def resolve_category_path(db: Session, path: str) -> Category:
-    """Find-or-create a category by a colon-delimited path, e.g.
-    "shared:groceries:alcohol" (docs/requirements.md §2.2's own example,
-    `shared → groceries → alcohol`). Each segment is matched
-    case-insensitively against existing non-archived siblings at that
-    level; a segment with no match is created. Returns the final (leaf)
-    category.
-
-    Matching only considers non-archived siblings — same scope pickers use
-    — so typing a path that happens to match an archived category's name
-    creates a fresh active one rather than silently reviving the archived
-    one.
-    """
+    """Find-or-create a category by a colon-delimited path, e.g. "shared:groceries:alcohol"
+    (docs/requirements.md §2.2's own example, `shared → groceries → alcohol`)."""
     segments = [s.strip() for s in path.split(PATH_DELIMITER)]
     if not segments or any(s == "" for s in segments):
         raise ValidationError("Category path segments cannot be empty")
@@ -246,16 +235,7 @@ def resolve_category_path(db: Session, path: str) -> Category:
     return category
 
 
-# --- undo-only helpers -------------------------------------------------
-#
-# Used exclusively by app/services/undo.py. apply_category_snapshot covers
-# every mutable field a CategoryChange row can carry — including
-# archived_at, which update_category's public signature deliberately
-# doesn't expose (archiving goes through the dedicated archive_category
-# cascade) — so undoing either a plain edit or an archive/un-archive goes
-# through the same path. restore_category/hard_delete_category mirror the
-# accounts.py pair for undoing a delete/create (categories have no hard
-# delete in the normal CRUD surface, only the archive soft-delete).
+# --- undo-only helpers, used by services/undo.py ---
 
 
 def apply_category_snapshot(db: Session, category_id: int, snapshot: dict) -> Category:

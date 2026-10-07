@@ -36,9 +36,7 @@ def _load_existing(db: Session, account_id: int) -> list[ExistingTransaction]:
 
 
 def _parse_account_blocks(filename: str, content: str) -> list[QifAccountBlock]:
-    """Format-dispatching parse: QFX/OFX by extension or content sniffing,
-    QIF otherwise. Both return the same QifAccountBlock shape so the rest of
-    the import pipeline doesn't care which format a file was."""
+    """Format-dispatching parse: QFX/OFX by extension or content sniffing, QIF otherwise."""
     if looks_like_qfx(filename, content):
         return parse_qfx_accounts(content)
     return parse_qif_accounts(content)
@@ -137,12 +135,7 @@ def import_qif(
 def _dry_run_counts(
     rows: list[QifTransaction], existing: list[ExistingTransaction]
 ) -> tuple[int, int, int]:
-    """Classify rows the way `_import_rows` would, without writing anything.
-
-    `existing` is extended in place with the rows that would be imported, so
-    repeated calls against the same account (two file blocks resolving to one
-    account) see each other's rows, exactly as a real import would.
-    """
+    """Classify rows the way `_import_rows` would, without writing anything."""
     new_count = duplicate_count = review_count = 0
     for row in rows:
         match_type, _ = classify_match(row.date, row.amount, row.name, existing)
@@ -164,20 +157,9 @@ def detect_accounts(
     content: str,
     overrides: dict[str | None, int | None] | None = None,
 ) -> tuple[bool, list[dict]]:
-    """Preview a file before importing it: which accounts it references,
-    which existing account each one matches (by name or account number), and
-    what would happen to its transactions — imported, skipped as duplicates,
-    or flagged for review.
-
-    `has_account_sections` is False for a classic single-account QIF file (no
-    `!Account` header); that file still yields one entry, with
-    `parsed_name` None, so the caller can prompt for its target account the
-    same way as for a named one.
-
-    `overrides` maps a parsed name to the account the user picked instead of
-    the auto-match — None meaning "create a new account", in which case every
-    row counts as new.
-    """
+    """Preview a file before importing it: which accounts it references, which existing account each
+    one matches (by name or account number), and what would happen to its transactions — imported,
+    skipped as duplicates, or flagged for review."""
     blocks = _parse_account_blocks(filename, content)
     has_sections = any(block.name is not None for block in blocks)
 
@@ -238,9 +220,9 @@ def detect_accounts(
 def import_multi(
     db: Session, filename: str, content: str, resolutions: dict[str | None, int]
 ) -> tuple[list[ImportBatch], list[int]]:
-    """Import every account block in a file, each into the account_id given
-    for its parsed name in `resolutions` (built from detect_accounts'
-    output, after the caller has resolved/created any new accounts)."""
+    """Import every account block in a file, each into the account_id given for its parsed name in
+    `resolutions` (built from detect_accounts' output, after the caller has resolved/created any new
+    accounts)."""
     blocks = _parse_account_blocks(filename, content)
 
     merged_rows: dict[str | None, list[QifTransaction]] = {}
@@ -251,9 +233,8 @@ def import_multi(
             order.append(block.name)
         merged_rows[block.name].extend(block.transactions)
 
-    # Validate every block has a resolution before importing anything, so a
-    # missing one can't leave a partial commit (some accounts imported,
-    # others silently skipped).
+    # Validate every block has a resolution before importing anything, so a missing one can't leave
+    # a partial commit (some accounts imported, others silently skipped).
     missing = [name for name in order if resolutions.get(name) is None]
     if missing:
         labels = ", ".join(repr(name or "this file") for name in missing)

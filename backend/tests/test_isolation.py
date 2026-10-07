@@ -1,12 +1,7 @@
 import sqlite3
 
 from app import books
-
-
-def make_account(client, name):
-    resp = client.post("/api/accounts", json={"name": name, "type": "asset"})
-    assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+from tests.helpers import make_account
 
 
 def test_users_cannot_see_or_fetch_each_others_data(make_client):

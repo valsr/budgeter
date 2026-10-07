@@ -3,7 +3,6 @@ one zip. Restoring it replaces everything on the server."""
 
 import datetime as dt
 import io
-import os
 import re
 import shutil
 import sqlite3
@@ -59,9 +58,8 @@ def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
         names = archive.namelist()
         if len(set(names)) != len(names):
             raise ValidationError("Archive lists the same file twice")
-        # Names are matched whole against the two shapes this app writes --
-        # never joined onto a path -- so "..", absolute paths and stray
-        # files are all refused here.
+        # Names are matched whole against the two shapes this app writes -- never joined onto a path
+        # -- so "..", absolute paths and stray files are all refused here.
         unexpected = [n for n in names if n != _SERVER_MEMBER and not _BOOKS_MEMBER.fullmatch(n)]
         if unexpected:
             raise ValidationError(f"Archive contains an unexpected file: {unexpected[0]!r}")
@@ -92,23 +90,13 @@ def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
 
 
 def _user_ids_in(server_bytes: bytes) -> set[int]:
-    fd, tmp_path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    try:
-        Path(tmp_path).write_bytes(server_bytes)
-        conn = sqlite3.connect(tmp_path)
-        try:
-            return {row[0] for row in conn.execute("SELECT id FROM users")}
-        finally:
-            conn.close()
-    finally:
-        os.unlink(tmp_path)
+    with backup_service.open_image(server_bytes) as conn:
+        return {row[0] for row in conn.execute("SELECT id FROM users")}
 
 
 def _require_active_admin(server_file: Path) -> None:
-    """Refuse a server database that would lock everyone out of
-    administration: it has users, but none who is an enabled admin. (One
-    with no users at all is fine -- registration is always open then.)"""
+    """Refuse a server database that would lock everyone out of administration: it has users, but
+    none who is an enabled admin."""
     conn = sqlite3.connect(server_file)
     try:
         users, active_admins = conn.execute(
@@ -121,13 +109,7 @@ def _require_active_admin(server_file: Path) -> None:
 
 
 def restore_archive(data: bytes) -> None:
-    """Replace the server database and all books with the archive's.
-
-    Every member is validated, then staged inside the data directory and
-    migrated there, before the first live file is touched -- so a bad
-    archive, or a full disk, raises with the server exactly as it was.
-    Raises ValidationError.
-    """
+    """Replace the server database and all books with the archive's."""
     data_dir = _data_dir()
     server_bytes, books_bytes = _read_members(data)
 

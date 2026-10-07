@@ -2,6 +2,7 @@ import { useState } from "react";
 import { activeCategories, flattenLeafCategories } from "../api/categories";
 import { transactionsApi } from "../api/transactions";
 import type { Account, Category } from "../api/types";
+import { errorMessage } from "../api/client";
 import { Modal } from "./Modal";
 import { useLearnCheck } from "./Toast";
 
@@ -62,7 +63,7 @@ export function NewTransactionModal({
         runLearnCheck(created.id);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create transaction");
+      setError(errorMessage(e, "Failed to create transaction"));
     }
   }
 

@@ -50,10 +50,8 @@ def _find_group(db: Session, group_id: str):
 
 
 def is_stale(db: Session, table, row) -> bool:
-    """True if the live entity no longer matches this UPDATE row's `after`
-    snapshot — i.e. a newer change has happened since. Non-UPDATE rows are
-    never stale (undo-create/undo-delete either succeed outright or are
-    blocked by a dependents/collision check, not a "changed since" one)."""
+    """True if the live entity no longer matches this UPDATE row's `after` snapshot — i.e. a newer
+    change has happened since."""
     if row.operation != ChangeOperation.UPDATE:
         return False
     obj = db.get(_ENTITY_MODEL[table], row.entity_id)
@@ -156,11 +154,10 @@ def _undo_group(db: Session, table, rows: list) -> UndoOutcome:
         for row in rows:
             _undo_row(db, table, row)
     except (ValidationError, NotFoundError) as e:
-        # UPDATE-undo has no pre-flight check (failures here are rare edge
-        # cases, e.g. a snapshot's parent_id no longer exists) — any rows
-        # already reverted before the failure keep their own new change
-        # records (self-logged), so the data stays consistent even though
-        # this group's remaining rows are left un-undone.
+        # UPDATE-undo has no pre-flight check (failures here are rare edge cases, e.g. a snapshot's
+        # parent_id no longer exists) — any rows already reverted before the failure keep their own
+        # new change records (self-logged), so the data stays consistent even though this group's
+        # remaining rows are left un-undone.
         db.commit()
         return UndoOutcome(group_id, "skipped", str(e))
 
@@ -172,9 +169,8 @@ def _undo_group(db: Session, table, rows: list) -> UndoOutcome:
 
 
 def undo_groups(db: Session, group_ids: list[str]) -> list[UndoOutcome]:
-    """Undo every requested group_id, strict reverse-chronological order
-    (by the group's earliest row), best-effort — one group's failure
-    doesn't block the rest."""
+    """Undo every requested group_id, strict reverse-chronological order (by the group's earliest
+    row), best-effort — one group's failure doesn't block the rest."""
     found: list[tuple[str, object, list, dt.datetime]] = []
     for group_id in group_ids:
         table, rows = _find_group(db, group_id)

@@ -87,14 +87,9 @@ for _error, _status in _ERROR_STATUS.items():
 
 @app.middleware("http")
 async def refuse_cross_origin_writes(request: Request, call_next):
-    """CSRF guard. The session cookie is SameSite=Lax, which stops other
-    *sites* -- but another port on the same host, or a sibling subdomain,
-    is the same site, and a plain form post (including a file upload to the
-    restore endpoints) needs no CORS preflight. So a state-changing request
-    that names an Origin must name this app's own, or an allowed one.
-    Requests with no Origin (curl, scripts, the MCP adapter) aren't browsers
-    acting on a cookie, and pass.
-    """
+    """CSRF guard. The session cookie is SameSite=Lax, which stops other *sites* -- but another port
+    on the same host, or a sibling subdomain, is the same site, and a plain form post (including a
+    file upload to the restore endpoints) needs no CORS preflight."""
     if request.method not in _SAFE_METHODS and request.url.path.startswith("/api/"):
         origin = request.headers.get("origin")
         if (
@@ -124,14 +119,8 @@ app.include_router(settings.router)
 app.include_router(history.router)
 
 def resolve_static_path(static_dir: Path, full_path: str) -> Path:
-    """Which file to serve for a non-API path: the static file it names, or
-    index.html so React Router can handle a client-side route.
-
-    The requested path is attacker-controlled (and arrives URL-decoded, so
-    "%2e%2e" is ".."). It's only served if it really resolves to a file
-    inside static_dir -- otherwise "/../../data/server.db" would hand out
-    the databases.
-    """
+    """Which file to serve for a non-API path: the static file it names, or index.html so React
+    Router can handle a client-side route."""
     index = static_dir / "index.html"
     if not full_path:
         return index
@@ -142,10 +131,8 @@ def resolve_static_path(static_dir: Path, full_path: str) -> Path:
     return index
 
 
-# In the packaged container, the frontend's `npm run build` output is copied
-# to app/static/ (see the root Containerfile). In local dev this directory
-# doesn't exist, so the SPA is served by the separate Vite dev server instead
-# — this mount is a no-op unless the container's build step created it.
+# In the packaged container, the frontend's `npm run build` output is copied to app/static/ (see the
+# root Containerfile).
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="static-assets")

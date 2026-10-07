@@ -1,7 +1,4 @@
-"""Server administration: other users and server-wide settings.
-
-Nothing here reads a user's books -- an admin manages accounts, not data.
-"""
+"""Server administration: other users and server-wide settings."""
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response

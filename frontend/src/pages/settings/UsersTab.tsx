@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { adminApi } from "../../api/admin";
 import type { AdminUser } from "../../api/types";
+import { errorMessage } from "../../api/client";
 import { useAuth } from "../../auth/context";
 import { Modal } from "../../components/Modal";
 import { formatTimestamp } from "../../format";
@@ -192,7 +193,7 @@ function ResetPasswordModal({
       await adminApi.updateUser(user.id, { password });
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't reset the password");
+      setError(errorMessage(e, "Couldn't reset the password"));
       setSaving(false);
     }
   }

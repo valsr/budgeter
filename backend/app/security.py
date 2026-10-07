@@ -16,9 +16,8 @@ def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
 
 
 def hash_password(password: str) -> str:
-    """`scrypt$<n>$<r>$<p>$<salt hex>$<hash hex>` -- the cost parameters
-    travel with the hash so they can be raised later without invalidating
-    the passwords already stored."""
+    """`scrypt$<n>$<r>$<p>$<salt hex>$<hash hex>` -- the cost parameters travel with the hash so
+    they can be raised later without invalidating the passwords already stored."""
     salt = secrets.token_bytes(_SALT_BYTES)
     digest = _scrypt(password, salt, _SCRYPT_N, _SCRYPT_R, _SCRYPT_P)
     return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${digest.hex()}"

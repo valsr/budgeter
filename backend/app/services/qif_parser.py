@@ -43,14 +43,7 @@ class QifTransaction:
 
 @dataclass
 class QifAccountBlock:
-    """Transactions belonging to one account within a QIF file.
-
-    `name` is None for single-account exports, which have no `!Account`
-    header at all — the caller supplies the target account out of band.
-    Multi-account (Quicken-style) exports declare each account via an
-    `!Account` header block (N=name, T=type) immediately before the
-    `!Type:...` section of transactions that belong to it.
-    """
+    """Transactions belonging to one account within a QIF file."""
 
     name: str | None
     account_type_hint: str | None
@@ -82,19 +75,7 @@ def _parse_date(raw: str) -> dt.date:
 
 
 def parse_qif_accounts(content: str) -> list[QifAccountBlock]:
-    """Parse a QIF file's contents into one block of transactions per
-    account. Only the Bank/CCard-style single-line transaction fields we
-    need (date, amount, payee, memo) are extracted; QIF's own split syntax
-    and other record types are not supported (splits are managed within
-    this app, not imported pre-split).
-
-    Single-account exports (the common case) have no `!Account` header at
-    all, so this returns a single block with `name=None` — the caller is
-    expected to already know which account the file belongs to. Multi-
-    account (Quicken-style) exports interleave `!Account` header blocks
-    (N=name, T=type) with the `!Type:...` transaction sections that follow
-    each one; those produce one named block per account.
-    """
+    """Parse a QIF file's contents into one block of transactions per account."""
     blocks: list[QifAccountBlock] = []
     account_name: str | None = None
     account_type_hint: str | None = None

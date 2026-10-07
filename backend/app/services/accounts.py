@@ -96,14 +96,7 @@ def list_accounts(db: Session) -> list[Account]:
     return list(db.execute(select(Account).order_by(Account.id)).scalars().all())
 
 
-# --- undo-only helpers -------------------------------------------------
-#
-# Used exclusively by app/services/undo.py to reverse a CREATE/DELETE
-# change record. Not part of the normal CRUD surface: restore_account
-# recreates a row with its original id (undoing a delete), and
-# hard_delete_account permanently removes a row (undoing a create) rather
-# than the archive-style soft delete pattern other entities use — accounts
-# have no archive concept, and no normal delete endpoint exists at all.
+# --- undo-only helpers, used by services/undo.py ---
 
 
 def restore_account(db: Session, snapshot: dict) -> Account:

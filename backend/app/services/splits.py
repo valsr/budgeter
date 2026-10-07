@@ -12,12 +12,7 @@ def _round(value: float | Decimal) -> Decimal:
 def validate_splits(
     splits: list[tuple[int | None, float]], expected_total: float | None = None
 ) -> Decimal:
-    """Validate a set of (category_id, amount) pairs for one transaction.
-
-    Enforces: at least one split, no category (including "uncategorized",
-    i.e. None) used more than once, and — when `expected_total` is given —
-    that the amounts sum exactly to it. Returns the validated total.
-    """
+    """Validate a set of (category_id, amount) pairs for one transaction."""
     if not splits:
         raise ValidationError("A transaction must have at least one split")
 

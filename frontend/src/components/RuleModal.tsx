@@ -32,21 +32,18 @@ const OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
   { value: "less_than", label: "less than" },
   { value: "greater_than", label: "greater than" },
 ];
-// Amount-only: direction operators ignore the value entirely (any deposit,
-// any withdrawal, regardless of size), so they're additive to the base set
-// rather than a replacement for it -- equals/less_than/greater_than above
-// still compare magnitude (rule_engine's AMOUNT field is abs()'d).
+// Amount-only: direction operators ignore the value entirely (any deposit, any withdrawal,
+// regardless of size), so they're additive to the base set rather than a replacement for it --
+// equals/less_than/greater_than above still compare magnitude (rule_engine's AMOUNT field is
+// abs()'d).
 const AMOUNT_OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
   ...OPERATOR_OPTIONS,
   { value: "is_deposit", label: "is a deposit/credit" },
   { value: "is_withdrawal", label: "is a withdrawal/debit" },
 ];
-// Account-only: the condition's value is a comma-separated list of account
-// *ids* (rule_engine compares TransactionContext.account_id), so the only
-// operators with a sensible meaning are set membership -- substring and
-// ordering comparisons on a surrogate key are nonsense. "one of these
-// accounts" is also what people actually want to say, so a rule that used to
-// need one clause per account is now a single condition.
+// Account-only: the condition's value is a comma-separated list of account *ids* (rule_engine
+// compares TransactionContext.account_id), so the only operators with a sensible meaning are set
+// membership -- substring and ordering comparisons on a surrogate key are nonsense.
 const ACCOUNT_OPERATOR_OPTIONS: { value: ConditionOperator; label: string }[] = [
   { value: "in", label: "is one of" },
   { value: "not_in", label: "is not one of" },
@@ -79,10 +76,10 @@ interface RuleConditionInput {
   value: string;
 }
 
-/** Pull a loaded condition onto an operator this editor still offers for its
- * field -- account conditions written before `in`/`not_in` existed carry
- * `equals` (or, older still, a `contains`/`less_than` that only ever compared
- * account ids by accident), all of which mean "in" over a one-element set. */
+/** Pull a loaded condition onto an operator this editor still offers for its field -- account
+ * conditions written before `in`/`not_in` existed carry `equals` (or, older still, a
+ * `contains`/`less_than` that only ever compared account ids by accident), all of which mean "in"
+ * over a one-element set. */
 function normalizeCondition(c: RuleConditionInput): RuleConditionInput {
   const valid = operatorOptionsFor(c.field).map((o) => o.value);
   return valid.includes(c.operator) ? c : { ...c, operator: valid[0] };
@@ -103,10 +100,8 @@ interface RuleModalProps {
   /** When true, saving does a one-time auto-confirm backfill (POST /api/rules/learn)
    * instead of the normal suggest-only create/update flow. */
   learnedFlow?: boolean;
-  /** The rules being combined into this one, when opened from the "Merge rules"
-   * flow (mode is always "new" in that case). Once the merged rule is created,
-   * these are deleted so the merge is a clean replacement rather than leaving
-   * redundant originals behind. */
+  /** The rules being combined into this one, when opened from the "Merge rules" flow (mode is
+   * always "new" in that case). */
   mergeSourceRules?: Rule[];
 }
 
@@ -219,22 +214,17 @@ export function RuleModal({ mode, rule, categories, onClose, onSaved, initial, l
             onChange={(e) => {
               const field = e.target.value as ConditionField;
               const validOperators = operatorOptionsFor(field).map((o) => o.value);
-              // Direction operators (is_deposit/is_withdrawal) only make
-              // sense for the amount field -- switching away from it falls
-              // back to the first still-valid operator instead of keeping
-              // a now-meaningless one selected.
+              // Direction operators (is_deposit/is_withdrawal) only make sense for the amount field
+              // -- switching away from it falls back to the first still-valid operator instead of
+              // keeping a now-meaningless one selected.
               const operator = validOperators.includes(c.operator) ? c.operator : validOperators[0];
-              // Switching into or out of `account` changes what the value
-              // means (an account id vs. free text), so carrying the old one
-              // over would leave an id showing as a name, or a name that
-              // fails the server's int() coercion. Default a new account
-              // condition to the first account instead of an empty pick.
+              // Switching into or out of `account` changes what the value means (an account id vs.
+              // free text), so carrying the old one over would leave an id showing as a name, or a
+              // name that fails the server's int() coercion.
               const switchesValueKind = (field === "account") !== (c.field === "account");
-              // A new account condition starts with nothing selected rather
-              // than defaulting to the first account: under `is not one of`, a
-              // silent default would quietly exclude a real account. The empty
-              // value keeps `incomplete` true, so Save stays disabled until a
-              // deliberate pick.
+              // A new account condition starts with nothing selected rather than defaulting to the
+              // first account: under `is not one of`, a silent default would quietly exclude a real
+              // account.
               const value = switchesValueKind ? "" : c.value;
               updateCondition(i, { field, operator, value: operatorNeedsValue(operator) ? value : "" });
             }}
@@ -358,9 +348,7 @@ interface AccountPickerProps {
   onChange: (ids: number[]) => void;
 }
 
-/** Checkbox list for an account condition's set of accounts. A native
- * `<select multiple>` would fit the row better but hides the fact that more
- * than one account can be picked, and needs a modifier key to add a second. */
+/** Checkbox list for an account condition's set of accounts. */
 function AccountPicker({ accounts, selectedIds, onChange }: AccountPickerProps) {
   const selected = new Set(selectedIds);
 

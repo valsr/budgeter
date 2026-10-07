@@ -38,9 +38,7 @@ export function Budgets() {
   // Report rows are read off one at a time when copying figures into another
   // system, so the row under the eye stays marked until another is picked.
   const [highlightedRow, setHighlightedRow] = useState<string | null>(null);
-  // Categories whose per-source breakdown is showing. Collapsed by default —
-  // the summary is the primary view and the table is already twelve months
-  // wide, so the breakdown is opened for the category being worked on.
+  // Categories whose per-source breakdown is showing.
 
   function loadBudgets() {
     budgetsApi.list().then((list) => {
@@ -88,9 +86,8 @@ export function Budgets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountFilter]);
 
-  // Escape clears it. Clicking the highlighted row again deliberately does
-  // *not*, so a stray second click while reading figures across doesn't wipe
-  // the marker.
+  // Escape clears it. Clicking the highlighted row again deliberately does *not*, so a stray second
+  // click while reading figures across doesn't wipe the marker.
   useEffect(() => {
     if (highlightedRow === null) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -103,9 +100,7 @@ export function Budgets() {
   const currentBudget = budgets.find((b) => b.id === currentBudgetId);
   const months = useMemo(() => Array.from({ length: CURRENT_MONTH }, (_, i) => i + 1), []);
 
-  // A category planned per source comes back as its own row plus one row
-  // per account. The table shows the category once; the per-account figures
-  // ride along as a hover bubble on each of its amounts.
+  // A category planned per source comes back as its own row plus one row per account.
   const categoryRows = useMemo(() => report.filter((r) => r.account_id === null), [report]);
   const splitByCategory = useMemo(() => {
     const map = new Map<number, ReportRow[]>();
@@ -304,9 +299,9 @@ export function Budgets() {
             setModalMode(null);
             setDropped(droppedCategories);
             loadBudgets();
-            // setCurrentBudgetId is a no-op when editing the already-selected
-            // budget (same id in, same id out), which would otherwise leave
-            // the report showing pre-edit amounts -- refetch explicitly.
+            // setCurrentBudgetId is a no-op when editing the already-selected budget (same id in,
+            // same id out), which would otherwise leave the report showing pre-edit amounts --
+            // refetch explicitly.
             setCurrentBudgetId(id);
             loadReport(id);
           }}
@@ -336,10 +331,8 @@ interface BudgetModalProps {
   onSaved: (budgetId: number, dropped: DroppedCategory[]) => void;
 }
 
-/** A category's amounts are keyed by source account, with SOURCE_ALL standing
- * for "the category as a whole". Keeping both in one shape means the month
- * inputs, the save payload, and the totals all take the same path whether or
- * not a category is broken down. */
+/** A category's amounts are keyed by source account, with SOURCE_ALL standing for "the category as
+ * a whole". */
 const SOURCE_ALL = "all";
 type MonthAmounts = Record<number, string>;
 type CategoryAmounts = Record<string, MonthAmounts>;
@@ -407,9 +400,9 @@ function BudgetModal({ mode, budget, categories, accounts, avgByCategory, onClos
     }));
   }
 
-  // Only leaves can be directly budgeted (parent totals are always derived
-  // from children); non-leaf categories at any depth render as a plain
-  // section header instead of a selectable/amount-entry row.
+  // Only leaves can be directly budgeted (parent totals are always derived from children); non-leaf
+  // categories at any depth render as a plain section header instead of a selectable/amount-entry
+  // row.
   function renderCategoryRows(nodes: Category[], depth: number): ReactNode[] {
     const rows: ReactNode[] = [];
     for (const node of nodes) {
@@ -519,9 +512,7 @@ function BudgetModal({ mode, budget, categories, accounts, avgByCategory, onClos
         });
         continue;
       }
-      // One line per account that actually has a plan. An account left blank
-      // has no line rather than a line of zeros, so the report doesn't sprout
-      // a row for every account the user never budgeted.
+      // One line per account that actually has a plan.
       const lines = accounts
         .map((account) => ({
           category_id: categoryId,

@@ -32,9 +32,8 @@ export function LinkTransferModal({ transaction, accounts, onClose, onLinked }: 
     transactionsApi.transferCandidates(transaction.id, dayWindow).then((items) => {
       if (cancelled) return;
       setCandidates(items);
-      // Don't preselect: an equal-and-opposite amount nearby is suggestive,
-      // not proof, and a wrong pairing silently removes real spending from
-      // the budget. Make the user choose.
+      // Don't preselect: an equal-and-opposite amount nearby is suggestive, not proof, and a wrong
+      // pairing silently removes real spending from the budget.
       setSelectedId(null);
     });
     return () => {

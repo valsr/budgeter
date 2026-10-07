@@ -62,23 +62,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Every failed API call (across the whole app, see api/client.ts) lands
-  // here as a generic "Operation failed" toast, so individual pages don't
-  // each need their own error handling for the common case.
+  // Every failed API call (across the whole app, see api/client.ts) lands here as a generic
+  // "Operation failed" toast, so individual pages don't each need their own error handling for the
+  // common case.
   useEffect(() => {
     setErrorListener((message) => push({ kind: "error", message }));
     return () => setErrorListener(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Always fetches fresh rather than caching: ToastProvider lives for the
-  // whole app session, so a stale list would silently omit any category
-  // created since the last fetch -- e.g. one just created inline on the
-  // Transactions page moments ago, which is exactly the case a learned-rule
-  // suggestion for a brand-new category hits. The target category still
-  // resolves correctly either way (RuleModal is handed its id directly),
-  // but a stale list has no matching <option>, so the picker would silently
-  // show the first category in the list instead of the real one.
+  // Always fetches fresh rather than caching: ToastProvider lives for the whole app session, so a
+  // stale list would silently omit any category created since the last fetch -- e.g. one just
+  // created inline on the Transactions page moments ago, which is exactly the case a learned-rule
+  // suggestion for a brand-new category hits.
   async function refreshCategories(): Promise<Category[]> {
     const list = await categoriesApi.list();
     setCategories(list);
@@ -170,9 +166,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Call after a manual, single-split category assignment. Fires the
- * server-side learning check and surfaces a toast if there's a rule
- * conflict or a proposed new rule; no-ops silently otherwise. */
+/** Call after a manual, single-split category assignment. */
 export function useLearnCheck() {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error("useLearnCheck must be used within a ToastProvider");

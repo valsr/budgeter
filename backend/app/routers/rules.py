@@ -44,10 +44,7 @@ def _conditions_as_tuples(conditions):
 
 
 def _summarize_rule(db: Session, rule: RuleSpec) -> str:
-    """Human-readable one-liner for a rule, as shown in the learn-check
-    conflict toast. An ACCOUNT condition's value is a comma-separated list of
-    account ids, so it is resolved to account names rather than surfaced as
-    bare numbers."""
+    """Human-readable one-liner for a rule, as shown in the learn-check conflict toast."""
 
     def _value(condition: Condition) -> str:
         if condition.field != ConditionField.ACCOUNT:
@@ -97,9 +94,9 @@ def recategorize(payload: RecategorizeRequest, db: Session = Depends(get_db)):
 
 @router.get("/run-preview", response_model=RunPreviewResponse)
 def run_preview(db: Session = Depends(get_db)):
-    """Dry-run the current rule set against every eligible (uncategorized)
-    transaction without persisting anything, so the UI can show what a
-    "run rules" action would change before the user commits to it."""
+    """Dry-run the current rule set against every eligible (uncategorized) transaction without
+    persisting anything, so the UI can show what a "run rules" action would change before the user
+    commits to it."""
     rule_specs = rules_service.rules_to_specs(rules_service.list_rules(db))
     pool = categorization.list_eligible_for_suggestion(db, None)
 
@@ -148,13 +145,9 @@ def learn_check(payload: LearnCheckRequest, db: Session = Depends(get_db)):
             ),
         )
 
-    # Note: no exclude_transaction_id here -- `txn` was just persisted with
-    # this category, so it's already a genuine member of "transactions
-    # categorized to split.category_id" and should count toward the sample
-    # size threshold, not be treated as separate from it. The bar is "does
-    # this category have enough data (this categorization plus its history)",
-    # not "are there this many OTHER categorizations besides the one the
-    # user just made."
+    # Note: no exclude_transaction_id here -- `txn` was just persisted with this category, so it's
+    # already a genuine member of "transactions categorized to split.category_id" and should count
+    # toward the sample size threshold, not be treated as separate from it.
     pool = rule_learning.find_learning_candidates(db, split.category_id)
     pool = rule_learning.filter_out_rule_matched(pool, rule_specs)
     candidate = rule_learning.learn_rule_for_category(db, pool, split.category_id)
@@ -203,9 +196,9 @@ def learn_rule(payload: LearnRuleRequest, db: Session = Depends(get_db)):
         target_category_id=payload.target_category_id,
     )
 
-    # Learned rules get a one-time backfill (direct category_id assignment)
-    # instead of the suggest-only pass plain rule creation triggers --
-    # see rule_learning.confirm_matching_uncategorized.
+    # Learned rules get a one-time backfill (direct category_id assignment) instead of the
+    # suggest-only pass plain rule creation triggers -- see
+    # rule_learning.confirm_matching_uncategorized.
     rule_spec = rules_service.rules_to_specs([rule])[0]
     confirmed = rule_learning.confirm_matching_uncategorized(db, rule_spec)
     db.refresh(rule)

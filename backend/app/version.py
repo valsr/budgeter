@@ -1,13 +1,4 @@
-"""Which build of the app this is: a commit, its date, and when it was built.
-
-There are no release numbers. A version is the commit's date plus its short
-hash -- `2026.10.07+5dcc9d3` -- which sorts by time and names exactly one
-state of the code.
-
-A built image is told at build time (scripts/podman-build.sh passes the
-values in as build args, which the Containerfile turns into the environment
-variables below; the image has no .git to ask). A source checkout asks git.
-"""
+"""Which build of the app this is: a commit, its date, and when it was built."""
 
 import os
 import subprocess

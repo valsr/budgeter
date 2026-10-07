@@ -39,29 +39,25 @@ def _field_value(field: ConditionField, ctx: TransactionContext):
     if field == ConditionField.ACCOUNT:
         return ctx.account_id
     if field == ConditionField.AMOUNT:
-        # Sign-agnostic: a $50 withdrawal and a $50 deposit both satisfy
-        # "amount greater_than 40" -- direction is checked separately via
-        # the IS_DEPOSIT/IS_WITHDRAWAL operators, not by field comparison.
+        # Sign-agnostic: a $50 withdrawal and a $50 deposit both satisfy "amount greater_than 40" --
+        # direction is checked separately via the IS_DEPOSIT/IS_WITHDRAWAL operators, not by field
+        # comparison.
         return abs(ctx.amount)
     raise ValueError(f"Unknown condition field: {field}")
 
 
 _DIRECTION_OPERATORS = {ConditionOperator.IS_DEPOSIT, ConditionOperator.IS_WITHDRAWAL}
 
-# The account field identifies accounts by surrogate id, so substring and
-# ordering comparisons on it are meaningless. Set membership is the only
-# operation that makes sense -- and "one of these accounts" is what people
-# actually want to express, so IN/NOT_IN replace EQUALS rather than
-# supplementing it.
+# The account field identifies accounts by surrogate id, so substring and ordering comparisons on it
+# are meaningless.
 MEMBERSHIP_OPERATORS = {ConditionOperator.IN, ConditionOperator.NOT_IN}
 
 
 def operator_needs_value(operator: ConditionOperator) -> bool:
-    """False for is_deposit/is_withdrawal, which match on the split's sign
-    alone and ignore the condition's value entirely -- callers that validate
-    or coerce a condition's value (e.g. rules.py's _validate_conditions)
-    should skip those checks for such operators rather than reject an
-    intentionally-empty value."""
+    """False for is_deposit/is_withdrawal, which match on the split's sign alone and ignore the
+    condition's value entirely -- callers that validate or coerce a condition's value (e.g.
+    rules.py's _validate_conditions) should skip those checks for such operators rather than reject
+    an intentionally-empty value."""
     return operator not in _DIRECTION_OPERATORS
 
 
@@ -78,9 +74,7 @@ def coerce_condition_value(field: ConditionField, raw: str):
 
 
 def parse_account_ids(raw: str) -> frozenset[int]:
-    """An account condition's value is a comma-separated list of account ids
-    ("3" or "3,7"). A single id stays a valid one-element list, so conditions
-    written before IN/NOT_IN existed parse unchanged."""
+    """An account condition's value is a comma-separated list of account ids ("3" or "3,7")."""
     ids = frozenset(int(part) for part in raw.split(",") if part.strip())
     if not ids:
         raise ValueError("An account condition must name at least one account")
@@ -94,9 +88,8 @@ def format_account_ids(ids: list[int]) -> str:
 
 
 def evaluate_condition(condition: Condition, ctx: TransactionContext) -> bool:
-    # These two check the split's raw sign directly and ignore the
-    # condition's value entirely, so they must run before the
-    # abs()'d _field_value/coerce_condition_value pair below.
+    # These two check the split's raw sign directly and ignore the condition's value entirely, so
+    # they must run before the abs()'d _field_value/coerce_condition_value pair below.
     if condition.operator == ConditionOperator.IS_DEPOSIT:
         return ctx.amount > 0
     if condition.operator == ConditionOperator.IS_WITHDRAWAL:
@@ -111,12 +104,9 @@ def evaluate_condition(condition: Condition, ctx: TransactionContext) -> bool:
         return actual not in expected
     if condition.operator == ConditionOperator.CONTAINS:
         if condition.field == ConditionField.NAME:
-            # Rule learning derives its NAME value from normalize_name'd
-            # merchant strings (punctuation stripped, e.g. "GITHUB, INC."
-            # -> "github inc") so it can find a substring common to
-            # differently-punctuated variants. Matching must normalize the
-            # same way, or a learned value never matches the raw names it
-            # was learned from.
+            # Rule learning derives its NAME value from normalize_name'd merchant strings
+            # (punctuation stripped, e.g. "GITHUB, INC." -> "github inc") so it can find a substring
+            # common to differently-punctuated variants.
             return normalize_name(str(expected)) in normalize_name(str(actual))
         return str(expected).lower() in str(actual).lower()
     if condition.operator == ConditionOperator.NOT_CONTAINS:

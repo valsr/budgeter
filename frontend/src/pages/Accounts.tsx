@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { accountsApi } from "../api/accounts";
-import { categoriesApi } from "../api/categories";
-import type { Account, Category, Transaction } from "../api/types";
+import type { Account } from "../api/types";
 import { hexToRgba } from "../components/CategoryTag";
 import { Modal } from "../components/Modal";
 import { SplitModal } from "../components/SplitModal";
 import { TransactionTable } from "../components/TransactionTable";
+import { useLedgerData } from "../hooks/useLedgerData";
 
 function fmtBal(n: number): string {
   const sign = n < 0 ? "-" : "";
@@ -34,34 +34,18 @@ const EMPTY_FORM: AccountFormState = {
 };
 
 export function Accounts() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const { accounts, categories, loadAccounts, loadCategories, splitTxn, setSplitTxn, refreshKey, refresh } =
+    useLedgerData();
   const [currentAccountId, setCurrentAccountId] = useState<number | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [modal, setModal] = useState<null | "new" | "edit">(null);
   const [form, setForm] = useState<AccountFormState>(EMPTY_FORM);
   const [accountIdTouched, setAccountIdTouched] = useState(false);
-  const [splitTxn, setSplitTxn] = useState<Transaction | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
-  function loadAccounts() {
-    accountsApi.list().then((list) => {
-      setAccounts(list);
-      if (currentAccountId === null && list.length > 0) setCurrentAccountId(list[0].id);
-    });
-  }
-
-  function loadCategories() {
-    // include_archived so historical transactions keep rendering their
-    // (possibly archived) category; pickers filter to active internally.
-    categoriesApi.list(true).then(setCategories);
-  }
-
+  // Start on the first account once they've loaded.
   useEffect(() => {
-    loadAccounts();
-    loadCategories();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (currentAccountId === null && accounts.length > 0) setCurrentAccountId(accounts[0].id);
+  }, [accounts, currentAccountId]);
 
   const currentAccount = accounts.find((a) => a.id === currentAccountId);
 
@@ -194,7 +178,7 @@ export function Accounts() {
           transaction={splitTxn}
           categories={categories}
           onClose={() => setSplitTxn(null)}
-          onSaved={() => setRefreshKey((k) => k + 1)}
+          onSaved={refresh}
         />
       )}
 

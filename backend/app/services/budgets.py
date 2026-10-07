@@ -36,10 +36,7 @@ class DroppedCategory:
 
 
 def _is_leaf_category(db: Session, category_id: int) -> bool:
-    """Archived children don't count. The category picker hides them, so a
-    category whose every child is archived renders as a selectable leaf --
-    and must therefore be budgetable here, or the editor would offer a
-    category that saving then silently discards."""
+    """Archived children don't count."""
     child_count = db.execute(
         select(func.count())
         .select_from(Category)
@@ -52,16 +49,7 @@ def _is_leaf_category(db: Session, category_id: int) -> bool:
 def _partition_categories(
     db: Session, categories: list[CategoryInput]
 ) -> tuple[list[CategoryInput], list[DroppedCategory]]:
-    """Split the submitted categories into those still budgetable and those
-    that aren't any more.
-
-    A budget outlives the category tree it was built against: a leaf that was
-    budgeted last year may since have been deleted, archived, or broken down
-    into subcategories. The editor can't deselect any of those -- a broken-down
-    category renders as a plain section header and an archived one doesn't
-    render at all -- so rejecting the save left the budget permanently
-    unsaveable. Drop them instead, and report which, so the caller can say what
-    happened rather than losing a line silently."""
+    """Split the submitted categories into those still budgetable and those that aren't any more."""
     kept: list[CategoryInput] = []
     dropped: list[DroppedCategory] = []
     for category_id, account_id, monthly in categories:
@@ -73,9 +61,8 @@ def _partition_categories(
         elif not _is_leaf_category(db, category_id):
             dropped.append(DroppedCategory(category_id, category.name, "broken_down", account_id))
         elif account_id is not None and db.get(Account, account_id) is None:
-            # An account can be deleted out from under a per-account line the
-            # same way a category can. Same treatment: drop the line, keep the
-            # rest of the budget saveable.
+            # An account can be deleted out from under a per-account line the same way a category
+            # can.
             dropped.append(
                 DroppedCategory(category_id, category.name, "account_removed", account_id)
             )
@@ -87,17 +74,7 @@ def _partition_categories(
 
 
 def _reject_mixed_modes(db: Session, categories: list[CategoryInput]) -> None:
-    """A category is budgeted either as a whole or per account, never both.
-
-    Both at once leaves "the groceries budget" ambiguous between the
-    category-level line and the sum of the account lines, and no report could
-    honestly pick one. Duplicate lines for the same (category, account) are
-    rejected here too: SQL's unique constraint treats NULLs as distinct, so it
-    won't catch two category-level lines on its own.
-
-    Unlike a stale category this isn't something a budget drifts into -- it
-    takes a caller sending a contradictory payload -- so it's an error rather
-    than a silent drop."""
+    """A category is budgeted either as a whole or per account, never both."""
     accounts_by_category: dict[int, list[int | None]] = {}
     for category_id, account_id, _monthly in categories:
         accounts_by_category.setdefault(category_id, []).append(account_id)
@@ -158,11 +135,10 @@ def update_budget(
         categories, dropped = _partition_categories(db, categories)
         for bc in list(budget.budget_categories):
             db.delete(bc)
-        # Flush the deletes before adding replacement rows -- otherwise a
-        # category kept across the edit (the common case: amounts changed,
-        # selection didn't) collides with itself on the (budget_id,
-        # category_id) unique constraint, since the old row hasn't been
-        # removed from the table yet when the new one is inserted.
+        # Flush the deletes before adding replacement rows -- otherwise a category kept across the
+        # edit (the common case: amounts changed, selection didn't) collides with itself on the
+        # (budget_id, category_id) unique constraint, since the old row hasn't been removed from the
+        # table yet when the new one is inserted.
         db.flush()
         budget.budget_categories = _build_budget_categories(categories, year)
     db.commit()
@@ -195,12 +171,7 @@ def get_budget(db: Session, budget_id: int) -> Budget:
 def _actuals_by_account(
     db: Session, category_id: int, year: int, through_month: int
 ) -> dict[int, dict[int, Decimal]]:
-    """Per-source breakdown of a category's actuals: {account_id: {month: amount}}.
-
-    Every split hangs off a transaction with an account, so the attribution is
-    already in the data -- no schema needed for this half. A categorized
-    transfer attributes to the account the money *left*, since a pair carries
-    its category on the withdrawal leg (transactions._category_leg)."""
+    """Per-source breakdown of a category's actuals: {account_id: {month: amount}}."""
     rows = db.execute(
         select(
             Transaction.account_id,
@@ -231,12 +202,8 @@ def _actuals_for_category(
         .select_from(Split)
         .join(Transaction, Transaction.id == Split.transaction_id)
         .where(Split.category_id == category_id)
-        # No transaction-type filter. A transfer between accounts normally
-        # carries no category on either leg, so it can't match category_id
-        # here and stays out of every budget on its own. A transfer someone
-        # deliberately categorized carries it on exactly one leg (see
-        # transactions.link_as_transfer), so it counts once rather than
-        # netting itself to zero across both legs.
+        # No transaction-type filter. A transfer between accounts normally carries no category on
+        # either leg, so it can't match category_id here and stays out of every budget on its own.
         .where(func.strftime("%Y", Transaction.date) == str(year))
         .group_by(func.strftime("%m", Transaction.date))
     ).all()
@@ -255,19 +222,9 @@ def _assemble_rows(
     budgeted_by_account: dict[int, dict[int, MonthlyAmounts]] | None = None,
     account_ids: set[int] | None = None,
 ) -> list[ReportRow]:
-    """Build report rows for a set of budgeted leaves plus every one of
-    their ancestors, at any depth — an ancestor's budgeted/actual amounts
-    are always the sum of its children (docs/requirements.md §2.2: "Parent
-    category values ... are always derived"), recursively.
-
-    `budgeted_by_account` is {category_id: {account_id: monthly}} for
-    categories planned per source. Those categories get a breakdown row per
-    account beneath the category row, and the category's own figures stay the
-    sum of them — the same derived-parent rule, one level further down.
-
-    `account_ids` restricts every actual to those source accounts, so the
-    whole report reads as if only those accounts existed.
-    """
+    """Build report rows for a set of budgeted leaves plus every one of their ancestors, at any
+    depth — an ancestor's budgeted/actual amounts are always the sum of its children
+    (docs/requirements.md §2.2: "Parent category values ... are always derived"), recursively."""
     months = list(range(1, through_month + 1))
     if not leaf_ids:
         return []
@@ -284,9 +241,9 @@ def _assemble_rows(
                 to_load.add(cat.parent_id)
 
     def is_income_effective(cat_id: int) -> bool:
-        """A category counts as income if it or any ancestor is marked
-        is_income -- marking a top-level "Income" category flips its whole
-        subtree without having to tag every leaf underneath it."""
+        """A category counts as income if it or any ancestor is marked is_income -- marking a
+        top-level "Income" category flips its whole subtree without having to tag every leaf
+        underneath it."""
         cat: Category | None = categories_by_id.get(cat_id)
         while cat is not None:
             if cat.is_income:
@@ -310,11 +267,9 @@ def _assemble_rows(
         cat_id: sum_monthly(list(per_account.values()))
         for cat_id, per_account in actual_by_account.items()
     }
-    # Reporting-only sign flip: deposits into an income category are positive
-    # splits, which _actuals_for_category negates into a negative "actual"
-    # (the convention that makes expense spend read as a positive number).
-    # Negating again for income leaves undoes that, so income reads as a
-    # natural positive amount received. Doesn't touch the underlying splits.
+    # Reporting-only sign flip: deposits into an income category are positive splits, which
+    # _actuals_for_category negates into a negative "actual" (the convention that makes expense
+    # spend read as a positive number).
     for cat_id in leaf_ids:
         if is_income_effective(cat_id):
             actual_by_category[cat_id] = {m: -v for m, v in actual_by_category[cat_id].items()}
@@ -323,20 +278,18 @@ def _assemble_rows(
                 for account_id, monthly in actual_by_account[cat_id].items()
             }
 
-    # Children, keyed by parent_id (None for top-level), restricted to
-    # categories actually involved here (a leaf or an ancestor of one) —
-    # sibling branches with no budgeted leaf underneath them are excluded.
-    # Category.sort_order is the single source of truth for display order
-    # everywhere in the app (docs/requirements.md §2.2).
+    # Children, keyed by parent_id (None for top-level), restricted to categories actually involved
+    # here (a leaf or an ancestor of one) — sibling branches with no budgeted leaf underneath them
+    # are excluded.
     children_of: dict[int | None, list[int]] = {}
     for cat_id, cat in categories_by_id.items():
         children_of.setdefault(cat.parent_id, []).append(cat_id)
     for group in children_of.values():
         group.sort(key=lambda cid: categories_by_id[cid].sort_order)
 
-    # Bottom-up rollup: a leaf's own budgeted/actual/has_budget, or a
-    # parent's summed-from-children values, memoized since the same
-    # ancestor is reached once per child but should only be computed once.
+    # Bottom-up rollup: a leaf's own budgeted/actual/has_budget, or a parent's summed-from-children
+    # values, memoized since the same ancestor is reached once per child but should only be computed
+    # once.
     monthly_cache: dict[int, tuple[MonthlyAmounts, MonthlyAmounts]] = {}
     has_budget_cache: dict[int, bool] = {}
 
@@ -378,12 +331,7 @@ def _assemble_rows(
     rows: list[ReportRow] = []
 
     def breakdown_rows(cat_id: int, depth: int) -> list[ReportRow]:
-        """One row per source account under a leaf. Emitted when the category
-        is planned per account, or when its spending came from more than one
-        account and the split is worth seeing. An account that was budgeted
-        but never spent on still appears (so a plan with nothing against it is
-        visible), as does one spent on but never budgeted — otherwise the
-        rows wouldn't add up to the category above them."""
+        """One row per source account under a leaf."""
         budgeted_lines = budgeted_by_account.get(cat_id, {})
         actual_lines = actual_by_account.get(cat_id, {})
         sources = set(budgeted_lines) | set(actual_lines)
@@ -450,15 +398,8 @@ def get_report(
     through_month: int,
     account_ids: list[int] | None = None,
 ) -> list[ReportRow]:
-    """`account_ids` narrows the whole report to those source accounts, for
-    working out a budget over a subset of them.
-
-    Actuals filter exactly -- every split knows its account. Budgeted amounts
-    filter only where the plan is per account: a category planned as a whole
-    has no attributable share, so under a filter it reports no budgeted figure
-    at all (has_budget False -> "—") rather than its full amount, which would
-    read as underspend against partial actuals.
-    """
+    """`account_ids` narrows the whole report to those source accounts, for working out a budget
+    over a subset of them."""
     budget = get_budget(db, budget_id)
     # A category planned per source has several lines; it's still one leaf.
     leaf_ids = list(dict.fromkeys(bc.category_id for bc in budget.budget_categories))
@@ -499,10 +440,8 @@ def get_report(
 
 
 def get_overview(db: Session, year: int, through_month: int) -> list[ReportRow]:
-    """The Overview screen's category table: every non-archived leaf
-    category, regardless of which (if any) saved budget it belongs to —
-    unlike get_report, this isn't scoped to one named report.
-    """
+    """The Overview screen's category table: every non-archived leaf category, regardless of which
+    (if any) saved budget it belongs to — unlike get_report, this isn't scoped to one named report."""
     leaves = list(
         db.execute(
             select(Category)

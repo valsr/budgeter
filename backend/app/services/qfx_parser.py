@@ -4,12 +4,7 @@ import re
 from app.errors import ValidationError
 from app.services.qif_parser import QifAccountBlock, QifTransaction, parse_amount
 
-# QFX (Quicken Financial Exchange) is Intuit's variant of OFX. Most bank
-# exports still use OFX 1.x SGML, one tag per line with no closing pairs
-# (`<TRNAMT>-88.40`); some use OFX 2.x XML, which does close tags — often
-# several per line (`<ACCTID>123</ACCTID><ACCTTYPE>CHECKING</ACCTTYPE>`).
-# Scanning for every `<TAG>value` token on a line (rather than assuming one
-# tag per line) handles both without a real SGML/XML parser.
+# QFX (Quicken Financial Exchange) is Intuit's variant of OFX.
 _TAG_TOKEN = re.compile(r"<(/?)([A-Za-z0-9.]+)>([^<]*)")
 
 _STMTTRNRS = "STMTTRNRS"
@@ -35,11 +30,7 @@ def _parse_ofx_date(raw: str) -> dt.date:
 
 
 def parse_qfx_accounts(content: str) -> list[QifAccountBlock]:
-    """Parse an OFX/QFX file's contents into one block of transactions per
-    account. Unlike QIF, every OFX statement declares its account explicitly
-    (`<BANKACCTFROM>`/`<CCACCTFROM>` with an `<ACCTID>`), so every block here
-    has a `name` — there's no single-account "implicit" case as in QIF.
-    """
+    """Parse an OFX/QFX file's contents into one block of transactions per account."""
     blocks: list[QifAccountBlock] = []
     account_name: str | None = None
     account_type_hint: str | None = None
@@ -89,9 +80,8 @@ def parse_qfx_accounts(content: str) -> list[QifAccountBlock]:
             continue
 
         if not in_txn or closing:
-            # A leaf field's own closing token (e.g. the `</NAME>` half of
-            # "<NAME>A</NAME>") carries no value — skip it, or it would
-            # overwrite what the opening token just set.
+            # A leaf field's own closing token (e.g. the `</NAME>` half of "<NAME>A</NAME>") carries
+            # no value — skip it, or it would overwrite what the opening token just set.
             continue
 
         if tag == "DTPOSTED":

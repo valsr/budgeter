@@ -7,15 +7,7 @@ import pytest
 from app import books
 from app.errors import ValidationError
 from app.services import server_backup
-
-
-def make_account(client, name):
-    resp = client.post("/api/accounts", json={"name": name, "type": "asset"})
-    assert resp.status_code == 201, resp.text
-
-
-def account_names(client):
-    return [a["name"] for a in client.get("/api/accounts").json()]
+from tests.helpers import account_names, make_account
 
 
 def snapshot(files) -> dict[str, bytes]:

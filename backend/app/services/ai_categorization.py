@@ -23,21 +23,14 @@ class AiSuggestionResult:
 
 
 def list_uncategorized_for_ai(db: Session) -> list[Transaction]:
-    """Transactions an external AI caller (e.g. the MCP skill) can propose
-    a category for. AI categorization is on-demand only and never runs
-    automatically (docs/requirements.md §3.2) — this endpoint just exposes
-    what's eligible; the actual model call happens outside this app.
-    """
+    """Transactions an external AI caller (e.g. the MCP skill) can propose a category for."""
     return list_eligible_for_suggestion(db)
 
 
 def apply_ai_suggestions(db: Session, suggestions: list[AiSuggestionInput]) -> AiSuggestionResult:
-    """Record AI-proposed categories using the same suggestion mechanism
-    as rules (Split.suggested_category_id / suggestion_source), so they
-    render through the same accept/reject UI. A split that's already
-    confirmed (category_id set) is skipped rather than overwritten —
-    AI suggestions never touch already-confirmed categories either.
-    """
+    """Record AI-proposed categories using the same suggestion mechanism as rules
+    (Split.suggested_category_id / suggestion_source), so they render through the same accept/reject
+    UI."""
     applied = 0
     skipped: list[int] = []
 
