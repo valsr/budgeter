@@ -7,6 +7,8 @@ import { Accounts } from "./pages/Accounts";
 import { Categories } from "./pages/Categories";
 import { Transactions } from "./pages/Transactions";
 import { Budgets } from "./pages/Budgets";
+import { SharedBudgets } from "./pages/SharedBudgets";
+import { SharedBudget } from "./pages/SharedBudget";
 import { Import } from "./pages/Import";
 import { History } from "./pages/History";
 import { Settings } from "./pages/Settings";
@@ -24,6 +26,8 @@ export function App() {
             <Route path="/categories" element={<Categories />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/budgets" element={<Budgets />} />
+            <Route path="/shared-budgets" element={<SharedBudgets />} />
+            <Route path="/shared-budgets/:id" element={<SharedBudget />} />
             <Route path="/import" element={<Import />} />
             <Route path="/history" element={<History />} />
             <Route path="/settings" element={<Settings />} />
