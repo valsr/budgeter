@@ -172,6 +172,41 @@ it("mappings hide a category mapped elsewhere and save the whole list", async ()
   );
 });
 
+it("mappings list links to archived shared categories, keep them on save, and can remove them", async () => {
+  api.categories.mockResolvedValue([shared(1, "Home"), shared(3, "Old stuff", { archived: true })]);
+  api.links.mockResolvedValue([
+    { category_id: 11, shared_category_id: 1 },
+    { category_id: 12, shared_category_id: 3 },
+    { category_id: 20, shared_category_id: 3 },
+  ]);
+  listCategories.mockResolvedValue([own(10, "Food", [own(11, "Groceries"), own(12, "Dining")]), own(20, "Fun")]);
+  await openTab("My mappings");
+
+  const note = (await screen.findByText(/mapped to archived categories/i)).parentElement!;
+  expect(within(note).getByText("Food:Dining → Old stuff")).toBeInTheDocument();
+  expect(within(note).getByText("Fun → Old stuff")).toBeInTheDocument();
+
+  const homeRow = screen.getByText("Home").closest("tr")!;
+  const menuItems = () => {
+    fireEvent.focus(within(homeRow).getByRole("textbox"));
+    return within(homeRow.querySelector(".cat-combobox-menu") as HTMLElement);
+  };
+  expect(menuItems().queryByText("Food:Dining")).not.toBeInTheDocument();
+
+  fireEvent.click(within(note).getByRole("button", { name: "Unmap Food:Dining from Old stuff" }));
+  expect(within(note).queryByText("Food:Dining → Old stuff")).not.toBeInTheDocument();
+  expect(menuItems().getByText("Food:Dining")).toBeInTheDocument();
+
+  api.setLinks.mockResolvedValue([]);
+  fireEvent.click(screen.getByRole("button", { name: "Save mappings" }));
+  await waitFor(() =>
+    expect(api.setLinks).toHaveBeenCalledWith(1, [
+      { category_id: 11, shared_category_id: 1 },
+      { category_id: 20, shared_category_id: 3 },
+    ]),
+  );
+});
+
 it("setup saves only the amounts that changed, sending a cleared cell as null", async () => {
   api.categories.mockResolvedValue([shared(1, "Home")]);
   api.amounts.mockResolvedValue([
