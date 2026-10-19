@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app import shared_books
 from app.main import app
-from tests.helpers import make_account
+from tests.helpers import make_account, tables
 
 B = "/api/shared-budgets"
 
@@ -202,3 +202,26 @@ def test_startup_rebuilds_tallies(trio):
     with TestClient(app) as fresh:  # entering the context runs the lifespan
         fresh.cookies.update(alice.cookies)
         assert fresh.get(f"{p}/report?year=2026&through_month=1").json() == before
+
+
+def test_startup_survives_one_corrupt_shared_file(trio):
+    alice, _bob, _carol = trio
+    first = _create(alice, "First")["id"]
+    second = _create(alice, "Second")["id"]
+    p = f"{B}/{second}"
+    cat = alice.post(f"{p}/categories", json={"name": "Food"}).json()["id"]
+    books_cat = _category(alice, "groceries")
+    alice.put(f"{p}/links", json={"links": [{"category_id": books_cat, "shared_category_id": cat}]})
+    _spend(alice, make_account(alice, "Checking"), books_cat, -42.0)
+
+    shared_books.dispose(first)
+    shared_books.dispose(second)
+    shared_books.shared_path(first).write_bytes(b"this is not a sqlite database" * 100)
+    # An empty, never-migrated file: only startup's upgrade gives it a schema.
+    shared_books.shared_path(second).unlink()
+    sqlite3.connect(shared_books.shared_path(second)).close()
+
+    with TestClient(app) as fresh:
+        fresh.cookies.update(alice.cookies)
+        assert "shared_categories" in tables(shared_books.shared_path(second))
+        assert fresh.get(f"{p}/report?year=2026&through_month=1").status_code == 200

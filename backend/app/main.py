@@ -68,9 +68,16 @@ async def lifespan(app: FastAPI):
     try:
         with server_db.SessionLocal() as sdb:
             shared_ids = [b.id for b in sdb.scalars(select(SharedBudget))]
-        shared_books.upgrade_all(shared_ids)
     except Exception:  # noqa: BLE001
-        logger.exception("Could not prepare shared budget files; continuing")
+        logger.exception("Could not list shared budgets; skipping their files")
+        shared_ids = []
+    for budget_id in shared_ids:
+        # As with books: one damaged shared file mustn't leave the others unmigrated.
+        try:
+            shared_books.upgrade_all([budget_id])
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not prepare shared budget %s; skipping", budget_id)
+            shared_books.dispose(budget_id)
     try:
         shared_tally.rebuild_all()
     except Exception:  # noqa: BLE001
