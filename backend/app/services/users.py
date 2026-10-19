@@ -16,7 +16,14 @@ from app.errors import (
     ValidationError,
 )
 from app.security import hash_password, hash_token, new_token, verify_password
-from app.server_models import ServerSettings, User, UserSession, utcnow
+from app.server_models import (
+    ServerSettings,
+    SharedBudget,
+    SharedBudgetMember,
+    User,
+    UserSession,
+    utcnow,
+)
 
 _USERNAME_RE = re.compile(r"[a-z0-9_.-]{3,32}")
 MIN_PASSWORD_LENGTH = 8
@@ -168,11 +175,21 @@ def update_user(
 
 
 def delete_user(db: Session, user_id: int) -> None:
-    """Remove the account and its sessions. The caller removes the user's
-    books file (books.delete_books) -- this module never touches books."""
+    """Remove the account, its sessions and its shared-budget memberships. The
+    caller removes the user's books file (books.delete_books) -- this module never touches books."""
     user = get_user(db, user_id)
     _guard_last_admin(db, user)
     db.execute(delete(UserSession).where(UserSession.user_id == user.id))
+    # Same commit as the user: the member rows' foreign key is enforced. Shared budgets left
+    # without anyone are dropped too (the caller removes their files, see lifecycle.remove).
+    db.execute(delete(SharedBudgetMember).where(SharedBudgetMember.user_id == user.id))
+    db.execute(
+        delete(SharedBudget).where(
+            ~select(SharedBudgetMember.user_id)
+            .where(SharedBudgetMember.shared_budget_id == SharedBudget.id)
+            .exists()
+        )
+    )
     db.delete(user)
     db.commit()
 
