@@ -123,6 +123,10 @@ def validate_server_bytes(data: bytes) -> None:
     _validate_schema(data, kind="server", required="users", forbidden="accounts", section="server")
 
 
+def validate_shared_bytes(data: bytes) -> None:
+    _validate_schema(data, kind="shared budget", required="member_tallies", forbidden="accounts", section="shared")
+
+
 def _verify_schema(path: Path, metadata, kind: str) -> None:
     """After migrating: every table and column the app's models expect must actually be there."""
     with open_db(path) as conn:
@@ -172,4 +176,18 @@ def stage_server(data: bytes, staged: Path) -> Path:
         validate=validate_server_bytes,
         upgrade=server_db.upgrade_path,
         metadata=server_db.ServerBase.metadata,
+    )
+
+
+def stage_shared(data: bytes, staged: Path) -> Path:
+    from app import shared_books, shared_models  # noqa: F401
+    from app.shared_db import SharedBase
+
+    return _stage(
+        data,
+        staged,
+        kind="shared budget",
+        validate=validate_shared_bytes,
+        upgrade=shared_books.upgrade,
+        metadata=SharedBase.metadata,
     )

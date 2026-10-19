@@ -117,3 +117,34 @@ def test_restore_rejects_the_wrong_file_and_keeps_current_books(make_client, fil
     assert resp.status_code == 422, kind
     assert books.books_path(alice.user_id).read_bytes() == before
     assert account_names(alice) == ["Keep me"]
+
+
+def test_single_user_restore_recomputes_tally(make_client):
+    from app import shared_books
+    from app.shared_models import MemberTally
+
+    alice, bob = make_client("alice"), make_client("bob")
+    bid = alice.post("/api/shared-budgets", json={"name": "Home", "member_ids": [bob.user_id]}).json()["id"]
+    sid = alice.post(f"/api/shared-budgets/{bid}/categories", json={"name": "Groceries"}).json()["id"]
+    own = alice.post("/api/categories", json={"name": "Food"}).json()["id"]
+    account = make_account(alice, "Card")
+
+    assert alice.put(
+        f"/api/shared-budgets/{bid}/links", json={"links": [{"category_id": own, "shared_category_id": sid}]}
+    ).status_code == 200
+    # Back up with the link in place, then add a transaction the backup doesn't have.
+    older = alice.get("/api/backup").content
+    resp = alice.post(
+        "/api/transactions",
+        json={"account_id": account, "date": "2026-01-10", "name": "Shop", "splits": [{"category_id": own, "amount": -25}]},
+    )
+    assert resp.status_code == 201, resp.text
+
+    def tally():
+        with shared_books.session_for(bid) as s:
+            return [(t.user_id, t.shared_category_id, t.year, t.month) for t in s.query(MemberTally)]
+
+    assert tally() == [(alice.user_id, sid, 2026, 1)]
+
+    assert restore(alice, older).status_code == 204
+    assert tally() == []
