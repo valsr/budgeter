@@ -172,7 +172,7 @@ it("mappings hide a category mapped elsewhere and save the whole list", async ()
   );
 });
 
-it("setup saves amounts for the year, sending blanks as null", async () => {
+it("setup saves only the amounts that changed, sending a cleared cell as null", async () => {
   api.categories.mockResolvedValue([shared(1, "Home")]);
   api.amounts.mockResolvedValue([
     { shared_category_id: 1, month: 1, amount: 100 },
@@ -185,17 +185,51 @@ it("setup saves amounts for the year, sending blanks as null", async () => {
   expect(api.amounts).toHaveBeenCalledWith(1, YEAR);
   fireEvent.change(feb, { target: { value: "" } });
   fireEvent.change(screen.getByLabelText("Home Mar"), { target: { value: "25.5" } });
+  // Retyping a loaded value as an equal number is no change.
+  fireEvent.change(screen.getByLabelText("Home Jan"), { target: { value: "100.00" } });
+  api.setAmounts.mockResolvedValue([]);
   fireEvent.click(screen.getByRole("button", { name: "Save amounts" }));
 
   await waitFor(() => expect(api.setAmounts).toHaveBeenCalled());
-  const [id, year, lines] = api.setAmounts.mock.calls[0];
-  expect(id).toBe(1);
-  expect(year).toBe(YEAR);
-  expect(lines).toHaveLength(12);
-  expect(lines).toContainEqual({ shared_category_id: 1, month: 1, amount: 100 });
-  expect(lines).toContainEqual({ shared_category_id: 1, month: 2, amount: null });
-  expect(lines).toContainEqual({ shared_category_id: 1, month: 3, amount: 25.5 });
-  expect(lines).toContainEqual({ shared_category_id: 1, month: 4, amount: null });
+  expect(api.setAmounts).toHaveBeenLastCalledWith(1, YEAR, [
+    { shared_category_id: 1, month: 2, amount: null },
+    { shared_category_id: 1, month: 3, amount: 25.5 },
+  ]);
+
+  // The saved values are the new baseline: the next save sends only what changed since.
+  await screen.findByText("Saved.");
+  fireEvent.change(screen.getByLabelText("Home Apr"), { target: { value: "7" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save amounts" }));
+  await waitFor(() => expect(api.setAmounts).toHaveBeenCalledTimes(2));
+  expect(api.setAmounts).toHaveBeenLastCalledWith(1, YEAR, [{ shared_category_id: 1, month: 4, amount: 7 }]);
+});
+
+it("setup keeps amounts read-only until the year has loaded", async () => {
+  api.categories.mockResolvedValue([shared(1, "Home")]);
+  let resolve: (rows: unknown[]) => void = () => {};
+  api.amounts.mockReturnValue(new Promise((r) => (resolve = r)));
+  await openTab("Setup");
+
+  const jan = await screen.findByLabelText("Home Jan");
+  expect(jan).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save amounts" })).toBeDisabled();
+
+  resolve([{ shared_category_id: 1, month: 1, amount: 100 }]);
+  await waitFor(() => expect(jan).toHaveValue("100"));
+  expect(jan).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Save amounts" })).toBeEnabled();
+});
+
+it("setup never saves amounts for a year that failed to load", async () => {
+  api.categories.mockResolvedValue([shared(1, "Home")]);
+  api.amounts.mockRejectedValue(new ApiError(500, "Boom"));
+  await openTab("Setup");
+
+  const jan = await screen.findByLabelText("Home Jan");
+  expect(await screen.findByText(/couldn't load the amounts/i)).toBeInTheDocument();
+  expect(jan).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save amounts" })).toBeDisabled();
+  expect(api.setAmounts).not.toHaveBeenCalled();
 });
 
 it("setup offers only non-members to add", async () => {

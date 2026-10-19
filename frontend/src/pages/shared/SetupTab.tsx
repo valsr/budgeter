@@ -18,6 +18,12 @@ async function attempt<T>(request: Promise<T>): Promise<T | undefined> {
 
 type Amounts = Record<number, Record<number, string>>;
 
+/** One cell's text as a number, null when blank. */
+function cellValue(raw: string | undefined): number | null {
+  const text = (raw ?? "").trim();
+  return text === "" ? null : Number(text);
+}
+
 export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange: (b: SharedBudget) => void }) {
   const id = budget.id;
   const { user } = useAuth();
@@ -30,6 +36,10 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
   const [newCat, setNewCat] = useState({ name: "", parent: "", income: false });
   const [year, setYear] = useState(CURRENT_YEAR);
   const [amounts, setAmounts] = useState<Amounts>({});
+  // What the server holds for `year`, as last loaded or saved; null until it has loaded (or when
+  // loading failed), and then the grid is read-only -- saving it would wipe the year.
+  const [saved, setSaved] = useState<{ year: number; values: Amounts } | null>(null);
+  const loaded = saved !== null && saved.year === year;
   const [amountsNote, setAmountsNote] = useState("");
 
   const tree = sharedTreeOrder(categories);
@@ -44,13 +54,19 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
 
   useEffect(() => {
     setAmounts({});
+    setSaved(null);
     setAmountsNote("");
     let stale = false;
     attempt(sharedBudgetsApi.amounts(id, year)).then((rows) => {
-      if (!rows || stale) return;
+      if (stale) return;
+      if (!rows) {
+        setAmountsNote(`Couldn't load the amounts for ${year}.`);
+        return;
+      }
       const next: Amounts = {};
       for (const a of rows) (next[a.shared_category_id] ??= {})[a.month] = String(a.amount);
       setAmounts(next);
+      setSaved({ year, values: next });
     });
     return () => {
       stale = true;
@@ -100,17 +116,37 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
   }
 
   async function saveAmounts() {
+    if (!saved || saved.year !== year) return;
+    const base = saved.values;
+    // Only the cells that differ from what was loaded: the server deletes a cell sent as null.
     const lines = active.flatMap(({ category }) =>
-      MONTH_LABELS.map((_, i) => {
-        const raw = (amounts[category.id]?.[i + 1] ?? "").trim();
-        return { shared_category_id: category.id, month: i + 1, amount: raw === "" ? null : Number(raw) };
-      }),
+      MONTH_LABELS.map((_, i) => ({
+        shared_category_id: category.id,
+        month: i + 1,
+        amount: cellValue(amounts[category.id]?.[i + 1]),
+        before: cellValue(base[category.id]?.[i + 1]),
+      })).filter((l) => l.amount !== l.before),
     );
     if (lines.some((l) => l.amount !== null && !Number.isFinite(l.amount))) {
       setAmountsNote("Amounts must be numbers.");
       return;
     }
-    if (await attempt(sharedBudgetsApi.setAmounts(id, year, lines))) setAmountsNote("Saved.");
+    if (lines.length === 0) {
+      setAmountsNote("Nothing to save.");
+      return;
+    }
+    const sent = amounts;
+    const savedYear = year;
+    const body = lines.map(({ shared_category_id, month, amount }) => ({ shared_category_id, month, amount }));
+    if (!(await attempt(sharedBudgetsApi.setAmounts(id, savedYear, body)))) return;
+    setSaved((current) => {
+      if (!current || current.year !== savedYear) return current;
+      const values: Amounts = {};
+      for (const [cat, months] of Object.entries(current.values)) values[Number(cat)] = { ...months };
+      for (const l of lines) (values[l.shared_category_id] ??= {})[l.month] = sent[l.shared_category_id]?.[l.month] ?? "";
+      return { year: savedYear, values };
+    });
+    setAmountsNote("Saved.");
   }
 
   async function deleteBudget() {
@@ -312,6 +348,7 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
                         className="month-input"
                         aria-label={`${c.name} ${label}`}
                         value={amounts[c.id]?.[i + 1] ?? ""}
+                        disabled={!loaded}
                         onChange={(e) => {
                           setAmountsNote("");
                           setAmounts({ ...amounts, [c.id]: { ...amounts[c.id], [i + 1]: e.target.value } });
@@ -325,7 +362,7 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
           </table>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-          <button type="button" className="btn" disabled={active.length === 0} onClick={saveAmounts}>
+          <button type="button" className="btn" disabled={!loaded || active.length === 0} onClick={saveAmounts}>
             Save amounts
           </button>
           {amountsNote && <span className="sub">{amountsNote}</span>}
