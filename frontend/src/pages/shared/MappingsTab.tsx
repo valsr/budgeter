@@ -50,7 +50,12 @@ export function MappingsTab({ budgetId }: { budgetId: number }) {
 
   if (shared === null) return <p className="sub">Loading…</p>;
   const rows = sharedTreeOrder(shared).filter((n) => !n.category.archived);
-  if (rows.length === 0) return <p className="sub">This budget has no shared categories yet — add some under Setup.</p>;
+  // Links to archived shared categories have no row, but they still count and still keep their
+  // category out of every picker -- so list them, removable, rather than leave that unexplained.
+  const archivedName = new Map(shared.filter((c) => c.archived).map((c) => [c.id, c.name]));
+  const archivedLinks = links.filter((l) => archivedName.has(l.shared_category_id));
+  if (rows.length === 0 && archivedLinks.length === 0)
+    return <p className="sub">This budget has no shared categories yet — add some under Setup.</p>;
 
   return (
     <div>
@@ -113,6 +118,30 @@ export function MappingsTab({ budgetId }: { budgetId: number }) {
           })}
         </tbody>
       </table>
+      {archivedLinks.length > 0 && (
+        <div className="sub" style={{ marginTop: 12 }}>
+          <div>Mapped to archived categories (these still count, and can't be mapped elsewhere until removed):</div>
+          <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+            {archivedLinks.map((l) => {
+              const name = pathOf.get(l.category_id) ?? `#${l.category_id}`;
+              const target = archivedName.get(l.shared_category_id);
+              return (
+                <li key={l.category_id}>
+                  <span>{`${name} → ${target}`}</span>{" "}
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    aria-label={`Unmap ${name} from ${target}`}
+                    onClick={() => edit(links.filter((x) => x.category_id !== l.category_id))}
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
         <button type="button" className="btn" onClick={save} disabled={saving}>
           Save mappings
