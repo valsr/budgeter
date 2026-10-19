@@ -7,8 +7,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
 
-from app import books, server_db
+from app import books, server_db, shared_books
 from app.errors import (
     ConflictError,
     InvalidCredentialsError,
@@ -30,9 +31,12 @@ from app.routers import (
     overview,
     rules,
     settings,
+    shared_budgets,
     transactions,
 )
+from app.services import shared_tally
 from app.services import users as users_service
+from app.server_models import SharedBudget
 from app.services.change_log import purge_expired
 
 
@@ -61,6 +65,16 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001
             logger.exception("Could not prepare books for user %s; skipping", user_id)
             books.dispose(user_id)
+    try:
+        with server_db.SessionLocal() as sdb:
+            shared_ids = [b.id for b in sdb.scalars(select(SharedBudget))]
+        shared_books.upgrade_all(shared_ids)
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not prepare shared budget files; continuing")
+    try:
+        shared_tally.rebuild_all()
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not rebuild shared budget tallies; continuing")
     yield
 
 
@@ -129,6 +143,8 @@ app.include_router(backup.router)
 app.include_router(overview.router)
 app.include_router(settings.router)
 app.include_router(history.router)
+app.include_router(shared_budgets.router)
+app.include_router(shared_budgets.users_router)
 
 def resolve_static_path(static_dir: Path, full_path: str) -> Path:
     """Which file to serve for a non-API path: the static file it names, or index.html so React

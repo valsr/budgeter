@@ -13,9 +13,11 @@ Alembic tree:
 | **Server** — users, sessions, server settings | `backend/app/server_models/` | `app.server_db.ServerBase` | `backend/app/server_migrations/` | `server.db` |
 | **Shared** — what the members of one shared budget budget together: its categories, amounts and per-member tallies | `backend/app/shared_models/` | `app.shared_db.SharedBase` | `backend/app/shared_migrations/` | `shared/<id>.db`, one file per shared budget |
 
-The app auto-upgrades both on startup (`main.py`'s lifespan hook calls
+The app auto-upgrades all three on startup (`main.py`'s lifespan hook calls
 `server_db.upgrade_to_head()`, then `books.upgrade_all()` for every user's
-file), and a books file is also migrated when it is created or restored — so
+file, then `shared_books.upgrade_all()` for every shared budget's file,
+followed by `shared_tally.rebuild_all()` to refill the member tallies), and a
+books or shared file is also migrated when it is created or restored — so
 a running server always self-heals a stale or missing schema. That
 self-healing only works if a migration exists for every schema change, so:
 
@@ -62,7 +64,7 @@ in-memory databases anyway. Tests that are about the files themselves (the
 ## Local dev data
 
 The dev `uvicorn --reload` server keeps its live data in `backend/`:
-`server.db` (logins) and `books/<user_id>.db` (each user's books). The data
+`server.db` (logins), `books/<user_id>.db` (each user's books) and `shared/<id>.db` (each shared budget). The data
 directory is `BUDGETER_DATA_DIR`, defaulting to the directory of the file
 `BUDGETER_DATABASE_URL` names.
 
@@ -73,7 +75,7 @@ fallback for that migration, so it still must not be modified or removed.
 
 None of these are what pytest uses (pytest is in-memory or under `tmp_path`,
 see above) — but don't assume running things by hand is isolated from them.
-Never `rm`/reset `backend/budgeter.db`, `backend/server.db` or
-`backend/books/` as part of a test workflow; for a one-off manual check,
+Never `rm`/reset `backend/budgeter.db`, `backend/server.db`,
+`backend/books/` or `backend/shared/` as part of a test workflow; for a one-off manual check,
 point `BUDGETER_DATABASE_URL` (and so the data directory) at a scratch path
 instead, copying `budgeter.db` there first if you want real data.
