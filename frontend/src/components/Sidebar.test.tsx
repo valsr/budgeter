@@ -35,6 +35,7 @@ describe("Sidebar", () => {
       ["Categories", "/categories"],
       ["Transactions", "/transactions"],
       ["Budgets", "/budgets"],
+      ["Shared budgets", "/shared-budgets"],
       ["Import", "/import"],
       ["Settings", "/settings"],
     ];

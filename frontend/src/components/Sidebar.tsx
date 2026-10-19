@@ -62,6 +62,17 @@ const NAV_ITEMS = [
     ),
   },
   {
+    to: "/shared-budgets",
+    label: "Shared budgets",
+    icon: (
+      <svg viewBox="0 0 24 24">
+        <circle cx="9" cy="12" r="7" />
+        <path d="M9 5v7h7" />
+        <circle cx="17.5" cy="17.5" r="3.5" />
+      </svg>
+    ),
+  },
+  {
     to: "/import",
     label: "Import",
     icon: (

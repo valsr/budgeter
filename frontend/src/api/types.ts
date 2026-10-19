@@ -295,3 +295,51 @@ export interface AdminUser {
   is_disabled: boolean;
   created_at: string;
 }
+
+export interface SharedMember {
+  user_id: number;
+  username: string;
+  is_disabled: boolean;
+}
+
+export interface SharedBudget {
+  id: number;
+  name: string;
+  members: SharedMember[];
+}
+
+export interface DirectoryUser {
+  id: number;
+  username: string;
+}
+
+export interface SharedCategory {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  sort_order: number;
+  is_income: boolean;
+  archived: boolean;
+}
+
+export interface SharedAmount {
+  shared_category_id: number;
+  month: number;
+  amount: number;
+}
+
+export interface SharedLink {
+  category_id: number;
+  shared_category_id: number;
+}
+
+export interface SharedMemberSlice {
+  user_id: number;
+  username: string;
+  monthly: Record<number, number>;
+  ytd_actual: number;
+}
+
+export interface SharedReportRow extends ReportRow {
+  members: SharedMemberSlice[];
+}
