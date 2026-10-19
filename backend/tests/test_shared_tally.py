@@ -240,8 +240,8 @@ def test_link_to_missing_category_is_skipped(alice, budget):
     acct = make_account(alice, "Checking")
     _txn(alice, acct, "2026-03-05", [(food, -5)])
     _link(alice.user_id, budget.id, [(food, a), (gone, b)])
-    # Simulate an undone category creation: the row disappears, the link stays (books have no FK
-    # enforcement).
+    # A link whose category row is gone (books have no FK enforcement; hard deletes remove links
+    # themselves, but a stray one must still count for nothing).
     with books.session_for(alice.user_id) as db:
         db.execute(Category.__table__.delete().where(Category.id == gone))
         db.commit()
@@ -409,3 +409,21 @@ def test_link_to_a_deleted_shared_category_stays_stale(alice, budget):
     acct = make_account(alice, "Checking")
     _txn(alice, acct, "2026-03-05", [(food, -30)])
     assert _tallies(b, alice.user_id) == {}
+
+
+def test_undoing_a_category_creation_drops_its_link(alice, budget):
+    (s,) = _shared_categories(budget.id, "Shared")
+    temp = _category(alice, "Temp")
+    _link(alice.user_id, budget.id, [(temp, s)])
+    group_id = alice.get("/api/history").json()["items"][0]["group_id"]
+    resp = alice.post("/api/history/undo", json={"group_ids": [group_id]})
+    assert resp.json()["results"][0]["status"] == "undone", resp.text
+    with books.session_for(alice.user_id) as db:
+        assert db.query(SharedCategoryLink).count() == 0
+
+    # A new category may get the old id; it must not inherit the link.
+    other = _category(alice, "Unrelated")
+    acct = make_account(alice, "Checking")
+    _txn(alice, acct, "2026-03-05", [(other, -42)])
+    assert alice.get(f"/api/shared-budgets/{budget.id}/links").json() == []
+    assert _tallies(budget.id, alice.user_id) == {}
