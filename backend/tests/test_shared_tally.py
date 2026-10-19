@@ -427,3 +427,39 @@ def test_undoing_a_category_creation_drops_its_link(alice, budget):
     _txn(alice, acct, "2026-03-05", [(other, -42)])
     assert alice.get(f"/api/shared-budgets/{budget.id}/links").json() == []
     assert _tallies(budget.id, alice.user_id) == {}
+
+
+def test_recompute_racing_a_delete_does_not_recreate_the_file(sdb, alice, budget, monkeypatch, files):
+    path = files / "shared" / f"{budget.id}.db"
+    original = shared_budgets.budget_ids_for_user
+
+    def ids_then_delete(session, user_id):
+        ids = original(session, user_id)
+        # The budget is deleted after the recompute has read its ids but before it writes.
+        shared_budgets.delete(sdb, budget)
+        return ids
+
+    monkeypatch.setattr(shared_budgets, "budget_ids_for_user", ids_then_delete)
+    shared_tally.recompute_member(alice.user_id)
+    assert not path.exists()
+
+
+def test_delete_waits_for_the_budget_lock(sdb, alice, budget, files):
+    import threading
+
+    path = files / "shared" / f"{budget.id}.db"
+    budget_id = budget.id
+
+    def delete_it():
+        with server_db.SessionLocal() as session:
+            shared_budgets.delete(session, session.get(type(budget), budget_id))
+
+    with shared_books.lock_for(budget_id):
+        worker = threading.Thread(target=delete_it)
+        worker.start()
+        worker.join(0.3)
+        assert worker.is_alive()
+        assert path.exists()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert not path.exists()
