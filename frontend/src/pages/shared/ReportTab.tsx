@@ -3,15 +3,11 @@ import { sharedBudgetsApi } from "../../api/sharedBudgets";
 import type { SharedReportRow } from "../../api/types";
 import { formatMoney } from "../../format";
 
-import { CURRENT_YEAR, MONTH_LABELS, YEARS } from "./tree";
+import { MonthCells, ReportHead } from "../../components/ReportTable";
+import { MONTH_LABELS, monthClass } from "../../components/reportColumns";
+import { CURRENT_YEAR, YEARS } from "./tree";
 
 const CURRENT_MONTH = new Date().getMonth() + 1;
-
-/** Same column tinting as the Budgets report: odd months light, the last one stronger. */
-function monthClass(i: number, total: number): string {
-  if (i === total - 1) return "month-current";
-  return i % 2 === 1 ? "month-alt" : "";
-}
 
 /** The Budgets report layout, with each category expandable into one row per member. */
 export function ReportTab({ budgetId }: { budgetId: number }) {
@@ -71,25 +67,7 @@ export function ReportTab({ budgetId }: { budgetId: number }) {
         <p className="sub">No shared categories with figures for {year} yet — add some under Setup.</p>
       ) : (
         <table id="budget-report-table">
-          <thead>
-            <tr>
-              <th rowSpan={2}>Category</th>
-              {months.map((m, i) => (
-                <th key={m} colSpan={2} className={"month-label " + monthClass(i, months.length)}>
-                  {MONTH_LABELS[m - 1]}
-                </th>
-              ))}
-              <th rowSpan={2}>YTD diff</th>
-            </tr>
-            <tr>
-              {months.map((m, i) => (
-                <Fragment key={m}>
-                  <th className={"sub-col " + monthClass(i, months.length)}>Budgeted</th>
-                  <th className={"sub-col " + monthClass(i, months.length)}>Actual</th>
-                </Fragment>
-              ))}
-            </tr>
-          </thead>
+          <ReportHead months={months} />
           <tbody>
             {(rows ?? []).map((row) => {
               const open = expanded.has(row.row_key);
@@ -110,21 +88,13 @@ export function ReportTab({ budgetId }: { budgetId: number }) {
                       </button>
                       {row.name}
                     </td>
-                    {months.map((m, i) => {
-                      const cell = row.monthly[m] ?? { budgeted: 0, actual: 0 };
-                      const over = cell.actual > cell.budgeted;
-                      const cls = monthClass(i, months.length);
-                      return (
-                        <Fragment key={m}>
-                          <td className={"right muted-cell " + cls + (cell.budgeted < 0 ? " neg" : "")}>
-                            {formatMoney(cell.budgeted)}
-                          </td>
-                          <td className={"right " + cls + (over ? " over" : cell.actual < 0 ? " neg" : "")}>
-                            {formatMoney(cell.actual)}
-                          </td>
-                        </Fragment>
-                      );
-                    })}
+                    {months.map((m, i) => (
+                      <MonthCells
+                        key={m}
+                        cell={row.monthly[m] ?? { budgeted: 0, actual: 0 }}
+                        className={monthClass(i, months.length)}
+                      />
+                    ))}
                     <td className={"right " + (row.ytd_diff >= 0 ? "diff-pos" : "diff-neg")}>
                       {row.has_budget ? formatMoney(row.ytd_diff) : "—"}
                     </td>

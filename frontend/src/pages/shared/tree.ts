@@ -1,6 +1,5 @@
 import type { SharedCategory } from "../../api/types";
 
-export const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export const CURRENT_YEAR = new Date().getFullYear();
 /** The years the report and amounts pickers offer. */
 export const YEARS = Array.from({ length: 7 }, (_, i) => CURRENT_YEAR - 5 + i);
