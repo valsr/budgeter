@@ -81,23 +81,17 @@ def get_report(
     def rollup(cid: int):
         """(budgeted, actual, per-member actual, has_budget) for the subtree, visible kids only."""
         kids = [k for k in children_of.get(cid, []) if visible(k)]
-        if not kids:
-            sign = -1 if not effective_income(cid) else 1
-            per_member = {
-                uid: {m: sign * v for m, v in raw.get(cid, {}).get(uid, {}).items()} for uid in member_ids
-            }
-            return (
-                budget.get(cid, {}),
-                sum_monthly(list(per_member.values())),
-                per_member,
-                cid in has_amount,
-            )
+        sign = 1 if effective_income(cid) else -1
+        own_member = {
+            uid: {m: sign * v for m, v in raw.get(cid, {}).get(uid, {}).items()} for uid in member_ids
+        }
         results = [rollup(k) for k in kids]
+        per_member = {uid: sum_monthly([own_member[uid]] + [r[2][uid] for r in results]) for uid in member_ids}
         return (
-            sum_monthly([r[0] for r in results]),
-            sum_monthly([r[1] for r in results]),
-            {uid: sum_monthly([r[2][uid] for r in results]) for uid in member_ids},
-            any(r[3] for r in results),
+            sum_monthly([budget.get(cid, {})] + [r[0] for r in results]),
+            sum_monthly(list(per_member.values())),
+            per_member,
+            cid in has_amount or any(r[3] for r in results),
         )
 
     def emit(cid: int, depth: int) -> None:
