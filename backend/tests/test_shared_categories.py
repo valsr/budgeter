@@ -68,3 +68,11 @@ def test_set_amounts_rejects_bad_month(sh):
         sc.set_amounts(sh, 2026, [(a.id, 13, Decimal("1"))])
     with pytest.raises(ValidationError):
         sc.set_amounts(sh, 2026, [(999, 1, Decimal("1"))])
+
+
+def test_deleted_category_id_is_not_reused(sh):
+    a = sc.create_category(sh, "Dining", None, False)
+    old_id = a.id
+    sc.delete_category(sh, old_id)
+    b = sc.create_category(sh, "Kids", None, False)
+    assert b.id != old_id

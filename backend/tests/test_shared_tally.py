@@ -392,3 +392,20 @@ def test_one_failing_budget_does_not_stop_the_others(sdb, alice, budget, monkeyp
     assert _tallies(working, alice.user_id) == {(working_shared, 2026, 3): Decimal("-5")}
     assert _tallies(first, alice.user_id) == {}
     assert [args[1:] for args in logged] == [(alice.user_id, first)]
+
+
+def test_link_to_a_deleted_shared_category_stays_stale(alice, budget):
+    b = budget.id
+    dining = alice.post(f"/api/shared-budgets/{b}/categories", json={"name": "Dining"}).json()["id"]
+    food = _category(alice, "Restaurants")
+    resp = alice.put(
+        f"/api/shared-budgets/{b}/links", json={"links": [{"category_id": food, "shared_category_id": dining}]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert alice.delete(f"/api/shared-budgets/{b}/categories/{dining}").status_code == 204
+    kids = alice.post(f"/api/shared-budgets/{b}/categories", json={"name": "Kids"}).json()["id"]
+    assert kids != dining
+    assert alice.get(f"/api/shared-budgets/{b}/links").json() == []
+    acct = make_account(alice, "Checking")
+    _txn(alice, acct, "2026-03-05", [(food, -30)])
+    assert _tallies(b, alice.user_id) == {}
