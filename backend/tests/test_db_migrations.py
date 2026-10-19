@@ -1,5 +1,5 @@
 
-from app import books, server_db
+from app import books, server_db, shared_books
 from app.config import settings
 from tests.helpers import tables
 
@@ -43,6 +43,10 @@ def test_the_two_trees_stay_out_of_each_others_files(files):
     books.create_books(1)
     assert "accounts" not in tables(files / "server.db")
     assert "users" not in tables(files / "books" / "1.db")
+    shared_books.create(1)
+    assert not {"users", "accounts"} & tables(files / "shared" / "1.db")
+    assert "member_tallies" not in tables(files / "books" / "1.db")
+    assert "member_tallies" not in tables(files / "server.db")
 
 
 def test_upgrades_skip_the_in_memory_test_sentinel(monkeypatch):
@@ -53,4 +57,5 @@ def test_upgrades_skip_the_in_memory_test_sentinel(monkeypatch):
     monkeypatch.setattr(settings, "database_url", "sqlite://")
     monkeypatch.setattr(settings, "data_dir", None)
     server_db.upgrade_to_head()
+    shared_books.upgrade_all([1])
     books.upgrade_all([1, 2])  # would raise if it attempted to run migrations here
