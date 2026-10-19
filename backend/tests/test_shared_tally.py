@@ -360,3 +360,35 @@ def test_rebuild_all_continues_past_a_failing_member(sdb, make_client, monkeypat
     shared_tally.rebuild_all()
     assert sorted(seen) == sorted([alice.user_id, bob.user_id])
     assert budget.id  # still registered
+
+
+def test_one_failing_budget_does_not_stop_the_others(sdb, alice, budget, monkeypatch):
+    other = shared_budgets.create(sdb, alice.user_id, "Trip", [])
+    (a,) = _shared_categories(budget.id, "Food")
+    (b,) = _shared_categories(other.id, "Food")
+    food = _category(alice, "Groceries")
+    _link(alice.user_id, budget.id, [(food, a)])
+    _link(alice.user_id, other.id, [(food, b)])
+
+    # Whichever budget is visited first fails; the other must still be updated.
+    first = shared_budgets.budget_ids_for_user(sdb, alice.user_id)[0]
+    working = other.id if first == budget.id else budget.id
+    working_shared = b if working == other.id else a
+    real_session_for = shared_books.session_for
+
+    def failing_session_for(budget_id):
+        if budget_id == first:
+            raise RuntimeError("unopenable")
+        return real_session_for(budget_id)
+
+    logged = []
+    monkeypatch.setattr(shared_tally.shared_books, "session_for", failing_session_for)
+    # A spy rather than caplog: creating the second budget ran alembic's fileConfig, which
+    # resets the root logger's handlers.
+    monkeypatch.setattr(shared_tally.logger, "exception", lambda *args: logged.append(args))
+    _txn(alice, make_account(alice, "Checking"), "2026-03-05", [(food, -5)])
+    monkeypatch.undo()
+
+    assert _tallies(working, alice.user_id) == {(working_shared, 2026, 3): Decimal("-5")}
+    assert _tallies(first, alice.user_id) == {}
+    assert [args[1:] for args in logged] == [(alice.user_id, first)]

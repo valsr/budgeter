@@ -92,14 +92,21 @@ def recompute_member(user_id: int) -> None:
         for budget_id in budget_ids:
             # Read the books under the lock too, so two racing recomputes can't leave the older
             # reading in place.
-            with shared_books.lock_for(budget_id):
-                db.rollback()  # a fresh snapshot of the books for each budget
-                valid = _valid_shared_ids(budget_id)
-                links = [
-                    (link.category_id, link.shared_category_id)
-                    for link in shared_links.get_links(db, budget_id, valid)
-                ]
-                _write(budget_id, user_id, compute(db, links))
+            # One budget's failure (its file removed mid-flight, unreadable...) mustn't leave
+            # the member's other budgets stale.
+            try:
+                with shared_books.lock_for(budget_id):
+                    db.rollback()  # a fresh snapshot of the books for each budget
+                    valid = _valid_shared_ids(budget_id)
+                    links = [
+                        (link.category_id, link.shared_category_id)
+                        for link in shared_links.get_links(db, budget_id, valid)
+                    ]
+                    _write(budget_id, user_id, compute(db, links))
+            except Exception:
+                logger.exception(
+                    "Couldn't update user %s's tally in shared budget %s", user_id, budget_id
+                )
 
 
 def rebuild_all() -> None:
