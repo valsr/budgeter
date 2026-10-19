@@ -9,14 +9,19 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from app import books, server_db
+from sqlalchemy import select
+
+from app import books, server_db, shared_books
 from app.config import resolve_data_dir
 from app.errors import ValidationError
+from app.server_models import SharedBudget
 from app.services import backup as backup_service
+from app.services import shared_tally
 from app.services import users as users_service
 
 _SERVER_MEMBER = "server.db"
 _BOOKS_MEMBER = re.compile(r"books/([1-9][0-9]*)\.db")
+_SHARED_MEMBER = re.compile(r"shared/([1-9][0-9]*)\.db")
 
 
 def _data_dir() -> Path:
@@ -34,6 +39,7 @@ def create_archive() -> bytes:
     data_dir = _data_dir()
     with server_db.SessionLocal() as sdb:
         user_ids = [user.id for user in users_service.list_users(sdb)]
+        budget_ids = [budget.id for budget in sdb.scalars(select(SharedBudget))]
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -42,11 +48,15 @@ def create_archive() -> bytes:
             path = books.books_path(user_id)
             if path.exists():
                 archive.writestr(f"books/{user_id}.db", backup_service.create_backup_bytes(str(path)))
+        for budget_id in budget_ids:
+            path = shared_books.shared_path(budget_id)
+            if path.exists():
+                archive.writestr(f"shared/{budget_id}.db", backup_service.create_backup_bytes(str(path)))
     return out.getvalue()
 
 
-def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
-    """The archive's (server image, {user_id: books image}), after checking it holds exactly the
+def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes], dict[int, bytes]]:
+    """The archive's (server image, {user_id: books image}, {budget_id: shared image}), after checking it holds exactly the
     files this app writes. The images themselves are validated when staged."""
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
@@ -58,7 +68,11 @@ def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
         if len(set(names)) != len(names):
             raise ValidationError("Archive lists the same file twice")
         # Names are matched whole, never joined onto a path, so ".." and absolute paths are refused.
-        unexpected = [n for n in names if n != _SERVER_MEMBER and not _BOOKS_MEMBER.fullmatch(n)]
+        unexpected = [
+            n
+            for n in names
+            if n != _SERVER_MEMBER and not _BOOKS_MEMBER.fullmatch(n) and not _SHARED_MEMBER.fullmatch(n)
+        ]
         if unexpected:
             raise ValidationError(f"Archive contains an unexpected file: {unexpected[0]!r}")
         if _SERVER_MEMBER not in names:
@@ -66,38 +80,49 @@ def _read_members(data: bytes) -> tuple[bytes, dict[int, bytes]]:
         try:
             server_bytes = archive.read(_SERVER_MEMBER)
             books_bytes = {
-                int(_BOOKS_MEMBER.fullmatch(n).group(1)): archive.read(n) for n in names if n != _SERVER_MEMBER
+                int(m.group(1)): archive.read(n) for n in names if (m := _BOOKS_MEMBER.fullmatch(n))
+            }
+            shared_bytes = {
+                int(m.group(1)): archive.read(n) for n in names if (m := _SHARED_MEMBER.fullmatch(n))
             }
         except (zipfile.BadZipFile, OSError, RuntimeError) as e:
             raise ValidationError(f"Archive is damaged: {e}") from e
-    return server_bytes, books_bytes
+    return server_bytes, books_bytes, shared_bytes
 
 
-def _check_users(server_file: Path, books_ids: set[int]) -> None:
+def _check_users(server_file: Path, books_ids: set[int], shared_ids: set[int]) -> set[int]:
     """Refuse a server database that leaves nobody able to administer it, or books that belong to
-    no user in it (they would sit on disk waiting for a future user to inherit them)."""
+    no user in it (they would sit on disk waiting for a future user to inherit them), or shared
+    budget files for no registered budget. Returns the archive's registered shared budget ids."""
     with backup_service.open_db(server_file) as conn:
         user_ids = {row[0] for row in conn.execute("SELECT id FROM users")}
         active_admins = conn.execute(
             "SELECT COUNT(*) FROM users WHERE is_admin AND NOT is_disabled"
         ).fetchone()[0]
+        budget_ids = {row[0] for row in conn.execute("SELECT id FROM shared_budgets")}
     if user_ids and not active_admins:
         raise ValidationError("Archive's server.db has no active admin: nobody could manage the server after restoring it")
     orphans = sorted(books_ids - user_ids)
     if orphans:
         raise ValidationError(f"Archive has books for a user that isn't in its server.db: books/{orphans[0]}.db")
+    shared_orphans = sorted(shared_ids - budget_ids)
+    if shared_orphans:
+        raise ValidationError(
+            f"Archive has a shared budget that isn't in its server.db: shared/{shared_orphans[0]}.db"
+        )
+    return budget_ids
 
 
 def restore_archive(data: bytes) -> None:
     """Replace the server database and all books with the archive's."""
     data_dir = _data_dir()
-    server_bytes, books_bytes = _read_members(data)
+    server_bytes, books_bytes, shared_bytes = _read_members(data)
 
     # Staged on the same filesystem so each os.replace is atomic.
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=data_dir))
     try:
         staged_server = backup_service.stage_server(server_bytes, staging / "server.db")
-        _check_users(staged_server, set(books_bytes))
+        budget_ids = _check_users(staged_server, set(books_bytes), set(shared_bytes))
         staged_books: dict[int, Path] = {}
         for user_id, image in books_bytes.items():
             try:
@@ -105,7 +130,18 @@ def restore_archive(data: bytes) -> None:
             except ValidationError as e:
                 raise ValidationError(f"books/{user_id}.db: {e}") from e
 
+        staged_shared: dict[int, Path] = {}
+        for budget_id, image in shared_bytes.items():
+            try:
+                staged_shared[budget_id] = backup_service.stage_shared(image, staging / f"shared-{budget_id}.db")
+            except ValidationError as e:
+                raise ValidationError(f"shared/{budget_id}.db: {e}") from e
+
         server_db.replace_database(staged_server)
         books.replace_all_books(staged_books)
+        shared_books.replace_all(staged_shared)
+        # Older archives have registry rows but no files: give those fresh ones.
+        shared_books.upgrade_all(sorted(budget_ids))
+        shared_tally.rebuild_all()
     finally:
         shutil.rmtree(staging, ignore_errors=True)

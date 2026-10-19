@@ -7,6 +7,7 @@ from app import books
 from app.auth import current_user
 from app.server_models import User
 from app.services import backup as backup_service
+from app.services import shared_tally
 
 router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(current_user)])
 
@@ -29,3 +30,4 @@ def restore_backup(file: UploadFile, user: User = Depends(current_user)):
     # Validated, migrated and checked as a copy first; the live books are untouched unless it's usable.
     staged = backup_service.stage_books(file.file.read(), path.with_suffix(".restore"))
     books.replace_books(user.id, staged)
+    shared_tally.recompute_member(user.id)

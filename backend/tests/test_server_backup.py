@@ -61,7 +61,7 @@ def test_restore_round_trips_users_and_books_and_drops_extra_books(two_users, ma
     # Sessions travel with the archive: alice and bob were logged in when it was taken.
     assert account_names(alice) == ["Alice checking"]
     assert account_names(bob) == ["Bob savings"]
-    assert sorted(p.name for p in files.iterdir()) == ["books", "server.db"]  # no staging leftovers
+    assert sorted(p.name for p in files.iterdir()) == ["books", "server.db", "shared"]  # no staging leftovers
 
 
 @pytest.mark.parametrize(
@@ -213,3 +213,96 @@ def test_restore_accepts_an_archive_from_a_server_nobody_registered_on(two_users
     archive = rezip(archive, drop=[n for n in zipfile.ZipFile(io.BytesIO(archive)).namelist() if n != "server.db"])
     server_backup.restore_archive(archive)
     assert sorted(p.name for p in (files / "books").iterdir()) == []
+
+
+# --- shared budgets ---------------------------------------------------------------------------
+
+
+def _shared_setup(alice, bob):
+    """A shared budget with a mapped $25 January expense in Alice's books and a $100 budget line."""
+    bid = alice.post("/api/shared-budgets", json={"name": "Home", "member_ids": [bob.user_id]}).json()["id"]
+    sid = alice.post(f"/api/shared-budgets/{bid}/categories", json={"name": "Groceries"}).json()["id"]
+    resp = alice.put(
+        f"/api/shared-budgets/{bid}/amounts",
+        json={"year": 2026, "lines": [{"shared_category_id": sid, "month": 1, "amount": 100}]},
+    )
+    assert resp.status_code == 200, resp.text
+    own = alice.post("/api/categories", json={"name": "Food"}).json()["id"]
+    resp = alice.put(
+        f"/api/shared-budgets/{bid}/links", json={"links": [{"category_id": own, "shared_category_id": sid}]}
+    )
+    assert resp.status_code == 200, resp.text
+    account = make_account(alice, "Card")
+    resp = alice.post(
+        "/api/transactions",
+        json={"account_id": account, "date": "2026-01-10", "name": "Shop", "splits": [{"category_id": own, "amount": -25}]},
+    )
+    assert resp.status_code == 201, resp.text
+    return bid, sid
+
+
+def _report(client, bid):
+    resp = client.get(f"/api/shared-budgets/{bid}/report?year=2026&through_month=1")
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_archive_round_trips_shared_budgets(two_users):
+    alice, bob = two_users
+    bid, sid = _shared_setup(alice, bob)
+    before = _report(alice, bid)
+    assert before[0]["monthly"]["1"]["actual"] == 25.0
+
+    archive = server_backup.create_archive()
+    with zipfile.ZipFile(io.BytesIO(archive)) as z:
+        assert f"shared/{bid}.db" in z.namelist()
+
+    alice.put(
+        f"/api/shared-budgets/{bid}/amounts",
+        json={"year": 2026, "lines": [{"shared_category_id": sid, "month": 1, "amount": 5}]},
+    )
+    server_backup.restore_archive(archive)
+
+    assert _report(alice, bid) == before
+
+
+def test_archive_without_shared_members_restores(two_users):
+    alice, bob = two_users
+    bid, _ = _shared_setup(alice, bob)
+    before = _report(alice, bid)
+    archive = rezip(server_backup.create_archive(), drop={f"shared/{bid}.db"})
+
+    server_backup.restore_archive(archive)
+
+    after = _report(alice, bid)
+    # Fresh file: the category and amounts are gone, but the registry row exists and works.
+    assert books.books_path(alice.user_id).exists()
+    assert after == []
+    assert before != after
+    from app import shared_books
+    from app.shared_models import MemberTally
+
+    assert shared_books.shared_path(bid).exists()
+    with shared_books.session_for(bid) as s:
+        assert s.query(MemberTally).count() == 0
+
+
+def test_archive_rejects_orphan_shared_file(two_users, files):
+    alice, bob = two_users
+    bid, _ = _shared_setup(alice, bob)
+    archive = server_backup.create_archive()
+    orphan = zipfile.ZipFile(io.BytesIO(archive)).read(f"shared/{bid}.db")
+    bad = rezip(archive, add={f"shared/{bid + 100}.db": orphan})
+    before = snapshot(files)
+
+    with pytest.raises(ValidationError, match=rf"shared budget that isn't in its server.db: shared/{bid + 100}.db"):
+        server_backup.restore_archive(bad)
+    assert snapshot(files) == before
+
+
+def test_archive_rejects_a_corrupt_shared_member(two_users):
+    alice, bob = two_users
+    bid, _ = _shared_setup(alice, bob)
+    bad = rezip(server_backup.create_archive(), drop={f"shared/{bid}.db"}, add={f"shared/{bid}.db": b"nope"})
+    with pytest.raises(ValidationError, match=rf"shared/{bid}.db: "):
+        server_backup.restore_archive(bad)
