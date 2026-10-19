@@ -3,6 +3,7 @@ import { activeCategories, categoriesApi, flattenAllCategories } from "../../api
 import { sharedBudgetsApi } from "../../api/sharedBudgets";
 import type { Category, SharedCategory, SharedLink } from "../../api/types";
 import { CategoryCombobox } from "../../components/CategoryCombobox";
+import { LoadError } from "./LoadError";
 import { sharedTreeOrder } from "./tree";
 
 /** The caller's own categories mapped onto this budget's shared ones. A category can feed only one
@@ -16,16 +17,26 @@ export function MappingsTab({ budgetId }: { budgetId: number }) {
   const [saved, setSaved] = useState(false);
   // Bumped after each pick so that row's picker remounts empty, ready for another.
   const [pickCount, setPickCount] = useState(0);
+  const [failed, setFailed] = useState(false);
+  // Bumped by Retry to run the load again.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let stale = false;
+    setShared(null);
+    setFailed(false);
     Promise.all([sharedBudgetsApi.categories(budgetId), categoriesApi.list(true), sharedBudgetsApi.links(budgetId)])
       .then(([s, o, l]) => {
+        if (stale) return;
         setShared(s);
         setOwn(o);
         setLinks(l);
       })
-      .catch(() => setShared([]));
-  }, [budgetId]);
+      .catch(() => !stale && setFailed(true));
+    return () => {
+      stale = true;
+    };
+  }, [budgetId, attempt]);
 
   const pathOf = useMemo(() => new Map(flattenAllCategories(own).map((o) => [o.id, o.path])), [own]);
   const pickable = useMemo(() => activeCategories(own), [own]);
@@ -48,6 +59,7 @@ export function MappingsTab({ budgetId }: { budgetId: number }) {
     }
   }
 
+  if (failed) return <LoadError message="Couldn't load your mappings." onRetry={() => setAttempt((n) => n + 1)} />;
   if (shared === null) return <p className="sub">Loading…</p>;
   const rows = sharedTreeOrder(shared).filter((n) => !n.category.archived);
   // Links to archived shared categories have no row, but they still count and still keep their

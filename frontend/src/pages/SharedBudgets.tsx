@@ -4,18 +4,23 @@ import { sharedBudgetsApi } from "../api/sharedBudgets";
 import type { DirectoryUser, SharedBudget } from "../api/types";
 import { useAuth } from "../auth/context";
 import { Modal } from "../components/Modal";
+import { LoadError } from "./shared/LoadError";
 
 export function SharedBudgets() {
   const [budgets, setBudgets] = useState<SharedBudget[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
+  function load() {
+    setFailed(false);
     sharedBudgetsApi
       .list()
-      .then(setBudgets, () => {}) // the global error toast reports a failure
+      .then(setBudgets, () => setFailed(true))
       .finally(() => setLoaded(true));
-  }, []);
+  }
+
+  useEffect(load, []);
 
   return (
     <div>
@@ -31,7 +36,9 @@ export function SharedBudgets() {
         </button>
       </div>
 
-      {loaded && budgets.length === 0 ? (
+      {failed ? (
+        <LoadError message="Couldn't load your shared budgets." onRetry={load} />
+      ) : loaded && budgets.length === 0 ? (
         <p className="sub">No shared budgets yet.</p>
       ) : (
         <table>
