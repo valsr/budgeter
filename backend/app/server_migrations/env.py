@@ -10,7 +10,9 @@ from app.server_db import ServerBase, server_db_path
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the app's own loggers alive: upgrades run inside the server (startup, new books),
+    # and the default would silently disable every logger created before this point.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = ServerBase.metadata
 
