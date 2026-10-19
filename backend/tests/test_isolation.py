@@ -99,3 +99,38 @@ def test_background_categorization_runs_against_the_importers_books(make_client)
     conn.close()
     assert suggested and all(category_id in row for row in suggested)
     assert bob.get("/api/transactions").json()["total"] == 0
+
+
+def test_shared_report_exposes_only_monthly_totals(make_client):
+    alice, bob = make_client("alice"), make_client("bob")
+    resp = alice.post("/api/shared-budgets", json={"name": "Home", "member_ids": [bob.user_id]})
+    budget_id = resp.json()["id"]
+    cat = alice.post(f"/api/shared-budgets/{budget_id}/categories", json={"name": "Food"}).json()["id"]
+    books_cat = bob.post("/api/categories", json={"name": "bob-groceries"}).json()["id"]
+    account_id = make_account(bob, "Bob secret account")
+    bob.put(
+        f"/api/shared-budgets/{budget_id}/links",
+        json={"links": [{"category_id": books_cat, "shared_category_id": cat}]},
+    )
+    resp = bob.post(
+        "/api/transactions",
+        json={
+            "account_id": account_id,
+            "date": "2026-01-05",
+            "name": "Bob private purchase",
+            "splits": [{"category_id": books_cat, "amount": -25.0}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    txn_id = resp.json()["id"]
+
+    resp = alice.get(f"/api/shared-budgets/{budget_id}/report?year=2026&through_month=1")
+    assert resp.status_code == 200
+    assert "Bob private purchase" not in resp.text
+    assert "Bob secret account" not in resp.text
+    assert "bob-groceries" not in resp.text
+    rows = resp.json()
+    assert rows and all(r["account_id"] is None for r in rows)
+    assert rows[0]["monthly"]["1"]["actual"] == 25.0
+    assert all(set(m) == {"user_id", "username", "monthly", "ytd_actual"} for r in rows for m in r["members"])
+    assert txn_id is not None
