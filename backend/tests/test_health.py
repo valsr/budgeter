@@ -57,7 +57,7 @@ def test_detailed_health_reports_files_schema_and_serving(make_client, files, mo
     assert body["users"] == {"total": 2, "active_admins": 1, "disabled": 1}
     assert body["storage"]["books_files"] == 2
     assert body["storage"]["books_bytes"] > 0 and body["storage"]["server_db_bytes"] > 0
-    assert body["schema"] == {"server": "9f2c4d7a1e55", "books": "b27eace77f79"}
+    assert body["schema"] == {"server": "827f665dc0b0", "books": "c7d9d692529a"}
     assert body["serving"] == {"port": 8000, "https": False}
 
 
