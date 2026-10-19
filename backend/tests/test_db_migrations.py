@@ -25,9 +25,16 @@ def test_books_upgrade_creates_schema_on_a_fresh_db_file(tmp_path):
         "category_changes",
         "transaction_changes",
         "app_settings",
+        "shared_category_links",
     } <= tables(db_path)
     # Users and their keys live in the server database, never in books.
     assert not {"api_key", "users", "sessions"} & tables(db_path)
+
+
+def test_server_upgrade_creates_shared_registry(files):
+    assert {"shared_budgets", "shared_budget_members"} <= tables(files / "server.db")
+    books.create_books(1)
+    assert not {"shared_budgets", "shared_budget_members"} & tables(files / "books" / "1.db")
 
 
 def test_books_upgrade_is_idempotent(tmp_path):

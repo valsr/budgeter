@@ -204,7 +204,7 @@ def test_concurrent_books_creation_migrates_every_file(files):
         revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
         conn.close()
         assert {"accounts", "transactions", "app_settings"} <= tables, user_id
-        assert revision == "b27eace77f79", user_id
+        assert revision == "c7d9d692529a", user_id
 
 
 # --- I3: state-changing requests from another origin are refused ---

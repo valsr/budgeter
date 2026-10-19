@@ -10,6 +10,7 @@ from app.models.change import (
 )
 from app.models.import_batch import ImportBatch, ReviewItemStatus, ReviewQueueItem
 from app.models.rule import ConditionField, ConditionOperator, MatchType, Rule, RuleCondition
+from app.models.shared_link import SharedCategoryLink
 from app.models.split import Split, SuggestionSource
 from app.models.transaction import Transaction, TransactionType
 
@@ -32,6 +33,7 @@ __all__ = [
     "ReviewQueueItem",
     "Rule",
     "RuleCondition",
+    "SharedCategoryLink",
     "Split",
     "SuggestionSource",
     "Transaction",
