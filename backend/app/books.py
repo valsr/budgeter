@@ -71,7 +71,11 @@ def _engine_for(user_id: int) -> Engine:
 
 
 def session_for(user_id: int) -> Session:
-    return Session(bind=_engine_for(user_id), autoflush=False)
+    from app.services import shared_tally  # lazy: it imports this module
+
+    session = Session(bind=_engine_for(user_id), autoflush=False)
+    shared_tally.install_hook(session, user_id)
+    return session
 
 
 def ensure_books(user_id: int) -> None:
