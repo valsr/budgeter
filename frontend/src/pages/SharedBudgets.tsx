@@ -13,7 +13,7 @@ export function SharedBudgets() {
   useEffect(() => {
     sharedBudgetsApi
       .list()
-      .then(setBudgets)
+      .then(setBudgets, () => {}) // the global error toast reports a failure
       .finally(() => setLoaded(true));
   }, []);
 
@@ -93,15 +93,25 @@ function NewSharedBudgetModal({
   }
 
   async function submit() {
-    const created = await sharedBudgetsApi.create({
-      name: name.trim() || "Untitled shared budget",
-      member_ids: people.filter((p) => selected.has(p.id)).map((p) => p.id),
-    });
-    onCreated(created);
+    try {
+      const created = await sharedBudgetsApi.create({
+        name: name.trim(),
+        member_ids: people.filter((p) => selected.has(p.id)).map((p) => p.id),
+      });
+      onCreated(created);
+    } catch {
+      // Reported by the global error toast; the dialog stays open to retry.
+    }
   }
 
   return (
-    <Modal title="New shared budget" onClose={onClose} onSubmit={submit} submitLabel="Create">
+    <Modal
+      title="New shared budget"
+      onClose={onClose}
+      onSubmit={submit}
+      submitLabel="Create"
+      submitDisabled={name.trim() === ""}
+    >
       <div className="field">
         <label htmlFor="shared-budget-name">Name</label>
         <input
