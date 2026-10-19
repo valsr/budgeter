@@ -24,6 +24,8 @@ interface CategoryComboboxProps {
    * can refresh whatever category tree it holds. */
   onCreated?: () => void;
   autoFocus?: boolean;
+  /** Categories to leave out of the options (e.g. ones already used elsewhere). */
+  excludeIds?: ReadonlySet<number>;
 }
 
 /** Colon-delimited category search/create combobox — type a path like "shared:groceries:alcohol" to
@@ -39,11 +41,15 @@ export function CategoryCombobox({
   placeholder,
   onCreated,
   autoFocus,
+  excludeIds,
 }: CategoryComboboxProps) {
   const options = useMemo(() => {
-    if (optionSource === "all") return flattenAllCategories(categories);
-    return flattenLeafCategories(categories).map((o) => ({ ...o, depth: 0, isLeaf: true }));
-  }, [categories, optionSource]);
+    const all =
+      optionSource === "all"
+        ? flattenAllCategories(categories)
+        : flattenLeafCategories(categories).map((o) => ({ ...o, depth: 0, isLeaf: true }));
+    return excludeIds ? all.filter((o) => !excludeIds.has(o.id)) : all;
+  }, [categories, optionSource, excludeIds]);
   const selected = value !== null ? options.find((o) => o.id === value) ?? null : null;
 
   const [query, setQuery] = useState(selected?.path ?? "");
