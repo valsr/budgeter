@@ -94,3 +94,14 @@ it("keeps Create disabled until the name has non-blank text", async () => {
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Trip" } });
   expect(createButton).toBeEnabled();
 });
+
+it("says so when the list can't load, and retries", async () => {
+  list.mockRejectedValueOnce(new Error("boom"));
+  renderList();
+  expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't load your shared budgets/i);
+  expect(screen.queryByText(/no shared budgets yet/i)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+  expect(await screen.findByRole("link", { name: "Household" })).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});

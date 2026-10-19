@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { sharedBudgetsApi } from "../../api/sharedBudgets";
 import type { SharedCategoryPatch } from "../../api/sharedBudgets";
 import type { DirectoryUser, SharedBudget, SharedCategory, SharedMember } from "../../api/types";
 import { useAuth } from "../../auth/context";
 import { MONTH_LABELS } from "../../components/reportColumns";
+import { LoadError } from "./LoadError";
 import { CURRENT_YEAR, sharedTreeOrder, subtreeIds, YEARS } from "./tree";
 
 /** Run a request whose failure the global error toast already reports; the screen just stays as it was. */
@@ -33,6 +34,8 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
   const [directory, setDirectory] = useState<DirectoryUser[]>([]);
   const [toAdd, setToAdd] = useState("");
   const [categories, setCategories] = useState<SharedCategory[]>([]);
+  const categoriesLoaded = useRef(false);
+  const [categoriesFailed, setCategoriesFailed] = useState(false);
   const [newCat, setNewCat] = useState({ name: "", parent: "", income: false });
   const [year, setYear] = useState(CURRENT_YEAR);
   const [amounts, setAmounts] = useState<Amounts>({});
@@ -74,7 +77,15 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
   }, [id, year]);
 
   function loadCategories() {
-    attempt(sharedBudgetsApi.categories(id)).then((c) => c && setCategories(c));
+    attempt(sharedBudgetsApi.categories(id)).then((c) => {
+      // A failed reload after an edit keeps the tree already on screen; only a tree that never
+      // loaded is replaced by the error, rather than passing for an empty one.
+      if (c) {
+        setCategories(c);
+        categoriesLoaded.current = true;
+      }
+      setCategoriesFailed(!categoriesLoaded.current);
+    });
   }
 
   async function saveName() {
@@ -213,6 +224,10 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
 
       <div className="card">
         <div className="section-title">Shared categories</div>
+        {categoriesFailed ? (
+          <LoadError message="Couldn't load the shared categories." onRetry={loadCategories} />
+        ) : (
+        <>
         <table>
           <thead>
             <tr>
@@ -313,6 +328,8 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
             Add category
           </button>
         </div>
+        </>
+        )}
       </div>
 
       <div className="card">

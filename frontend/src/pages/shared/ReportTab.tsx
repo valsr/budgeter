@@ -5,6 +5,7 @@ import { formatMoney } from "../../format";
 
 import { MonthCells, ReportHead } from "../../components/ReportTable";
 import { MONTH_LABELS, monthClass } from "../../components/reportColumns";
+import { LoadError } from "./LoadError";
 import { CURRENT_YEAR, YEARS } from "./tree";
 
 const CURRENT_MONTH = new Date().getMonth() + 1;
@@ -14,18 +15,23 @@ export function ReportTab({ budgetId }: { budgetId: number }) {
   const [year, setYear] = useState(CURRENT_YEAR);
   const [throughMonth, setThroughMonth] = useState(CURRENT_MONTH);
   const [rows, setRows] = useState<SharedReportRow[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Bumped by Retry to run the load again with the same year and month.
+  const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let stale = false;
+    setRows(null);
+    setFailed(false);
     sharedBudgetsApi.report(budgetId, year, throughMonth).then(
       (r) => !stale && setRows(r),
-      () => !stale && setRows([]), // the global error toast has already said why
+      () => !stale && setFailed(true),
     );
     return () => {
       stale = true;
     };
-  }, [budgetId, year, throughMonth]);
+  }, [budgetId, year, throughMonth, attempt]);
 
   function toggle(key: string) {
     setExpanded((prev) => {
@@ -63,7 +69,9 @@ export function ReportTab({ budgetId }: { budgetId: number }) {
         </select>
       </div>
 
-      {rows !== null && rows.length === 0 ? (
+      {failed ? (
+        <LoadError message={`Couldn't load the report for ${year}.`} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : rows !== null && rows.length === 0 ? (
         <p className="sub">No shared categories with figures for {year} yet — add some under Setup.</p>
       ) : (
         <table id="budget-report-table">

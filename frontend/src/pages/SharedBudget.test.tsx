@@ -101,6 +101,29 @@ it("shows a not-found state when the budget can't be loaded", async () => {
   expect(screen.getByRole("link", { name: /back to shared budgets/i })).toHaveAttribute("href", "/shared-budgets");
 });
 
+it("report says so when it can't load, and retries", async () => {
+  api.report.mockRejectedValueOnce(new ApiError(500, "boom"));
+  await openTab("Report");
+  expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't load the report/i);
+  expect(screen.queryByText(/no shared categories with figures/i)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+  await waitFor(() => expect(api.report).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText(/no shared categories with figures/i)).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it("mappings say so when they can't load, and retry", async () => {
+  api.links.mockRejectedValueOnce(new ApiError(500, "boom"));
+  await openTab("My mappings");
+  expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't load your mappings/i);
+  expect(screen.queryByText(/no shared categories yet/i)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+  expect(await screen.findByText(/no shared categories yet/i)).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
 it("report expands a category into one row per member", async () => {
   const row: SharedReportRow = {
     row_key: "cat:5",
@@ -265,6 +288,18 @@ it("setup never saves amounts for a year that failed to load", async () => {
   expect(jan).toBeDisabled();
   expect(screen.getByRole("button", { name: "Save amounts" })).toBeDisabled();
   expect(api.setAmounts).not.toHaveBeenCalled();
+});
+
+it("setup says so when the shared categories can't load, and retries", async () => {
+  api.categories.mockRejectedValueOnce(new ApiError(500, "boom"));
+  await openTab("Setup");
+  expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't load the shared categories/i);
+  expect(screen.queryByRole("button", { name: /add category/i })).not.toBeInTheDocument();
+
+  api.categories.mockResolvedValueOnce([shared(4, "Home")]);
+  fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+  expect(await screen.findByLabelText("Name of Home")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 it("setup offers only non-members to add", async () => {
