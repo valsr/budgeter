@@ -5,7 +5,7 @@ os.environ.setdefault("BUDGETER_DATABASE_URL", "sqlite://")
 import pytest
 from fastapi.testclient import TestClient
 
-from app import books, server_db
+from app import books, server_db, shared_books
 from app.config import settings
 from app.db import get_db
 from app.main import app
@@ -32,6 +32,7 @@ def server_session():
     is needed to see what a request changed."""
     server_db.reset()
     books.dispose_all()
+    shared_books.dispose_all()
     session = server_db.SessionLocal()
     try:
         yield session
@@ -39,6 +40,7 @@ def server_session():
         session.close()
         server_db.reset()
         books.dispose_all()
+        shared_books.dispose_all()
 
 
 @pytest.fixture()
@@ -92,10 +94,12 @@ def files(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", None)
     server_db.reset()
     books.dispose_all()
+    shared_books.dispose_all()
     server_db.upgrade_to_head()
     yield tmp_path
     server_db.reset()
     books.dispose_all()
+    shared_books.dispose_all()
 
 
 @pytest.fixture()

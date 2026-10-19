@@ -4,13 +4,14 @@ Project-specific guidance for Claude Code when working in this repository.
 
 ## Database schema changes
 
-There are two schemas, each with its own declarative base and its own
+There are three schemas, each with its own declarative base and its own
 Alembic tree:
 
 | Schema | Models | Base | Migrations | Lives in |
 |---|---|---|---|---|
 | **Books** — one user's accounts, categories, transactions, budgets, rules, imports, history | `backend/app/models/` | `app.db.Base` | `backend/app/migrations/` | `books/<user_id>.db`, one file per user |
 | **Server** — users, sessions, server settings | `backend/app/server_models/` | `app.server_db.ServerBase` | `backend/app/server_migrations/` | `server.db` |
+| **Shared** — what the members of one shared budget budget together: its categories, amounts and per-member tallies | `backend/app/shared_models/` | `app.shared_db.SharedBase` | `backend/app/shared_migrations/` | `shared/<id>.db`, one file per shared budget |
 
 The app auto-upgrades both on startup (`main.py`'s lifespan hook calls
 `server_db.upgrade_to_head()`, then `books.upgrade_all()` for every user's
@@ -32,12 +33,20 @@ export BUDGETER_DATABASE_URL=sqlite:///$(mktemp -d)/scratch.db
 # Server (app/server_models): the second tree, selected with --name.
 BUDGETER_DATA_DIR=$(mktemp -d) .venv/bin/alembic --name server upgrade head   # same dir for both commands
 BUDGETER_DATA_DIR=<that dir> .venv/bin/alembic --name server revision --autogenerate -m "short description"
+
+# Shared (app/shared_models): the third tree; point -x db= at a scratch file.
+D=$(mktemp -d)
+.venv/bin/alembic --name shared -x db=$D/s.db upgrade head
+.venv/bin/alembic --name shared -x db=$D/s.db revision --autogenerate -m "short description"
 ```
 
 A table belongs in the server schema only if it is about who can log in or
 about the server as a whole. Anything a user budgets with goes in books:
 keeping each user's data in their own file is what isolates users from each
-other, which is why no books table (or query) carries a user id.
+other, which is why no books table (or query) carries a user id. The
+exception is data several users budget with together: that goes in its shared
+budget file. Who belongs to a shared budget goes in the server schema, and the
+mappings from a user's own categories to shared ones go in their books.
 
 Then read the generated file before committing — autogenerate doesn't
 reliably catch everything (enum value changes, some constraint changes,
@@ -45,7 +54,7 @@ column renames look like drop+add). Never edit a migration that's already
 been committed; add a new one on top instead.
 
 The bare in-memory `sqlite://` URL (what `backend/tests/conftest.py` sets by
-default) is a sentinel that skips auto-migration for both schemas — the test
+default) is a sentinel that skips auto-migration for all three schemas — the test
 suite creates tables directly via `create_all`, since each test gets fresh
 in-memory databases anyway. Tests that are about the files themselves (the
 `files` / `make_client` fixtures) run file-backed under pytest's `tmp_path`.
