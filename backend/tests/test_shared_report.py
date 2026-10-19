@@ -103,3 +103,25 @@ def test_report_rejects_bad_through_month(sh):
         sr.get_report(sh, MEMBERS, 2026, 0)
     with pytest.raises(ValidationError):
         sr.get_report(sh, MEMBERS, 2026, 13)
+
+
+def test_parent_own_tally_and_amount_added_to_children(sh):
+    p = sc.create_category(sh, "Home", None, False)
+    c = sc.create_category(sh, "Rent", p.id, False)
+    sc.set_amounts(sh, 2026, [(p.id, 1, Decimal("20")), (c.id, 1, Decimal("100"))])
+    tally(sh, 1, p, 1, -5)
+    tally(sh, 1, c, 1, -60)
+    rows = by_name(sr.get_report(sh, MEMBERS, 2026, 1))
+    assert rows["Home"].monthly[1] == (Decimal("120"), Decimal("65"))
+    assert rows["Home"].members[0].monthly[1] == Decimal("65")
+    assert rows["Rent"].monthly[1] == (Decimal("100"), Decimal("60"))
+    assert rows["Rent"].members[0].ytd_actual == Decimal("60")
+
+
+def test_parent_only_amount_sets_has_budget_and_keeps_archived_parent(sh):
+    p = sc.create_category(sh, "Home", None, False)
+    sc.create_category(sh, "Rent", p.id, False)
+    sc.set_amounts(sh, 2026, [(p.id, 1, Decimal("20"))])
+    assert sr.get_report(sh, MEMBERS, 2026, 1)[0].has_budget
+    sc.update_category(sh, p.id, archived=True)
+    assert [r.name for r in sr.get_report(sh, MEMBERS, 2026, 1)][0] == "Home"
