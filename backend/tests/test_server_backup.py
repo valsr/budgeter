@@ -306,3 +306,18 @@ def test_archive_rejects_a_corrupt_shared_member(two_users):
     bad = rezip(server_backup.create_archive(), drop={f"shared/{bid}.db"}, add={f"shared/{bid}.db": b"nope"})
     with pytest.raises(ValidationError, match=rf"shared/{bid}.db: "):
         server_backup.restore_archive(bad)
+
+
+def test_restore_archive_survives_a_failing_tally_rebuild(two_users, monkeypatch):
+    from app.services import shared_tally
+
+    alice, _ = two_users
+    archive = server_backup.create_archive()
+    make_account(alice, "Added later")
+
+    def boom():
+        raise RuntimeError("rebuild broke")
+
+    monkeypatch.setattr(shared_tally, "rebuild_all", boom)
+    server_backup.restore_archive(archive)
+    assert account_names(alice) == ["Alice checking"]
