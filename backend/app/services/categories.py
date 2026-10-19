@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.errors import NotFoundError, ValidationError
 from app.models.category import Category
 from app.models.change import CategoryChange, ChangeOperation
+from app.models.shared_link import SharedCategoryLink
 from app.models.split import Split
 from app.services import change_log
 
@@ -317,6 +318,13 @@ def hard_delete_category(db: Session, category_id: int) -> None:
         raise ValidationError("Can't undo: " + " and ".join(parts) + " now use this category")
 
     before = change_log.serialize_category(category)
+    # Books don't enforce foreign keys, so the links' ON DELETE CASCADE never fires: remove them
+    # here, through the ORM so the shared-tally hook sees it. Left behind, a link would pass to
+    # whichever new category is next given this id.
+    for link in db.execute(
+        select(SharedCategoryLink).where(SharedCategoryLink.category_id == category_id)
+    ).scalars():
+        db.delete(link)
     db.delete(category)
     db.commit()
 
