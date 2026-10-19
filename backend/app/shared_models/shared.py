@@ -8,6 +8,9 @@ from app.shared_db import SharedBase
 
 class SharedCategory(SharedBase):
     __tablename__ = "shared_categories"
+    # AUTOINCREMENT: a deleted category's id must never come back, or members' links
+    # (kept in their own books, out of reach of this file's cascades) would revive.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
