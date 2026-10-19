@@ -60,13 +60,28 @@ def member_ids(budget: SharedBudget) -> list[int]:
     return [m.user_id for m in budget.members]
 
 
+def _check_addable(sdb: Session, user_ids) -> None:
+    for user_id in sorted(user_ids):
+        user = sdb.get(User, user_id)
+        if user is None or user.is_disabled:
+            raise ValidationError(f"User {user_id} can't be added")
+
+
 def create(sdb: Session, creator_id: int, name: str, member_ids: list[int]) -> SharedBudget:
     name = _clean_name(name)
-    users = sorted({creator_id, *member_ids})
+    # `member_ids` (the parameter) shadows the module function of that name in here.
+    others = set(member_ids) - {creator_id}
+    _check_addable(sdb, others)
+    users = sorted({creator_id, *others})
     budget = SharedBudget(name=name, members=[SharedBudgetMember(user_id=u) for u in users])
     sdb.add(budget)
     sdb.commit()
-    shared_books.create(budget.id)
+    try:
+        shared_books.create(budget.id)
+    except Exception:
+        sdb.delete(budget)
+        sdb.commit()
+        raise
     for user_id in users:
         on_member_added(user_id)
     return budget
@@ -91,10 +106,7 @@ def set_members(sdb: Session, budget: SharedBudget, user_ids: list[int]) -> Shar
         raise ValidationError("A shared budget needs at least one member")
     current = set(member_ids(budget))
     added, removed = wanted - current, current - wanted
-    for user_id in sorted(added):
-        user = sdb.get(User, user_id)
-        if user is None or user.is_disabled:
-            raise ValidationError(f"User {user_id} can't be added")
+    _check_addable(sdb, added)
 
     budget.members = [m for m in budget.members if m.user_id in wanted] + [
         SharedBudgetMember(user_id=u) for u in sorted(added)

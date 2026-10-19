@@ -140,3 +140,27 @@ def test_directory_lists_only_enabled_users(sdb):
     b, a, c = _user(sdb, "bobby"), _user(sdb, "alice"), _user(sdb, "carol")
     users_service.update_user(sdb, c.id, is_disabled=True)
     assert [u.username for u in shared_budgets.directory(sdb)] == ["alice", "bobby"]
+
+
+def test_create_rejects_disabled_or_unknown_members(sdb):
+    a, b = _user(sdb, "alice"), _user(sdb, "bobby")
+    users_service.update_user(sdb, b.id, is_disabled=True)
+    with pytest.raises(ValidationError, match="can't be added"):
+        shared_budgets.create(sdb, a.id, "Home", [b.id])
+    with pytest.raises(ValidationError, match="can't be added"):
+        shared_budgets.create(sdb, a.id, "Home", [9999])
+    assert sdb.query(SharedBudget).count() == 0
+
+
+def test_create_removes_registry_row_when_file_creation_fails(sdb, monkeypatch):
+    a, b = _user(sdb, "alice"), _user(sdb, "bobby")
+
+    def boom(budget_id):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(shared_books, "create", boom)
+    with pytest.raises(OSError):
+        shared_budgets.create(sdb, a.id, "Home", [b.id])
+    sdb.expire_all()
+    assert sdb.query(SharedBudget).count() == 0
+    assert sdb.query(SharedBudgetMember).count() == 0
