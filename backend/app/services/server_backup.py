@@ -3,6 +3,7 @@ one zip. Restoring it replaces everything on the server."""
 
 import datetime as dt
 import io
+import logging
 import re
 import shutil
 import tempfile
@@ -18,6 +19,8 @@ from app.server_models import SharedBudget
 from app.services import backup as backup_service
 from app.services import shared_tally
 from app.services import users as users_service
+
+logger = logging.getLogger(__name__)
 
 _SERVER_MEMBER = "server.db"
 _BOOKS_MEMBER = re.compile(r"books/([1-9][0-9]*)\.db")
@@ -140,8 +143,13 @@ def restore_archive(data: bytes) -> None:
         server_db.replace_database(staged_server)
         books.replace_all_books(staged_books)
         shared_books.replace_all(staged_shared)
-        # Older archives have registry rows but no files: give those fresh ones.
-        shared_books.upgrade_all(sorted(budget_ids))
-        shared_tally.rebuild_all()
+        # The restore has happened; these follow-ups mustn't turn it into an error (startup
+        # repeats both).
+        try:
+            # Older archives have registry rows but no files: give those fresh ones.
+            shared_books.upgrade_all(sorted(budget_ids))
+            shared_tally.rebuild_all()
+        except Exception:
+            logger.exception("Couldn't prepare shared budgets after restoring the archive")
     finally:
         shutil.rmtree(staging, ignore_errors=True)

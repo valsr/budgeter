@@ -148,3 +148,19 @@ def test_single_user_restore_recomputes_tally(make_client):
 
     assert restore(alice, older).status_code == 204
     assert tally() == []
+
+
+def test_restore_succeeds_even_if_the_tally_update_fails(make_client, monkeypatch):
+    from app.services import shared_tally
+
+    alice = make_client("alice")
+    make_account(alice, "Before")
+    snapshot = alice.get("/api/backup").content
+    make_account(alice, "After")
+
+    def boom(user_id):
+        raise RuntimeError("tally broke")
+
+    monkeypatch.setattr(shared_tally, "recompute_member", boom)
+    assert restore(alice, snapshot).status_code == 204
+    assert account_names(alice) == ["Before"]
