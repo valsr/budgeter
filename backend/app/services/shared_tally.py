@@ -69,6 +69,13 @@ def _valid_shared_ids(budget_id: int) -> set[int]:
         return set(session.execute(select(SharedCategory.id)).scalars())
 
 
+def _registered(budget_id: int) -> bool:
+    """Whether the budget still exists. Checked under its lock before touching its file: opening
+    the file of a budget deleted meanwhile would recreate it as an orphan."""
+    with server_db.SessionLocal() as sdb:
+        return sdb.get(SharedBudget, budget_id) is not None
+
+
 def _write(budget_id: int, user_id: int, totals: dict[tuple[int, int, int], Decimal]) -> None:
     with shared_books.session_for(budget_id) as session:
         session.execute(delete(MemberTally).where(MemberTally.user_id == user_id))
@@ -96,6 +103,8 @@ def recompute_member(user_id: int) -> None:
             # the member's other budgets stale.
             try:
                 with shared_books.lock_for(budget_id):
+                    if not _registered(budget_id):
+                        continue
                     db.rollback()  # a fresh snapshot of the books for each budget
                     valid = _valid_shared_ids(budget_id)
                     links = [
@@ -119,9 +128,12 @@ def rebuild_all() -> None:
         }
     for budget_id, members in budgets.items():
         try:
-            with shared_books.lock_for(budget_id), shared_books.session_for(budget_id) as session:
-                session.execute(delete(MemberTally).where(MemberTally.user_id.not_in(members)))
-                session.commit()
+            with shared_books.lock_for(budget_id):
+                if not _registered(budget_id):
+                    continue
+                with shared_books.session_for(budget_id) as session:
+                    session.execute(delete(MemberTally).where(MemberTally.user_id.not_in(members)))
+                    session.commit()
         except Exception:
             logger.exception("Couldn't clear stale tallies in shared budget %s", budget_id)
     for user_id in sorted(set().union(*budgets.values())):

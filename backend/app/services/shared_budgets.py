@@ -95,9 +95,12 @@ def rename(sdb: Session, budget: SharedBudget, name: str) -> SharedBudget:
 
 def delete(sdb: Session, budget: SharedBudget) -> None:
     budget_id = budget.id
-    sdb.delete(budget)
-    sdb.commit()
-    shared_books.delete(budget_id)
+    # Under the budget's lock, so no tally write is half-way through the file; one that comes
+    # after finds the registry row gone and leaves the file alone (shared_tally re-checks).
+    with shared_books.lock_for(budget_id):
+        sdb.delete(budget)
+        sdb.commit()
+        shared_books.delete(budget_id)
 
 
 def set_members(sdb: Session, budget: SharedBudget, user_ids: list[int]) -> SharedBudget:
