@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client";
 import type { Category, SharedBudget, SharedCategory, SharedReportRow } from "../api/types";
 import { TestAuth } from "../test/TestAuth";
@@ -217,4 +217,96 @@ it("removing yourself from the members navigates back to the list", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Save members" }));
   await waitFor(() => expect(api.setMembers).toHaveBeenCalledWith(1, [2]));
   expect(await screen.findByText("Shared budgets list")).toBeInTheDocument();
+});
+
+describe("setup category editor and budget actions", () => {
+  const TREE = [
+    shared(1, "Home"),
+    shared(2, "Food", { parent_id: 1 }),
+    shared(3, "Fruit", { parent_id: 2 }),
+    shared(4, "Leisure"),
+  ];
+
+  beforeEach(() => {
+    api.categories.mockResolvedValue(TREE);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+  });
+
+  async function openSetup() {
+    await openTab("Setup");
+    await screen.findByLabelText("Name of Leisure");
+  }
+
+  it("adds a category under a parent, as income", async () => {
+    api.createCategory.mockResolvedValue(shared(5, "Salary", { parent_id: 4, is_income: true }));
+    await openSetup();
+    const calls = api.categories.mock.calls.length;
+    fireEvent.change(screen.getByLabelText("New category name"), { target: { value: " Salary " } });
+    fireEvent.change(screen.getByLabelText("New category parent"), { target: { value: "4" } });
+    fireEvent.click(screen.getByLabelText("Income"));
+    fireEvent.click(screen.getByRole("button", { name: "Add category" }));
+    await waitFor(() =>
+      expect(api.createCategory).toHaveBeenCalledWith(1, { name: "Salary", parent_id: 4, is_income: true }),
+    );
+    await waitFor(() => expect(api.categories.mock.calls.length).toBeGreaterThan(calls));
+    expect(screen.getByLabelText("New category name")).toHaveValue("");
+  });
+
+  it("renames a category on blur, and leaves an unchanged name alone", async () => {
+    await openSetup();
+    const input = screen.getByLabelText("Name of Leisure");
+    fireEvent.blur(input);
+    expect(api.updateCategory).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "Fun" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(api.updateCategory).toHaveBeenCalledWith(1, 4, { name: "Fun" }));
+  });
+
+  it("moves a category via its parent select, never offering its own subtree", async () => {
+    await openSetup();
+    const parent = screen.getByLabelText("Parent of Food");
+    expect(parent).toHaveValue("1");
+    const offered = within(parent)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(offered).toEqual(["(top level)", "Home", "Leisure"]);
+
+    fireEvent.change(parent, { target: { value: "4" } });
+    await waitFor(() => expect(api.updateCategory).toHaveBeenCalledWith(1, 2, { parent_id: 4 }));
+    fireEvent.change(parent, { target: { value: "" } });
+    await waitFor(() => expect(api.updateCategory).toHaveBeenLastCalledWith(1, 2, { parent_id: null }));
+  });
+
+  it("toggles income and archived", async () => {
+    await openSetup();
+    fireEvent.click(screen.getByLabelText("Leisure is income"));
+    await waitFor(() => expect(api.updateCategory).toHaveBeenCalledWith(1, 4, { is_income: true }));
+    fireEvent.click(screen.getByLabelText("Leisure is archived"));
+    await waitFor(() => expect(api.updateCategory).toHaveBeenCalledWith(1, 4, { archived: true }));
+  });
+
+  it("deletes a category after confirming", async () => {
+    await openSetup();
+    const row = screen.getByLabelText("Name of Leisure").closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(api.deleteCategory).toHaveBeenCalledWith(1, 4));
+    expect(window.confirm).toHaveBeenCalled();
+  });
+
+  it("renames the budget", async () => {
+    api.rename.mockResolvedValue({ ...HOUSEHOLD, name: "Home budget" });
+    await openSetup();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: " Home budget " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    await waitFor(() => expect(api.rename).toHaveBeenCalledWith(1, "Home budget"));
+    expect(await screen.findByRole("heading", { name: "Home budget" })).toBeInTheDocument();
+  });
+
+  it("deletes the budget and goes back to the list", async () => {
+    api.remove.mockResolvedValue(undefined);
+    await openSetup();
+    fireEvent.click(screen.getByRole("button", { name: "Delete shared budget" }));
+    await waitFor(() => expect(api.remove).toHaveBeenCalledWith(1));
+    expect(await screen.findByText("Shared budgets list")).toBeInTheDocument();
+  });
 });

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { budgetsApi, overviewApi } from "../api/budgets";
 import type { BudgetCategoryInput } from "../api/budgets";
@@ -8,20 +8,14 @@ import type { Account, Budget, Category, DroppedCategory, ReportRow } from "../a
 import { AccountFilter } from "../components/AccountFilter";
 import { CategoryTag } from "../components/CategoryTag";
 import { Modal } from "../components/Modal";
+import { MonthCells, ReportHead } from "../components/ReportTable";
+import { MONTH_LABELS, monthClass } from "../components/reportColumns";
 import { formatMoney } from "../format";
 
-const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const now = new Date();
 const CURRENT_YEAR = now.getFullYear();
 const CURRENT_MONTH = now.getMonth() + 1;
-
-/** Wireframe's monthClass(): odd columns get a light tint, the last (current)
- * month gets a stronger one — matches docs/wireframes.html's renderBudgetReport. */
-function monthClass(i: number, total: number): string {
-  if (i === total - 1) return "month-current";
-  return i % 2 === 1 ? "month-alt" : "";
-}
 
 export function Budgets() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -215,25 +209,7 @@ export function Budgets() {
             )}
           </div>
           <table id="budget-report-table">
-            <thead>
-              <tr>
-                <th rowSpan={2}>Category</th>
-                {months.map((m, i) => (
-                  <th key={m} colSpan={2} className={"month-label " + monthClass(i, months.length)}>
-                    {MONTH_LABELS[m - 1]}
-                  </th>
-                ))}
-                <th rowSpan={2}>YTD diff</th>
-              </tr>
-              <tr>
-                {months.map((m, i) => (
-                  <Fragment key={m}>
-                    <th className={"sub-col " + monthClass(i, months.length)}>Budgeted</th>
-                    <th className={"sub-col " + monthClass(i, months.length)}>Actual</th>
-                  </Fragment>
-                ))}
-              </tr>
-            </thead>
+            <ReportHead months={months} />
             <tbody>
               {categoryRows.map((row) => {
                 const split = splitByCategory.get(row.category_id) ?? [];
@@ -250,23 +226,18 @@ export function Budgets() {
                     </td>
                     {months.map((m, i) => {
                       const cell = row.monthly[m] ?? { budgeted: 0, actual: 0 };
-                      const over = cell.actual > cell.budgeted;
                       const cls = monthClass(i, months.length) + (split.length > 0 ? " has-split" : "");
                       return (
-                        <Fragment key={m}>
-                          <td className={"right muted-cell " + cls + (cell.budgeted < 0 ? " neg" : "")}>
-                            {amount(
-                              formatMoney(cell.budgeted),
-                              splitBubble(split, (r) => r.monthly[m]?.budgeted ?? 0),
-                            )}
-                          </td>
-                          <td className={"right " + cls + (over ? " over" : cell.actual < 0 ? " neg" : "")}>
-                            {amount(
-                              formatMoney(cell.actual),
-                              splitBubble(split, (r) => r.monthly[m]?.actual ?? 0),
-                            )}
-                          </td>
-                        </Fragment>
+                        <MonthCells
+                          key={m}
+                          cell={cell}
+                          className={cls}
+                          budgeted={amount(
+                            formatMoney(cell.budgeted),
+                            splitBubble(split, (r) => r.monthly[m]?.budgeted ?? 0),
+                          )}
+                          actual={amount(formatMoney(cell.actual), splitBubble(split, (r) => r.monthly[m]?.actual ?? 0))}
+                        />
                       );
                     })}
                     <td

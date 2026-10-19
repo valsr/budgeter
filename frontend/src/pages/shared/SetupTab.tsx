@@ -4,7 +4,8 @@ import { sharedBudgetsApi } from "../../api/sharedBudgets";
 import type { SharedCategoryPatch } from "../../api/sharedBudgets";
 import type { DirectoryUser, SharedBudget, SharedCategory, SharedMember } from "../../api/types";
 import { useAuth } from "../../auth/context";
-import { CURRENT_YEAR, MONTH_LABELS, sharedTreeOrder, subtreeIds, YEARS } from "./tree";
+import { MONTH_LABELS } from "../../components/reportColumns";
+import { CURRENT_YEAR, sharedTreeOrder, subtreeIds, YEARS } from "./tree";
 
 /** Run a request whose failure the global error toast already reports; the screen just stays as it was. */
 async function attempt<T>(request: Promise<T>): Promise<T | undefined> {
