@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Category } from "../api/types";
 import { CategoryCombobox } from "./CategoryCombobox";
+import { Modal } from "./Modal";
 
 const resolvePath = vi.fn();
 vi.mock("../api/categories", async (importOriginal) => ({
@@ -123,6 +124,26 @@ describe("CategoryCombobox", () => {
     fireEvent.keyDown(input, { key: "Escape" });
 
     expect(input).toHaveValue("shared:groceries");
+  });
+
+  it("inside a modal, Escape closes an open menu first and only then the modal", () => {
+    const onClose = vi.fn();
+    render(
+      <Modal title="Edit" onClose={onClose}>
+        <CategoryCombobox categories={categories} value={2} onChange={() => {}} />
+      </Modal>,
+    );
+    const input = screen.getByDisplayValue("shared:groceries");
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "garbage" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input).toHaveValue("shared:groceries");
+    expect(onClose).not.toHaveBeenCalled();
+
+    // With the menu closed, the next Escape is the modal's Cancel.
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("blurring without an explicit selection reverts to the current value", () => {
