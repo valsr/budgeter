@@ -29,19 +29,3 @@ export function sharedTreeOrder(categories: SharedCategory[]): SharedNode[] {
   walk(null, 0, "");
   return out;
 }
-
-/** The ids of `id` and everything beneath it — not valid new parents for it. */
-export function subtreeIds(categories: SharedCategory[], id: number): Set<number> {
-  const ids = new Set([id]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const c of categories) {
-      if (c.parent_id !== null && ids.has(c.parent_id) && !ids.has(c.id)) {
-        ids.add(c.id);
-        grew = true;
-      }
-    }
-  }
-  return ids;
-}

@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { sharedBudgetsApi } from "../../api/sharedBudgets";
 import type { SharedCategoryPatch } from "../../api/sharedBudgets";
 import type { DirectoryUser, SharedBudget, SharedCategory, SharedMember } from "../../api/types";
 import { useAuth } from "../../auth/context";
 import { MONTH_LABELS } from "../../components/reportColumns";
+import { formatMoney } from "../../format";
 import { LoadError } from "./LoadError";
-import { CURRENT_YEAR, sharedTreeOrder, subtreeIds, YEARS } from "./tree";
+import { CURRENT_YEAR, sharedTreeOrder, YEARS } from "./tree";
 
 /** Run a request whose failure the global error toast already reports; the screen just stays as it was. */
 async function attempt<T>(request: Promise<T>): Promise<T | undefined> {
@@ -36,7 +37,9 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
   const [categories, setCategories] = useState<SharedCategory[]>([]);
   const categoriesLoaded = useRef(false);
   const [categoriesFailed, setCategoriesFailed] = useState(false);
-  const [newCat, setNewCat] = useState({ name: "", parent: "", income: false });
+  const [newCat, setNewCat] = useState({ name: "", income: false });
+  // The category whose [+] was clicked: a name input for its new sub-category shows under it.
+  const [addingUnder, setAddingUnder] = useState<{ parent: SharedCategory; name: string } | null>(null);
   const [year, setYear] = useState(CURRENT_YEAR);
   const [amounts, setAmounts] = useState<Amounts>({});
   // What the server holds for `year`, as last loaded or saved; null until it has loaded (or when
@@ -47,6 +50,12 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
 
   const tree = sharedTreeOrder(categories);
   const active = tree.filter((n) => !n.category.archived);
+  // A supercategory's months are the sums of its sub-categories', not typed in.
+  const activeKids = new Map<number, number[]>();
+  for (const { category: c } of active) {
+    if (c.parent_id !== null) activeKids.set(c.parent_id, [...(activeKids.get(c.parent_id) ?? []), c.id]);
+  }
+  const editable = active.filter((n) => !activeKids.has(n.category.id));
   const addable = directory.filter((d) => !members.some((m) => m.user_id === d.id));
 
   useEffect(() => {
@@ -112,12 +121,49 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
   }
 
   async function addCategory() {
-    const parent_id = newCat.parent ? Number(newCat.parent) : null;
     const created = await attempt(
-      sharedBudgetsApi.createCategory(id, { name: newCat.name.trim(), parent_id, is_income: newCat.income }),
+      sharedBudgetsApi.createCategory(id, { name: newCat.name.trim(), parent_id: null, is_income: newCat.income }),
     );
-    if (created) setNewCat({ name: "", parent: "", income: false });
+    if (created) setNewCat({ name: "", income: false });
     loadCategories();
+  }
+
+  async function addSubcategory() {
+    if (!addingUnder || !addingUnder.name.trim()) return;
+    const { parent, name } = addingUnder;
+    // A sub-category starts out on the same side (income or spending) as its parent.
+    const created = await attempt(
+      sharedBudgetsApi.createCategory(id, { name: name.trim(), parent_id: parent.id, is_income: parent.is_income }),
+    );
+    if (created) setAddingUnder(null);
+    loadCategories();
+  }
+
+  /** What a cell shows: typed text for a leaf, the sum of its sub-categories for a supercategory. */
+  function monthTotal(categoryId: number, month: number): number {
+    const kids = activeKids.get(categoryId);
+    if (!kids) return cellValue(amounts[categoryId]?.[month]) || 0;
+    // Like the report: a supercategory's own stored amount (from before it had sub-categories) counts too.
+    return kids.reduce((sum, k) => sum + monthTotal(k, month), cellValue(amounts[categoryId]?.[month]) || 0);
+  }
+
+  function yearTotal(categoryId: number): number {
+    return MONTH_LABELS.reduce((sum, _, i) => sum + monthTotal(categoryId, i + 1), 0);
+  }
+
+  function setCell(categoryId: number, month: number, value: string) {
+    setAmountsNote("");
+    setAmounts((current) => ({ ...current, [categoryId]: { ...current[categoryId], [month]: value } }));
+  }
+
+  /** Copy one month's amount into every later month of the year. */
+  function copyToRemaining(categoryId: number, month: number) {
+    setAmountsNote("");
+    setAmounts((current) => {
+      const row = { ...current[categoryId] };
+      for (let m = month + 1; m <= 12; m++) row[m] = row[month] ?? "";
+      return { ...current, [categoryId]: row };
+    });
   }
 
   async function deleteCategory(c: SharedCategory) {
@@ -130,7 +176,7 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
     if (!saved || saved.year !== year) return;
     const base = saved.values;
     // Only the cells that differ from what was loaded: the server deletes a cell sent as null.
-    const lines = active.flatMap(({ category }) =>
+    const lines = editable.flatMap(({ category }) =>
       MONTH_LABELS.map((_, i) => ({
         shared_category_id: category.id,
         month: i + 1,
@@ -222,119 +268,9 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
         </div>
       </div>
 
-      <div className="card">
-        <div className="section-title">Shared categories</div>
-        {categoriesFailed ? (
-          <LoadError message="Couldn't load the shared categories." onRetry={loadCategories} />
-        ) : (
-        <>
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Parent</th>
-              <th>Income</th>
-              <th>Archived</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {tree.map(({ category: c, depth }) => {
-              const blocked = subtreeIds(categories, c.id);
-              return (
-                <tr key={c.id}>
-                  <td style={{ paddingLeft: 14 + 22 * depth }}>
-                    <input
-                      aria-label={`Name of ${c.name}`}
-                      defaultValue={c.name}
-                      key={c.name}
-                      onBlur={(e) => {
-                        const v = e.target.value.trim();
-                        if (v && v !== c.name) updateCategory(c.id, { name: v });
-                        else e.target.value = c.name;
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <select
-                      aria-label={`Parent of ${c.name}`}
-                      value={c.parent_id ?? ""}
-                      onChange={(e) => updateCategory(c.id, { parent_id: e.target.value ? Number(e.target.value) : null })}
-                    >
-                      <option value="">(top level)</option>
-                      {tree
-                        .filter((n) => !blocked.has(n.category.id))
-                        .map((n) => (
-                          <option key={n.category.id} value={n.category.id}>
-                            {n.path}
-                          </option>
-                        ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`${c.name} is income`}
-                      checked={c.is_income}
-                      onChange={(e) => updateCategory(c.id, { is_income: e.target.checked })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`${c.name} is archived`}
-                      checked={c.archived}
-                      onChange={(e) => updateCategory(c.id, { archived: e.target.checked })}
-                    />
-                  </td>
-                  <td>
-                    <button type="button" className="btn ghost sm" onClick={() => deleteCategory(c)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-          <input
-            aria-label="New category name"
-            placeholder="New category"
-            value={newCat.name}
-            onChange={(e) => setNewCat({ ...newCat, name: e.target.value })}
-          />
-          <select
-            aria-label="New category parent"
-            value={newCat.parent}
-            onChange={(e) => setNewCat({ ...newCat, parent: e.target.value })}
-          >
-            <option value="">(top level)</option>
-            {tree.map((n) => (
-              <option key={n.category.id} value={n.category.id}>
-                {n.path}
-              </option>
-            ))}
-          </select>
-          <label>
-            <input
-              type="checkbox"
-              checked={newCat.income}
-              onChange={(e) => setNewCat({ ...newCat, income: e.target.checked })}
-            />{" "}
-            Income
-          </label>
-          <button type="button" className="btn ghost" disabled={!newCat.name.trim()} onClick={addCategory}>
-            Add category
-          </button>
-        </div>
-        </>
-        )}
-      </div>
-
-      <div className="card">
+      <div className="card full-bleed">
         <div className="section-title" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          Monthly amounts for
+          Shared categories and monthly amounts for
           <select aria-label="Amounts year" value={year} onChange={(e) => setYear(Number(e.target.value))}>
             {YEARS.map((y) => (
               <option key={y} value={y}>
@@ -343,47 +279,189 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
             ))}
           </select>
         </div>
-        <div style={{ overflowX: "auto" }}>
-          <table id="budget-edit-table" style={{ minWidth: 1100 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left" }}>Category</th>
-                {MONTH_LABELS.map((label, i) => (
-                  <th key={label} className={"right" + (i % 2 === 1 ? " month-alt" : "")}>
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {active.map(({ category: c, depth }) => (
-                <tr key={c.id}>
-                  <td style={{ paddingLeft: 14 + 14 * depth, color: "var(--ink-2)" }}>{c.name}</td>
-                  {MONTH_LABELS.map((label, i) => (
-                    <td key={label} className={i % 2 === 1 ? "month-alt" : undefined}>
-                      <input
-                        className="month-input"
-                        aria-label={`${c.name} ${label}`}
-                        value={amounts[c.id]?.[i + 1] ?? ""}
-                        disabled={!loaded}
-                        onChange={(e) => {
-                          setAmountsNote("");
-                          setAmounts({ ...amounts, [c.id]: { ...amounts[c.id], [i + 1]: e.target.value } });
-                        }}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-          <button type="button" className="btn" disabled={!loaded || active.length === 0} onClick={saveAmounts}>
-            Save amounts
-          </button>
-          {amountsNote && <span className="sub">{amountsNote}</span>}
-        </div>
+        {categoriesFailed ? (
+          <LoadError message="Couldn't load the shared categories." onRetry={loadCategories} />
+        ) : (
+          <>
+            <div className="shared-grid-scroll">
+              <table id="shared-grid">
+                <thead>
+                  <tr>
+                    <th className="frozen frozen-name">Category</th>
+                    <th className="frozen frozen-actions">Actions</th>
+                    <th className="frozen frozen-tally right">Year</th>
+                    {MONTH_LABELS.map((label, i) => (
+                      <th key={label} className={"right" + (i % 2 === 1 ? " month-alt" : "")}>
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tree.map(({ category: c, depth }) => {
+                    const isSuper = activeKids.has(c.id);
+                    const isEditable = !c.archived && !isSuper;
+                    return (
+                      <Fragment key={c.id}>
+                        <tr className={c.archived ? "archived" : undefined}>
+                          <td className="frozen frozen-name" style={{ paddingLeft: 10 + 18 * depth }}>
+                            <div className="name-cell">
+                              <input
+                                aria-label={`Name of ${c.name}`}
+                                defaultValue={c.name}
+                                key={c.name}
+                                onBlur={(e) => {
+                                  const v = e.target.value.trim();
+                                  if (v && v !== c.name) updateCategory(c.id, { name: v });
+                                  else e.target.value = c.name;
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="icon-btn"
+                                aria-label={`Delete ${c.name}`}
+                                title="Delete category"
+                                onClick={() => deleteCategory(c)}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </td>
+                          <td className="frozen frozen-actions">
+                            <div className="row-actions">
+                              <button
+                                type="button"
+                                className="icon-btn"
+                                aria-label={`Add a sub-category under ${c.name}`}
+                                title="Add a sub-category"
+                                onClick={() => setAddingUnder({ parent: c, name: "" })}
+                              >
+                                +
+                              </button>
+                              <label title="Income category">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`${c.name} is income`}
+                                  checked={c.is_income}
+                                  onChange={(e) => updateCategory(c.id, { is_income: e.target.checked })}
+                                />{" "}
+                                Income
+                              </label>
+                              <label title="Archived categories take no new amounts">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`${c.name} is archived`}
+                                  checked={c.archived}
+                                  onChange={(e) => updateCategory(c.id, { archived: e.target.checked })}
+                                />{" "}
+                                Archived
+                              </label>
+                            </div>
+                          </td>
+                          <td className="frozen frozen-tally right" aria-label={`${c.name} year total`}>
+                            {c.archived ? "—" : formatMoney(yearTotal(c.id))}
+                          </td>
+                          {MONTH_LABELS.map((label, i) => {
+                            const month = i + 1;
+                            const alt = i % 2 === 1 ? " month-alt" : "";
+                            if (!isEditable) {
+                              return (
+                                <td key={label} className={"right computed" + alt} aria-label={`${c.name} ${label}`}>
+                                  {isSuper ? formatMoney(monthTotal(c.id, month)) : ""}
+                                </td>
+                              );
+                            }
+                            return (
+                              <td key={label} className={"amount-cell" + alt}>
+                                <input
+                                  className="month-input"
+                                  aria-label={`${c.name} ${label}`}
+                                  value={amounts[c.id]?.[month] ?? ""}
+                                  disabled={!loaded}
+                                  onChange={(e) => setCell(c.id, month, e.target.value)}
+                                />
+                                {month < 12 && loaded && (
+                                  <button
+                                    type="button"
+                                    className="copy-right"
+                                    aria-label={`Copy ${c.name} ${label} to the remaining months`}
+                                    title="Copy to the remaining months"
+                                    onClick={() => copyToRemaining(c.id, month)}
+                                  >
+                                    →
+                                  </button>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                        {addingUnder?.parent.id === c.id && (
+                          <tr>
+                            <td className="frozen frozen-name" style={{ paddingLeft: 10 + 18 * (depth + 1) }}>
+                              <input
+                                autoFocus
+                                aria-label={`New sub-category under ${c.name}`}
+                                placeholder="New sub-category"
+                                value={addingUnder.name}
+                                onChange={(e) => setAddingUnder({ parent: c, name: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") addSubcategory();
+                                  if (e.key === "Escape") setAddingUnder(null);
+                                }}
+                              />
+                            </td>
+                            <td className="frozen frozen-actions">
+                              <div className="row-actions">
+                                <button
+                                  type="button"
+                                  className="btn sm"
+                                  disabled={!addingUnder.name.trim()}
+                                  onClick={addSubcategory}
+                                >
+                                  Add
+                                </button>
+                                <button type="button" className="btn ghost sm" onClick={() => setAddingUnder(null)}>
+                                  Cancel
+                                </button>
+                              </div>
+                            </td>
+                            <td className="frozen frozen-tally" />
+                            <td colSpan={12} />
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+              <button type="button" className="btn" disabled={!loaded || editable.length === 0} onClick={saveAmounts}>
+                Save amounts
+              </button>
+              {amountsNote && <span className="sub" style={{ margin: 0 }}>{amountsNote}</span>}
+              <span style={{ flex: 1 }} />
+              <input
+                aria-label="New category name"
+                placeholder="New top-level category"
+                value={newCat.name}
+                onChange={(e) => setNewCat({ ...newCat, name: e.target.value })}
+              />
+              <label>
+                <input
+                  type="checkbox"
+                  aria-label="New category is income"
+                  checked={newCat.income}
+                  onChange={(e) => setNewCat({ ...newCat, income: e.target.checked })}
+                />{" "}
+                Income
+              </label>
+              <button type="button" className="btn ghost" disabled={!newCat.name.trim()} onClick={addCategory}>
+                Add category
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card danger">
