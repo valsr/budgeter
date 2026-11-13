@@ -24,10 +24,13 @@ const NEW = "new" as const;
  * or "new" meaning "create one from the form below". */
 type Target = number | typeof NEW;
 
+/** A new account starts with the identifier parsed from the file as both its
+ * name and its account number, so it keeps auto-matching on later imports
+ * even after the user renames it. */
 function defaultForm(detected: DetectedAccount): NewAccountForm {
   return {
     name: detected.parsed_name ?? "",
-    account_number: "",
+    account_number: detected.parsed_name ?? "",
     type: detected.suggested_type ?? "asset",
     opening_balance: "0.00",
     color: DEFAULT_COLOR,

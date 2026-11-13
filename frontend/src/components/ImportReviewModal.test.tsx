@@ -78,7 +78,21 @@ describe("ImportReviewModal", () => {
     renderModal();
     const unmatched = screen.getByLabelText("Import Credit Card into") as HTMLSelectElement;
     expect(unmatched.value).toBe("new");
-    expect(screen.getByDisplayValue("Credit Card")).toBeInTheDocument();
+    // Both the name and the account number start as the parsed identifier.
+    expect(screen.getAllByDisplayValue("Credit Card")).toHaveLength(2);
+    expect(
+      (screen.getByPlaceholderText("Bank account number / identifier") as HTMLInputElement).value,
+    ).toBe("Credit Card");
+  });
+
+  it("submits the parsed identifier as the account number by default", () => {
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    fireEvent.click(screen.getByText("Import"));
+    expect(onConfirm.mock.calls[0][0][1].new_account).toMatchObject({
+      name: "Credit Card",
+      account_number: "Credit Card",
+    });
   });
 
   it("lets the user override a match and asks the parent to recompute the preview", () => {
@@ -100,7 +114,7 @@ describe("ImportReviewModal", () => {
     const onConfirm = vi.fn();
     renderModal({ onConfirm });
 
-    fireEvent.change(screen.getByDisplayValue("Credit Card"), { target: { value: "My Credit Card" } });
+    fireEvent.change(screen.getAllByDisplayValue("Credit Card")[0], { target: { value: "My Credit Card" } });
     fireEvent.click(screen.getByText("Import"));
 
     expect(onConfirm).toHaveBeenCalledWith([
@@ -109,7 +123,7 @@ describe("ImportReviewModal", () => {
         parsed_name: "Credit Card",
         new_account: {
           name: "My Credit Card",
-          account_number: null,
+          account_number: "Credit Card",
           type: "liability",
           opening_balance: 0,
           color: "#4f8a9c",
@@ -134,7 +148,7 @@ describe("ImportReviewModal", () => {
     const onConfirm = vi.fn();
     renderModal({ onConfirm });
 
-    fireEvent.change(screen.getByDisplayValue("Credit Card"), { target: { value: "   " } });
+    fireEvent.change(screen.getAllByDisplayValue("Credit Card")[0], { target: { value: "   " } });
     fireEvent.click(screen.getByText("Import"));
 
     expect(onConfirm.mock.calls[0][0][1].new_account.name).toBe("Credit Card");
