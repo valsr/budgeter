@@ -341,19 +341,40 @@ describe("setup category editor and budget actions", () => {
     await screen.findByLabelText("Name of Leisure");
   }
 
-  it("adds a category under a parent, as income", async () => {
-    api.createCategory.mockResolvedValue(shared(5, "Salary", { parent_id: 4, is_income: true }));
+  it("adds a top-level category, as income", async () => {
+    api.createCategory.mockResolvedValue(shared(5, "Salary", { is_income: true }));
     await openSetup();
     const calls = api.categories.mock.calls.length;
     fireEvent.change(screen.getByLabelText("New category name"), { target: { value: " Salary " } });
-    fireEvent.change(screen.getByLabelText("New category parent"), { target: { value: "4" } });
-    fireEvent.click(screen.getByLabelText("Income"));
+    fireEvent.click(screen.getByLabelText("New category is income"));
     fireEvent.click(screen.getByRole("button", { name: "Add category" }));
     await waitFor(() =>
-      expect(api.createCategory).toHaveBeenCalledWith(1, { name: "Salary", parent_id: 4, is_income: true }),
+      expect(api.createCategory).toHaveBeenCalledWith(1, { name: "Salary", parent_id: null, is_income: true }),
     );
     await waitFor(() => expect(api.categories.mock.calls.length).toBeGreaterThan(calls));
     expect(screen.getByLabelText("New category name")).toHaveValue("");
+  });
+
+  it("adds a sub-category from a row's [+], on the parent's income side", async () => {
+    api.categories.mockResolvedValue([...TREE.slice(0, 3), shared(4, "Leisure", { is_income: true })]);
+    api.createCategory.mockResolvedValue(shared(5, "Games", { parent_id: 4, is_income: true }));
+    await openSetup();
+    fireEvent.click(screen.getByRole("button", { name: "Add a sub-category under Leisure" }));
+    const input = screen.getByLabelText("New sub-category under Leisure");
+    fireEvent.change(input, { target: { value: " Games " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.createCategory).toHaveBeenCalledWith(1, { name: "Games", parent_id: 4, is_income: true }),
+    );
+    await waitFor(() => expect(screen.queryByLabelText("New sub-category under Leisure")).not.toBeInTheDocument());
+  });
+
+  it("cancels a pending sub-category with Escape", async () => {
+    await openSetup();
+    fireEvent.click(screen.getByRole("button", { name: "Add a sub-category under Home" }));
+    fireEvent.keyDown(screen.getByLabelText("New sub-category under Home"), { key: "Escape" });
+    expect(screen.queryByLabelText("New sub-category under Home")).not.toBeInTheDocument();
+    expect(api.createCategory).not.toHaveBeenCalled();
   });
 
   it("renames a category on blur, and leaves an unchanged name alone", async () => {
@@ -366,21 +387,6 @@ describe("setup category editor and budget actions", () => {
     await waitFor(() => expect(api.updateCategory).toHaveBeenCalledWith(1, 4, { name: "Fun" }));
   });
 
-  it("moves a category via its parent select, never offering its own subtree", async () => {
-    await openSetup();
-    const parent = screen.getByLabelText("Parent of Food");
-    expect(parent).toHaveValue("1");
-    const offered = within(parent)
-      .getAllByRole("option")
-      .map((o) => o.textContent);
-    expect(offered).toEqual(["(top level)", "Home", "Leisure"]);
-
-    fireEvent.change(parent, { target: { value: "4" } });
-    await waitFor(() => expect(api.updateCategory).toHaveBeenCalledWith(1, 2, { parent_id: 4 }));
-    fireEvent.change(parent, { target: { value: "" } });
-    await waitFor(() => expect(api.updateCategory).toHaveBeenLastCalledWith(1, 2, { parent_id: null }));
-  });
-
   it("toggles income and archived", async () => {
     await openSetup();
     fireEvent.click(screen.getByLabelText("Leisure is income"));
@@ -391,10 +397,66 @@ describe("setup category editor and budget actions", () => {
 
   it("deletes a category after confirming", async () => {
     await openSetup();
-    const row = screen.getByLabelText("Name of Leisure").closest("tr")!;
-    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Leisure" }));
     await waitFor(() => expect(api.deleteCategory).toHaveBeenCalledWith(1, 4));
     expect(window.confirm).toHaveBeenCalled();
+  });
+
+  it("sums a supercategory's months from its sub-categories and doesn't let it be edited", async () => {
+    api.amounts.mockResolvedValue([
+      { shared_category_id: 3, month: 1, amount: 10 },
+      { shared_category_id: 3, month: 2, amount: 5 },
+      { shared_category_id: 4, month: 1, amount: 7 },
+    ]);
+    await openSetup();
+    await waitFor(() => expect(screen.getByLabelText("Fruit Jan")).toHaveValue("10"));
+
+    // Home > Food > Fruit: both ancestors show Fruit's amounts, as text, not inputs.
+    for (const name of ["Home", "Food"]) {
+      expect(screen.getByLabelText(`${name} Jan`)).toHaveTextContent("$10.00");
+      expect(screen.getByLabelText(`${name} Jan`).tagName).toBe("TD");
+      expect(screen.getByLabelText(`${name} year total`)).toHaveTextContent("$15.00");
+    }
+    expect(screen.getByLabelText("Leisure year total")).toHaveTextContent("$7.00");
+
+    fireEvent.change(screen.getByLabelText("Fruit Mar"), { target: { value: "2.5" } });
+    expect(screen.getByLabelText("Home Mar")).toHaveTextContent("$2.50");
+    expect(screen.getByLabelText("Home year total")).toHaveTextContent("$17.50");
+  });
+
+  it("leaves archived sub-categories out of the sums", async () => {
+    api.categories.mockResolvedValue([shared(1, "Home"), shared(2, "Food", { parent_id: 1 }), shared(3, "Old", { parent_id: 1, archived: true })]);
+    api.amounts.mockResolvedValue([
+      { shared_category_id: 2, month: 1, amount: 10 },
+      { shared_category_id: 3, month: 1, amount: 99 },
+    ]);
+    await openTab("Setup");
+    await waitFor(() => expect(screen.getByLabelText("Home Jan")).toHaveTextContent("$10.00"));
+    expect(screen.getByLabelText("Old Jan").tagName).toBe("TD");
+  });
+
+  it("copies an amount to the remaining months of the year", async () => {
+    api.amounts.mockResolvedValue([{ shared_category_id: 4, month: 12, amount: 1 }]);
+    await openSetup();
+    await waitFor(() => expect(screen.getByLabelText("Leisure Dec")).toHaveValue("1"));
+    fireEvent.change(screen.getByLabelText("Leisure Mar"), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Leisure Mar to the remaining months" }));
+
+    expect(screen.getByLabelText("Leisure Feb")).toHaveValue("");
+    for (const m of ["Mar", "Apr", "Sep", "Dec"]) expect(screen.getByLabelText(`Leisure ${m}`)).toHaveValue("40");
+    expect(screen.getByLabelText("Leisure year total")).toHaveTextContent("$400.00");
+    expect(screen.queryByRole("button", { name: "Copy Leisure Dec to the remaining months" })).not.toBeInTheDocument();
+  });
+
+  it("saves only leaf amounts", async () => {
+    api.setAmounts.mockResolvedValue([]);
+    await openSetup();
+    await waitFor(() => expect(screen.getByLabelText("Fruit Jan")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Fruit Jan"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save amounts" }));
+    await waitFor(() =>
+      expect(api.setAmounts).toHaveBeenCalledWith(1, YEAR, [{ shared_category_id: 3, month: 1, amount: 3 }]),
+    );
   });
 
   it("renames the budget", async () => {
