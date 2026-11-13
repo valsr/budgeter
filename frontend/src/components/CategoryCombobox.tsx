@@ -113,6 +113,8 @@ export function CategoryCombobox({
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Escape") {
+      // An open menu claims the Escape, so it closes the menu, not the enclosing modal.
+      if (open) e.preventDefault();
       revert();
       return;
     }
