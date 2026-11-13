@@ -137,21 +137,23 @@ th.month-label{text-align:center}
 #shared-grid th.month-alt, #shared-grid td.month-alt{background-image:linear-gradient(rgba(37,99,235,.07),rgba(37,99,235,.07))}
 #shared-grid .frozen{position:sticky;z-index:2;background-color:var(--panel)}
 #shared-grid tbody tr:nth-child(even) td.frozen{background-color:var(--zebra)}
-#shared-grid .frozen-name{left:0;width:230px;min-width:230px}
-#shared-grid .frozen-actions{left:230px;width:190px;min-width:190px}
-#shared-grid .frozen-tally{left:420px;width:110px;min-width:110px;border-right:1px solid var(--line);font-weight:600}
+#shared-grid .frozen-name{left:0;width:190px;min-width:190px}
+#shared-grid .frozen-actions{left:190px;width:120px;min-width:120px}
+#shared-grid .frozen-tally{left:310px;width:96px;min-width:96px;border-right:1px solid var(--line);font-weight:600}
 #shared-grid .name-cell{display:flex;align-items:center;gap:2px}
 #shared-grid .name-cell input{flex:1;min-width:0}
-#shared-grid .row-actions{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ink-2);white-space:nowrap}
+#shared-grid .row-actions{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-2);white-space:nowrap}
 #shared-grid .row-actions .icon-btn{margin-left:0}
+#shared-grid .row-actions .btn.sm{padding:3px 8px;font-size:11.5px}
 #shared-grid .row-actions label{display:inline-flex;align-items:center;gap:3px;cursor:pointer}
-#shared-grid td.computed{color:var(--ink-2);font-size:12px;font-variant-numeric:tabular-nums;padding-right:16px}
+#shared-grid td.computed{color:var(--ink-2);font-size:11.5px;font-variant-numeric:tabular-nums}
 #shared-grid tr.archived td:not(.frozen-actions){opacity:.55}
 #shared-grid .amount-cell{position:relative;white-space:nowrap}
-/* Room for 7 digits and a decimal point. */
-#shared-grid .month-input{width:calc(8ch + 14px);font-variant-numeric:tabular-nums}
-#shared-grid td.amount-cell{padding-left:6px;padding-right:12px}
-#shared-grid .copy-right{visibility:hidden;position:absolute;right:-2px;top:50%;transform:translateY(-50%);z-index:1;width:18px;height:18px;padding:0;border:1px solid var(--line);border-radius:4px;background:#fff;color:var(--accent);font-size:11px;line-height:1;cursor:pointer}
+/* Month columns are kept tight so as many as possible fit beside the frozen block: room for
+   about 7 characters ("12345.67" just fits), with minimal cell padding. */
+#shared-grid th:not(.frozen), #shared-grid td:not(.frozen){padding-left:4px;padding-right:4px}
+#shared-grid .month-input{width:calc(7ch + 8px);min-width:0;padding:3px;font-variant-numeric:tabular-nums}
+#shared-grid .copy-right{visibility:hidden;position:absolute;left:-4px;top:50%;transform:translateY(-50%);z-index:1;width:15px;height:15px;padding:0;border:1px solid var(--line);border-radius:4px;background:#fff;color:var(--accent);font-size:11px;line-height:1;cursor:pointer}
 #shared-grid .amount-cell:hover .copy-right, #shared-grid .amount-cell:focus-within .copy-right{visibility:visible}
 .dropzone{border:2px dashed var(--line-strong);border-radius:10px;padding:38px;text-align:center;color:var(--ink-2);margin-bottom:20px;cursor:pointer}
 .dropzone strong{color:var(--ink);display:block;margin-bottom:4px;font-size:14px}

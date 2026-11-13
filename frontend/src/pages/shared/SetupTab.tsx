@@ -344,17 +344,17 @@ export function SetupTab({ budget, onChange }: { budget: SharedBudget; onChange:
                                   aria-label={`${c.name} is income`}
                                   checked={c.is_income}
                                   onChange={(e) => updateCategory(c.id, { is_income: e.target.checked })}
-                                />{" "}
-                                Income
+                                />
+                                Inc
                               </label>
-                              <label title="Archived categories take no new amounts">
+                              <label title="Archived: takes no new amounts">
                                 <input
                                   type="checkbox"
                                   aria-label={`${c.name} is archived`}
                                   checked={c.archived}
                                   onChange={(e) => updateCategory(c.id, { archived: e.target.checked })}
-                                />{" "}
-                                Archived
+                                />
+                                Arch
                               </label>
                             </div>
                           </td>
